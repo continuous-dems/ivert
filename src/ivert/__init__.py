@@ -2,7 +2,7 @@ import os
 import sys
 
 try:
-    from fetchez._version import __version__
+    from ivert._version import __version__
 except ImportError:
     # Fallback when using the package from source without installing
     # in editable mode with pip (nobody should do this):
@@ -10,7 +10,7 @@ except ImportError:
     import warnings
 
     warnings.warn(
-        "Importing 'fetchez' outside a proper installation."
+        "Importing 'ivert' outside a proper installation."
         " It's highly recommended to install the package from a stable release or"
         " in editable mode.",
         stacklevel=2,
