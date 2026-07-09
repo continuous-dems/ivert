@@ -57,8 +57,3 @@ path = "src/ivert/_version.py"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/ivert"]
-
-[tool.hatch.build.targets.sdist]
-include = [
-  "src/ivert/config/*.ini",
-]
