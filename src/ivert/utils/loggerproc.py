@@ -4,15 +4,7 @@ import multiprocessing as mp
 import sys
 import typing
 
-if vars(sys.modules[__name__])['__package__'] == 'ivert_utils':
-    # When this is built a setup.py package, it names the modules 'ivert' and 'ivert_utils'. This reflects that.
-    import ivert_utils.unformat_text as ut
-else:
-    try:
-        import unformat_text as ut
-    except ModuleNotFoundError:
-        # If this script is imported from another module in the src/ directory, import this way.
-        import utils.unformat_text as ut
+import ivert.utils.unformat_text as ut
 
 
 class LoggerProc(mp.Process):
