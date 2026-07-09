@@ -37,12 +37,12 @@ jobs:
         run-install: false
 
     - name: "Test built package"
-      shell: "pixi run bash -e {0}"
+      shell: "pixi exec --spec gdal -- bash -e {0}"
       run: |
         python -m pip install dist/*.whl
         cd /tmp
-        pixi exec --spec gdal python -c "import ivert; print(f'Version: {ivert.__version__}')"
-        pixi exec --spec gdal ivert --version
+        python -c "import ivert; print(f'Version: {ivert.__version__}')"
+        ivert --version
 
     - uses: "actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f"  # v7.0.0
       with:
