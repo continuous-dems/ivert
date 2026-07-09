@@ -19,6 +19,7 @@ classifiers = [
 ]
 keywords = ["Geospatial"]
 dependencies = [
+    "blosc2",
     "click",
     "dateparser",
     "gdal",
