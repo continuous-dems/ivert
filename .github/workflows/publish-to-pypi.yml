@@ -37,7 +37,7 @@ jobs:
         run-install: false
 
     - name: "Test built package"
-      shell: "pixi exec --spec gdal -- bash -e {0}"
+      shell: "pixi exec --list --spec gdal -- bash -e {0}"
       run: |
         python -m pip install dist/*.whl
         cd /tmp
