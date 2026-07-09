@@ -1,6 +1,22 @@
 import os
 import sys
 
+try:
+    from fetchez._version import __version__
+except ImportError:
+    # Fallback when using the package from source without installing
+    # in editable mode with pip (nobody should do this):
+    # <https://pip.pypa.io/en/stable/topics/local-project-installs/#editable-installs>
+    import warnings
+
+    warnings.warn(
+        "Importing 'fetchez' outside a proper installation."
+        " It's highly recommended to install the package from a stable release or"
+        " in editable mode.",
+        stacklevel=2,
+    )
+    __version__ = "dev"
+
 # Compatibility shim: add this package's own directory (src/) to sys.path so
 # that scripts using direct-run style imports work whether invoked via the
 # installed 'ivert' CLI command or run directly as 'python src/script.py'.
@@ -15,12 +31,3 @@ import sys
 _src_dir = os.path.dirname(os.path.abspath(__file__))
 if _src_dir not in sys.path:
     sys.path.insert(0, _src_dir)
-
-# VERSION file lives one level above src/ in the repo.
-_vfile = os.path.abspath(os.path.join(_src_dir, "..", "VERSION"))
-if not os.path.exists(_vfile):
-    raise FileNotFoundError(f"Could not find 'VERSION' file at {_vfile}")
-
-__version__ = None
-with open(_vfile, 'r') as _f:
-    __version__ = _f.read().strip()
