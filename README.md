@@ -51,7 +51,7 @@ Three dependencies — `fetchez`, `globato`, and `transformez` — are pulled au
 **1. Download ICESat-2 photon data for your area** (bounding box in W/E/S/N order):
 
 ```bash
-ivert database download -74.0/-73.0/40.5/41.0
+ivert database download -- -74.0/-73.0/40.5/41.0
 ```
 
 **2. Validate your DEM:**
