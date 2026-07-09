@@ -1,6 +1,6 @@
 [build-system]
-requires = ["setuptools>=64", "wheel"]
-build-backend = "setuptools.build_meta"
+requires = ["hatchling>=1.5.0", "hatch-vcs"]
+build-backend = "hatchling.build"
 
 [project]
 name = "ivert"
@@ -48,15 +48,16 @@ Source = "https://github.com/ciresdem/IVERT"
 [project.scripts]
 ivert = "ivert.cli:ivert_cli"
 
-[tool.setuptools.dynamic]
-version = {file = "VERSION"}
+[tool.hatch.version]
+source = "vcs"
 
-[tool.setuptools]
-packages = ["ivert", "ivert_utils"]
+[tool.hatch.build.hooks.version]
+path = "src/ivert/_version.py"
 
-[tool.setuptools.package-dir]
-"ivert" = "src"
-"ivert_utils" = "src/utils"
+[tool.hatch.build.targets.wheel]
+packages = ["src/ivert"]
 
-[tool.setuptools.package-data]
-"ivert" = ["config/*.ini"]
+[tool.hatch.build.targets.sdist]
+include = [
+  "src/ivert/config/*.ini",
+]
