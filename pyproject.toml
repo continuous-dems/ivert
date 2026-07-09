@@ -7,7 +7,7 @@ name = "ivert"
 dynamic = ["version"]
 description = "The ICESat-2 Validation of Elevations Reporting Tool (IVERT)"
 readme = "README.md"
-license = {text = "MIT"}
+license = {file = "LICENSE"}
 authors = [
     {name = "Michael MacFerrin", email = "michael.macferrin@colorado.edu"},
 ]
