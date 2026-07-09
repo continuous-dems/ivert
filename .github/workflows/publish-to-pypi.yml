@@ -35,7 +35,6 @@ jobs:
     - uses: "prefix-dev/setup-pixi@v0.8.1"
       with:
         run-install: false
-        cache: true
 
     - name: "Test built package"
       shell: "pixi run bash -e {0}"
