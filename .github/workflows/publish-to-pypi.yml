@@ -1,6 +1,7 @@
-name: "Publish to PyPI"
+name: "Build & publish to PyPI"
 
 on:
+  pull_request:
   release:
     types:
       # Triggers when you click "Publish release" in GitHub
@@ -36,9 +37,11 @@ jobs:
         name: "dist"
         path: "dist/"
 
-  pypi-public:
+  pypi-publish:
     name: "Publish to PyPI"
     runs-on: "ubuntu-latest"
+    if: "github.event_name == 'release'"
+    needs: "build"
     environment:
       name: "pypi"
       url: "https://pypi.org/p/ivert"
