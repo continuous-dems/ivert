@@ -1,0 +1,69 @@
+name: "Build & publish to PyPI"
+
+on:
+  pull_request:
+  release:
+    types:
+      # Triggers when you click "Publish release" in GitHub
+      - "published"
+
+permissions: {}
+
+jobs:
+  build:
+    name: "Build"
+    runs-on: "ubuntu-latest"
+    steps:
+    - name: "Checkout code"
+      uses: "actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd"  # v6.0.2
+      with:
+        persist-credentials: false
+
+    - name: "Set up Python"
+      uses: "actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405"  # v6.2.0
+      with:
+        python-version: "3.x"
+
+    - name: "Install build tools"
+      run: |
+        python -m pip install --upgrade pip
+        pip install build
+
+    - name: "Build package"
+      run: "python -m build"
+
+    - uses: "prefix-dev/setup-pixi@ba3bb36eb2066252b2363392b7739741bb777659"  # v0.8.1
+      with:
+        run-install: false
+
+    - name: "Test built package"
+      shell: "pixi exec --list --spec libgdal-core -- bash -e {0}"
+      run: |
+        python -m pip install dist/*.whl
+        cd /tmp
+        python -c "import ivert; print(f'Version: {ivert.__version__}')"
+        ivert --version
+
+    - uses: "actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f"  # v7.0.0
+      with:
+        name: "dist"
+        path: "dist/"
+
+  pypi-publish:
+    name: "Publish to PyPI"
+    runs-on: "ubuntu-latest"
+    if: "github.event_name == 'release'"
+    needs: "build"
+    environment:
+      name: "pypi"
+      url: "https://pypi.org/p/ivert"
+    permissions:
+      id-token: "write"
+    steps:
+    - name: "Get dist artifact"
+      uses: "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c"  # v8.0.1
+      with:
+        name: "dist"
+        path: "dist/"
+    - name: "Publish to PyPI"
+      uses: "pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b"  # release/v1

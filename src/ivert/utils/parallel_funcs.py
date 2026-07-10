@@ -7,14 +7,8 @@ import numpy
 import time
 import subprocess
 
-if vars(sys.modules[__name__])['__package__'] == 'ivert_utils':
-    # When this is built a setup.py package, it names the modules 'ivert' and 'ivert_utils'. This reflects that.
-    import ivert_utils.progress_bar as progress_bar
-else:
-    try:
-        import progress_bar
-    except ModuleNotFoundError:
-        import utils.progress_bar as progress_bar
+import ivert.utils.progress_bar as progress_bar
+
 
 def physical_cpu_count():
     """On this machine, get the number of physical cores.

@@ -162,8 +162,8 @@ def _get_vdatum_label(epsg_int):
     _KNOWN = {3855: "EGM2008", 5703: "NAVD88", 5714: "MSL", 5773: "EGM96",
               6360: "NAVD88", 5701: "ODN"}
     try:
-        import vdatum_lookup
-        desc = vdatum_lookup.get_epsg_description(epsg_int)
+        import ivert.vdatum_lookup
+        desc = ivert.vdatum_lookup.get_epsg_description(epsg_int)
         if desc:
             return desc.replace(" height", "").replace(" Height", "")
     except Exception:
@@ -173,7 +173,7 @@ def _get_vdatum_label(epsg_int):
 
 def _apply_vdatum_to_df(df, target_vert_epsg_int, cache_dir=None):
     """Return a copy of df with z transformed from EGM2008 to target vertical datum."""
-    import transform_points as tp
+    import ivert.transform_points as tp
     src = "EPSG:4326+3855"
     dst = f"EPSG:4326+{target_vert_epsg_int}"
     try:
@@ -262,9 +262,9 @@ def _sample_dem_along_track(dem_path, lons, lats, along_track_m,
         return None
 
     if target_vert_epsg_int is not None:
+        import ivert.utils.dem_geom as dem_geom
+        import ivert.transform_points as tp
         try:
-            import utils.dem_geom as dem_geom
-            import transform_points as tp
             _, dem_vert = dem_geom.get_dem_reference_frame_from_file(dem_path)
         except Exception:
             dem_vert = None
@@ -421,9 +421,9 @@ def main():
     target_vert_epsg_int = None
     ylabel = "Elevation / depth (m, EGM2008 geoid)"
     if args.vdatum:
+        import ivert.vdatum_lookup
         try:
-            import vdatum_lookup
-            vdatum_str = vdatum_lookup.resolve_vdatum(args.vdatum)
+            vdatum_str = ivert.vdatum_lookup.resolve_vdatum(args.vdatum)
         except ImportError:
             vdatum_str = args.vdatum if ":" in args.vdatum else f"EPSG:{args.vdatum}"
         if vdatum_str is None:
@@ -436,9 +436,9 @@ def main():
         ylabel = f"Elevation / depth (m, {_get_vdatum_label(target_vert_epsg_int)})"
 
     # Datum-shift grid cache (use ivert cache if available, else cwd)
+    import ivert.utils.configfile
     try:
-        import utils.configfile
-        cache_dir = utils.configfile.Config().cache_directory
+        cache_dir = ivert.utils.configfile.Config().cache_directory
     except Exception:
         cache_dir = None
 

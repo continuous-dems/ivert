@@ -11,14 +11,10 @@ import six
 import math
 import typing
 
-####################################3
-# Include the base /src/ directory of thie project, to add all the other modules.
-# import import_parent_dir; import_parent_dir.import_src_dir_via_pythonpath()
-####################################3
-import utils.configfile
-import utils.progress_bar
+import ivert.utils.configfile
+import ivert.utils.progress_bar
 
-ivert_config = utils.configfile.Config()
+ivert_config = ivert.utils.configfile.Config()
 
 def is_iterable(obj):
     """Tell whether an object is a non-string iterable. (list, tuple, etc)."""
@@ -59,7 +55,7 @@ def get_data_from_h5_or_list(h5_name_or_list: typing.Union[str, typing.List[str]
                 data_list.append(temp_data)
 
             if verbose:
-                utils.progress_bar.ProgressBar(i + 1, len(h5_name_or_list),
+                ivert.utils.progress_bar.ProgressBar(i + 1, len(h5_name_or_list),
                                                suffix='{0}/{1}'.format(i + 1, len(h5_name_or_list)))
 
         data = pandas.concat(data_list)

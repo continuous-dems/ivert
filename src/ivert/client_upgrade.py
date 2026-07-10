@@ -4,10 +4,7 @@ import shlex
 import subprocess
 import sys
 
-if vars(sys.modules[__name__])['__package__'] == 'ivert':
-    import ivert_utils.configfile as configfile
-else:
-    import utils.configfile as configfile
+import ivert.utils.configfile as configfile
 
 
 def upgrade():

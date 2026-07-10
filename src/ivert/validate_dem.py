@@ -20,17 +20,17 @@ import signal
 import sys
 import time
 
-import utils.progress_bar as progress_bar
-import utils.parallel_funcs as parallel_funcs
-import utils.configfile
-import utils.pickle_blosc
-import utils.split_dem
-import plot_validation_results
-import icesat2_database_v2
-import coastline_mask
-import utils.dem_geom as dem_geom
-import transform_points
-import utils.loggerproc
+import ivert.utils.progress_bar as progress_bar
+import ivert.utils.parallel_funcs as parallel_funcs
+import ivert.utils.configfile
+import ivert.utils.pickle_blosc
+import ivert.utils.split_dem
+import ivert.plot_validation_results
+import ivert.icesat2_database_v2
+import ivert.coastline_mask
+import ivert.utils.dem_geom as dem_geom
+import ivert.transform_points
+import ivert.utils.loggerproc
 
 
 # NOTE: This eliminates a Deprecation error in GDAL v3.x. In GDAL 4.0, they will use Exceptions by default and this
@@ -38,7 +38,7 @@ import utils.loggerproc
 gdal.UseExceptions()
 osr.UseExceptions()
 
-ivert_config = utils.configfile.Config()
+ivert_config = ivert.utils.configfile.Config()
 EMPTY_VAL = ivert_config.dem_default_ndv
 TRANSFORMEZ_CACHE_DIR = ivert_config.cache_directory
 
@@ -60,7 +60,7 @@ def read_dataframe_file(df_filename: str) -> pandas.DataFrame:
     elif ext == ".feather":
         dataframe = pandas.read_feather(df_filename)
     elif ext == ".blosc2":
-        dataframe = utils.pickle_blosc.read(df_filename)
+        dataframe = ivert.utils.pickle_blosc.read(df_filename)
     else:
         raise NotImplementedError(f"ERROR: Unknown dataframe file extension '{ext}'. (Currently supporting .pickle, .h5, .hdf, .csv, .txt, .feather, or .blosc2)")
 
@@ -379,7 +379,7 @@ def subdivide_dem(dem_name: str,
     if not os.path.exists(dem_name):
         raise FileNotFoundError(f"DEM {dem_name} does not exist.")
 
-    sub_dems = utils.split_dem.split(dem_name, factor=factor, output_dir=output_dir, verbose=verbose)
+    sub_dems = ivert.utils.split_dem.split(dem_name, factor=factor, output_dir=output_dir, verbose=verbose)
 
     # If the coastline mask exists, sub-divide that into 4 parts too.
     # Don't need to keep track of the coastline files, it'll be automatically detected as existing by validate_dem_parallel.
@@ -391,7 +391,7 @@ def subdivide_dem(dem_name: str,
             cmask_name = os.path.join(output_dir, cmask_name)
 
     if os.path.exists(cmask_name):
-        cmask_names = utils.split_dem.split(cmask_name, factor=factor, verbose=verbose)
+        cmask_names = ivert.utils.split_dem.split(cmask_name, factor=factor, verbose=verbose)
         # Gotta change the filenames though. "_coastline_mask" should be at the end.
         for cname in cmask_names:
             cdir, cbase = os.path.split(cname)
@@ -443,7 +443,7 @@ def validate_dem(dem_name: str,
                  dates: None | list[int, int] | tuple[int, int] = None,
                  classes: list[int] | tuple[int] = [1, 6, 40],
                  shared_ret_values: dict | None = None,
-                 icesat2_photon_database_obj: icesat2_database_v2.IS2Database | None = None,
+                 icesat2_photon_database_obj: ivert.icesat2_database_v2.IS2Database | None = None,
                  band_num: int = 1,
                  dem_vertical_datum: str | int | None = None,
                  dem_ndv: float | None = None,
@@ -548,8 +548,8 @@ def validate_dem(dem_name: str,
               }
 
     # If we're in this from a logged process, make sure the children are logged processes as well.
-    if isinstance(sys.stdout, utils.loggerproc.Logger):
-        subproc = utils.loggerproc.LoggerProc(target=validate_dem_parallel,
+    if isinstance(sys.stdout, ivert.utils.loggerproc.Logger):
+        subproc = ivert.utils.loggerproc.LoggerProc(target=validate_dem_parallel,
                                               filename_out=sys.stdout.filename_out,
                                               output_to_terminal=sys.stdout.output_to_terminal,
                                               args=args,
@@ -592,7 +592,7 @@ def validate_dem(dem_name: str,
 
         # Pre-read the photon database. This is easier than reading it in 4 separate times.
         if icesat2_photon_database_obj is None:
-            icesat2_photon_database_obj = icesat2_database_v2.IS2Database()
+            icesat2_photon_database_obj = ivert.icesat2_database_v2.IS2Database()
             icesat2_photon_database_obj.open_gdf(verbose=verbose)
 
         for sub_dem_name, sub_shared_ret_dict in zip(sub_dem_names, sub_shared_ret_values):
@@ -710,7 +710,7 @@ def validate_dem(dem_name: str,
         # Plot the results.
         if plot_results and (shared_results_df is not None) and (subdivision_number == 0):
             output_fname = os.path.join(output_dir, os.path.splitext(os.path.basename(dem_name))[0] + "_plot.png")
-            plot_validation_results.plot_histogram_and_error_stats_4_panels(shared_results_df,
+            ivert.plot_validation_results.plot_histogram_and_error_stats_4_panels(shared_results_df,
                                                                             output_fname,
                                                                             place_name=location_name,
                                                                             verbose=verbose)
@@ -870,7 +870,7 @@ def _check_existing_outputs(dem_name, results_dataframe_file, empty_results_file
                     results_dataframe = read_dataframe_file(results_dataframe_file)
                     if verbose:
                         print("done.")
-                plot_validation_results.plot_histograms_and_line(results_dataframe,
+                ivert.plot_validation_results.plot_histograms_and_line(results_dataframe,
                                                                   plot_filename,
                                                                   place_name=location_name,
                                                                   verbose=verbose)
@@ -914,7 +914,7 @@ def _fetch_photons(dem_name, band_num, dem_vertical_datum, icesat2_photon_databa
     dem_wgs84_bbox = dem_geom.get_wgs84_bounding_box(dem_name)
 
     if icesat2_photon_database_obj is None:
-        icesat2_photon_database_obj = icesat2_database_v2.IS2Database()
+        icesat2_photon_database_obj = ivert.icesat2_database_v2.IS2Database()
 
     date_min, date_max = dates if dates is not None else (20180101, 20991231)
     dem_3d_bbox = (dem_wgs84_bbox[0], dem_wgs84_bbox[1],
@@ -950,7 +950,7 @@ def _compute_photon_overlap(dem_ds, dem_array, photon_df, classes, dem_epsg_str,
     """
     try:
         photon_df["dem_x"], photon_df["dem_y"], photon_df["dem_z"] = \
-            transform_points.transform_points(photon_df['x'], photon_df['y'], photon_df['z'],
+            ivert.transform_points.transform_points(photon_df['x'], photon_df['y'], photon_df['z'],
                                               src_epsg=photon_src_epsg,
                                               dst_epsg=dem_epsg_str,
                                               cache_dir=cache_dir)
@@ -1292,11 +1292,11 @@ def filter_misclassified_photons(results_dataframe: pandas.DataFrame,
     # Guard against any indices outside the mask (shouldn't happen, but stay safe).
     in_bounds = ((i_idx >= 0) & (i_idx < mask_array.shape[0]) &
                  (j_idx >= 0) & (j_idx < mask_array.shape[1]))
-    cell_mask_vals = numpy.full(len(results_dataframe), coastline_mask.MASK_NODATA, dtype=int)
+    cell_mask_vals = numpy.full(len(results_dataframe), ivert.coastline_mask.MASK_NODATA, dtype=int)
     cell_mask_vals[in_bounds] = mask_array[i_idx[in_bounds], j_idx[in_bounds]]
 
-    onshore = cell_mask_vals == coastline_mask.MASK_LAND
-    offshore = cell_mask_vals == coastline_mask.MASK_WATER
+    onshore = cell_mask_vals == ivert.coastline_mask.MASK_LAND
+    offshore = cell_mask_vals == ivert.coastline_mask.MASK_WATER
     # Cells over MASK_NODATA (unknown) are neither -> never auto-discarded.
 
     err = results_dataframe["diff_mean"].abs().to_numpy()
@@ -1356,10 +1356,10 @@ def _write_validation_outputs(results_dataframes_list, dem_ds, dem_name,
         mask_output_fname = os.path.join(
             os.path.dirname(results_dataframe_file),
             os.path.splitext(os.path.basename(dem_name))[0] + "_coastline_mask.tif")
-        mask_fname = coastline_mask.get_or_create_coastline_mask(
+        mask_fname = ivert.coastline_mask.get_or_create_coastline_mask(
             dem_name, output_fname=mask_output_fname, verbose=verbose)
         if mask_fname is not None:
-            mask_array = coastline_mask.load_coastline_mask_array(mask_fname)
+            mask_array = ivert.coastline_mask.load_coastline_mask_array(mask_fname)
             results_dataframe, n_photons_discarded = filter_misclassified_photons(
                 results_dataframe, mask_array,
                 ivert_config.icesat2_misclassification_error_threshold_m, verbose=verbose)
@@ -1414,7 +1414,7 @@ def _write_validation_outputs(results_dataframes_list, dem_ds, dem_name,
     if plot_results:
         if location_name is None:
             location_name = os.path.split(dem_name)[1]
-        plot_validation_results.plot_histograms_and_line(results_dataframe,
+        ivert.plot_validation_results.plot_histograms_and_line(results_dataframe,
                                                           plot_filename,
                                                           place_name=location_name,
                                                           figsize=(10, 4),
@@ -1430,7 +1430,7 @@ def validate_dem_parallel(dem_name: str,
                           dates: None | list[int, int] | tuple[int, int] = None,
                           classes: list[int] | tuple[int] = [1, 6, 40],
                           shared_ret_values: dict | None = None,
-                          icesat2_photon_database_obj: icesat2_database_v2.IS2Database | None \
+                          icesat2_photon_database_obj: ivert.icesat2_database_v2.IS2Database | None \
                                                       = None, # Used only if we've already created this, for efficiency.
                           band_num: int = 1,
                           dem_vertical_datum: str | int | None = None,

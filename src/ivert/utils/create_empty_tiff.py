@@ -2,16 +2,7 @@
 
 import sys
 
-if vars(sys.modules[__name__])['__package__'] == 'ivert_utils':
-    # When this is built a setup.py package, it names the modules 'ivert' and 'ivert_utils'. This reflects that.
-    import ivert_utils.configfile as configfile
-else:
-    # If running as a script, import this way.
-    # Depends if we're importing from this directory or from the parent directory.
-    try:
-        import configfile
-    except ModuleNotFoundError:
-        import utils.configfile as configfile
+import ivert.utils.configfile as configfile
 
 import os
 from osgeo import gdal

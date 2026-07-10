@@ -6,19 +6,8 @@ import sys
 
 import argparse
 
-if vars(sys.modules[__name__])['__package__'] == 'ivert_utils':
-    # When this is built a setup.py package, it names the modules 'ivert' and 'ivert_utils'. This reflects that.
-    import ivert_utils.configfile as configfile
-    import ivert.s3 as s3
-else:
-    # If running as a script, import this way.
-    try:
-        import configfile
-    except (ModuleNotFoundError, ImportError):
-        import utils.configfile as configfile
-
-    sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
-    import s3
+import ivert.utils.configfile as configfile
+import ivert.s3 as s3
 
 
 def write_photon_tiles_to_file(outfile: str):

@@ -14,7 +14,7 @@ import dateparser
 import numpy
 import pandas
 
-import utils.configfile
+import ivert.utils.configfile
 
 
 class ICESat2RequestsCSV:
@@ -31,7 +31,7 @@ class ICESat2RequestsCSV:
 
     def __init__(self, config=None):
         if config is None:
-            self.config = utils.configfile.Config()
+            self.config = ivert.utils.configfile.Config()
         else:
             self.config = config
         self.csv_file = self.config.icesat2_requests_csv

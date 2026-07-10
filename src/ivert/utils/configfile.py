@@ -6,19 +6,8 @@ import os
 import re
 import sys
 
-if vars(sys.modules[__name__])['__package__'] == 'ivert_utils':
-    # When this is built a setup.py package, it names the modules 'ivert' and 'ivert_utils'. This reflects that.
-    import ivert_utils.is_aws as is_aws
-    import ivert_utils.version as version
-else:
-    # If running as a script, import this way.
-    try:
-        import is_aws
-        import version
-    except ModuleNotFoundError:
-        # If this is imported from a module in the parent directory, look in the utils/ sub-dir.
-        import utils.is_aws as is_aws
-        import utils.version as version
+import ivert.utils.is_aws as is_aws
+import ivert.utils.version as version
 
 ivert_default_configfile = str(
     importlib.resources.files("ivert").joinpath("config", "ivert_defaults.ini")

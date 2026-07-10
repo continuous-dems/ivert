@@ -14,21 +14,12 @@ import os
 # Set NUMEXPR_MAX_THREADS before any import loads NumExpr, to suppress the
 # "safe limit" warning on machines with many cores.
 if "NUMEXPR_MAX_THREADS" not in os.environ:
-    try:
-        from utils.parallel_funcs import physical_cpu_count as _physical_cpu_count
-    except ImportError:
-        from ivert_utils.parallel_funcs import physical_cpu_count as _physical_cpu_count
+    from ivert.utils.parallel_funcs import physical_cpu_count as _physical_cpu_count
     os.environ["NUMEXPR_MAX_THREADS"] = str(_physical_cpu_count())
 
 import click
 
-try:
-    from ivert_utils.version import __version__ as ivert_version
-except ImportError:
-    try:
-        from utils.version import __version__ as ivert_version
-    except ImportError:
-        ivert_version = "unknown"
+from ivert import __version__ as ivert_version
 
 
 @click.group()
@@ -70,10 +61,7 @@ def ivert_cli(ctx, user_config, verbosity):
     }
 
     if verbosity is None:
-        try:
-            from utils.configfile import Config
-        except ImportError:
-            from ivert_utils.configfile import Config
+        from ivert.utils.configfile import Config
         verbosity = Config().verbosity
 
     verbosity_key = str(verbosity).strip().lower()
@@ -132,10 +120,7 @@ def options(ctx):
 def _options_set_values(assignments):
     """Write one or more key=value pairs to the user config file."""
     import configparser as _cp
-    try:
-        from utils.configfile import Config
-    except ImportError:
-        from ivert_utils.configfile import Config
+    from ivert.utils.configfile import Config
 
     config = Config()
 
@@ -171,10 +156,7 @@ def _options_set_values(assignments):
 @options.command("list")
 def options_list():
     """List all configurable settings and their current values."""
-    try:
-        from utils.configfile import Config
-    except ImportError:
-        from ivert_utils.configfile import Config
+    from ivert.utils.configfile import Config
 
     config = Config()
     keys = [k for k in config._config["DEFAULT"].keys()
@@ -207,10 +189,7 @@ def options_list():
               help="Skip confirmation prompt.")
 def options_reset(yes):
     """Reset all settings to IVERT defaults by deleting the user config file."""
-    try:
-        from utils.configfile import Config
-    except ImportError:
-        from ivert_utils.configfile import Config
+    from ivert.utils.configfile import Config
 
     config = Config()
     user_path = os.path.abspath(os.path.expanduser(str(config.user_configfile)))
@@ -261,10 +240,7 @@ def database_list(show_all, boxes):
     """List granules currently in the IVERT ICESat-2 database."""
     import tabulate as tabulate_mod
 
-    try:
-        from ivert import icesat2_database_v2 as is2db_mod
-    except ImportError:
-        import icesat2_database_v2 as is2db_mod
+    from ivert import icesat2_database_v2 as is2db_mod
 
     db = is2db_mod.IS2Database()
     gdf = db.open_gdf(verbose=False)
@@ -314,10 +290,7 @@ def database_list(show_all, boxes):
 @database.command("rebuild")
 def database_rebuild():
     """Rebuild the database index from existing .nc granule files on disk."""
-    try:
-        from ivert import icesat2_database_v2 as is2db_mod
-    except ImportError:
-        import icesat2_database_v2 as is2db_mod
+    from ivert import icesat2_database_v2 as is2db_mod
 
     db = is2db_mod.IS2Database()
     gdf = db.create_new_database(populate=True, overwrite=True)
@@ -342,14 +315,8 @@ def database_delete(delete_all, yes):
 
     The downloaded .nc granule files are kept unless --all is specified.
     """
-    try:
-        from ivert import icesat2_database_v2 as is2db_mod
-    except ImportError:
-        import icesat2_database_v2 as is2db_mod
-    try:
-        from utils.sizeof_format import sizeof_fmt
-    except ImportError:
-        from ivert_utils.sizeof_format import sizeof_fmt
+    from ivert import icesat2_database_v2 as is2db_mod
+    from ivert.utils.sizeof_format import sizeof_fmt
 
     db = is2db_mod.IS2Database()
 
@@ -393,14 +360,8 @@ def database_delete(delete_all, yes):
 @database.command("size")
 def database_size():
     """Report the number of files and disk size for each part of the database."""
-    try:
-        from ivert import icesat2_database_v2 as is2db_mod
-    except ImportError:
-        import icesat2_database_v2 as is2db_mod
-    try:
-        from utils.sizeof_format import sizeof_fmt
-    except ImportError:
-        from ivert_utils.sizeof_format import sizeof_fmt
+    from ivert import icesat2_database_v2 as is2db_mod
+    from ivert.utils.sizeof_format import sizeof_fmt
 
     db = is2db_mod.IS2Database()
 
@@ -538,12 +499,8 @@ def database_download(bbox_or_files, date_start, date_end, projection, wsen, rep
 
     (Note: Use the '--' delimiter to explicitly end your command-line options if coordinates begin with a negative '-')
     """
-    try:
-        from ivert import icesat2_database_v2 as is2db_mod
-        from ivert.utils import dem_geom
-    except ImportError:
-        import icesat2_database_v2 as is2db_mod
-        from utils import dem_geom
+    from ivert import icesat2_database_v2 as is2db_mod
+    from ivert.utils import dem_geom
 
     # --- Parse bbox or files ---
     # Flatten slash-separated tokens into a flat list.
@@ -641,10 +598,7 @@ def database_download(bbox_or_files, date_start, date_end, projection, wsen, rep
 
 def _cache_dir():
     """Return the configured cache directory path."""
-    try:
-        from utils.configfile import Config
-    except ImportError:
-        from ivert_utils.configfile import Config
+    from ivert.utils.configfile import Config
     return Config().cache_directory
 
 
@@ -750,14 +704,9 @@ def _run_validate(files_or_directory, vdatum, region_name, include_photons,
                   export_formats=None):
     """Branch to validate_dem or validate_list_of_dems based on the number of input files."""
     verbose = logging.getLogger().level <= logging.INFO
-    try:
-        from ivert import validate_dem as vd_module
-        from ivert import validate_dem_collection as vdc_module
-        from ivert import vdatum_lookup
-    except ImportError:
-        import validate_dem as vd_module
-        import validate_dem_collection as vdc_module
-        import vdatum_lookup
+    from ivert import validate_dem as vd_module
+    from ivert import validate_dem_collection as vdc_module
+    from ivert import vdatum_lookup
 
     # Resolve common datum names (e.g. 'navd88') to 'EPSG:NNNN' strings.
     if vdatum != "NONE_PROVIDED":
@@ -794,10 +743,7 @@ def _run_validate(files_or_directory, vdatum, region_name, include_photons,
             export_error_formats = export_formats
 
     if outdir is None:
-        try:
-            from utils.configfile import Config
-        except ImportError:
-            from ivert_utils.configfile import Config
+        from ivert.utils.configfile import Config
         # Read the raw (unresolved) string so it stays relative to the DEM directory,
         # not the config file's directory.
         outdir = Config()._config["DEFAULT"]["ivert_results_subdir"]
@@ -1015,10 +961,7 @@ def validate(files_or_directory, vdatum, list_vdatums, region_name, include_phot
     Example: ivert validate mydem.tif -V navd88 -n "Oregon Coast"
     """
     if list_vdatums:
-        try:
-            from ivert import vdatum_lookup
-        except ImportError:
-            import vdatum_lookup
+        from ivert import vdatum_lookup
         name_table, desc_table = vdatum_lookup._get_tables()
         by_epsg: dict = {}
         for name, epsg in name_table.items():
@@ -1048,10 +991,7 @@ def validate(files_or_directory, vdatum, list_vdatums, region_name, include_phot
 @ivert_cli.command("upgrade")
 def upgrade():
     """Upgrade IVERT to the latest available version."""
-    try:
-        from ivert import client_upgrade
-    except ImportError:
-        import client_upgrade
+    from ivert import client_upgrade
     client_upgrade.upgrade()
 
 

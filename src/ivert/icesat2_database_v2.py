@@ -17,10 +17,10 @@ import fetchez.spatial
 from fetchez.modules.earthdata import IceSat2 as _FetchezIceSat2
 import globato
 
-import utils.pickle_blosc
-import utils.configfile
-import utils.cuboid_funcs
-from icesat2_requests import ICESat2RequestsCSV
+import ivert.utils.pickle_blosc
+import ivert.utils.configfile
+import ivert.utils.cuboid_funcs
+from ivert.icesat2_requests import ICESat2RequestsCSV
 
 logger = logging.getLogger(__name__)
 
@@ -41,10 +41,10 @@ def _delta_time_to_yyyymmdd(delta_time: float) -> int:
 class IS2Database:
 
     def __init__(self,
-                 ivert_config: utils.configfile.Config | None = None):
+                 ivert_config: ivert.utils.configfile.Config | None = None):
         # Define the structure of the object.
         if ivert_config is None:
-            self.config = utils.configfile.Config()
+            self.config = ivert.utils.configfile.Config()
         else:
             self.config = ivert_config
 
@@ -129,7 +129,7 @@ class IS2Database:
             raise OSError("Failed to create", os.path.basename(self.db_fname))
 
         if len(gdf) > 0:
-            utils.pickle_blosc.write(gdf, self.db_fname_compressed)
+            ivert.utils.pickle_blosc.write(gdf, self.db_fname_compressed)
             if os.path.exists(self.db_fname_compressed):
                 logger.info("Created compressed %s with %d records.", os.path.basename(self.db_fname_compressed), len(gdf))
             else:
@@ -461,7 +461,7 @@ class IS2Database:
             read_compressed = os.path.exists(self.db_fname_compressed)
 
         if read_compressed:
-            self.gdf = utils.pickle_blosc.read(self.db_fname_compressed)
+            self.gdf = ivert.utils.pickle_blosc.read(self.db_fname_compressed)
             if verbose:
                 logger.info("Loaded %s with %d records.", os.path.basename(self.db_fname_compressed), len(self.gdf))
         else:
@@ -718,7 +718,7 @@ class IS2Database:
 
         # Add 1 to each
         int_mask = gdf["data_bbox"].apply(
-            lambda b: utils.cuboid_funcs.cuboids_intersect(b,
+            lambda b: ivert.utils.cuboid_funcs.cuboids_intersect(b,
                                                            bbox,
                                                            bbox_order="axis"))
 
@@ -982,7 +982,7 @@ class IS2Database:
             if os.path.exists(self.db_fname_compressed):
                 os.remove(self.db_fname_compressed)
             if len(self.gdf) > 0:
-                utils.pickle_blosc.write(self.gdf, self.db_fname_compressed)
+                ivert.utils.pickle_blosc.write(self.gdf, self.db_fname_compressed)
                 if os.path.exists(self.db_fname_compressed):
                     logger.info("Updated compressed %s with %d total records.",
                                 os.path.basename(self.db_fname_compressed), len(self.gdf))
@@ -1173,7 +1173,7 @@ class IS2Database:
         # e_bboxes = [tuple(bb[:5]) + (self.increment_yyyymmdd_by_n(bb[5], 1),) for bb in existing_bboxes]
 
         # Simplify by merging these bboxes together (could have been gathered on a number of queries).
-        e_bboxes = utils.cuboid_funcs.merge_cuboids(existing_bboxes, bbox_order="axis")
+        e_bboxes = ivert.utils.cuboid_funcs.merge_cuboids(existing_bboxes, bbox_order="axis")
 
         # Now, increment the query_box tmax by 1 to make it non-inclusive as well (for cuboid subtraction)
         # query_bbox = tuple(query_bbox[:5]) + (self.increment_yyyymmdd_by_n(query_bbox[5], 1),)
@@ -1183,12 +1183,12 @@ class IS2Database:
         for e_bbox in e_bboxes:
             new_bboxes = []
             for q_bbox in query_bboxes:
-                new_bboxes.extend(utils.cuboid_funcs.subtract_cuboids(q_bbox, e_bbox, bbox_order="axis"))
+                new_bboxes.extend(ivert.utils.cuboid_funcs.subtract_cuboids(q_bbox, e_bbox, bbox_order="axis"))
 
             query_bboxes = new_bboxes
 
         # Do a quick merger on all the remaining bboxes to make sure they're simplified
-        query_bboxes = utils.cuboid_funcs.merge_cuboids(query_bboxes, bbox_order="axis")
+        query_bboxes = ivert.utils.cuboid_funcs.merge_cuboids(query_bboxes, bbox_order="axis")
 
         # Now, decrement the tmax day by 1 to make the ranges inclusive again.
         # query_bboxes = [tuple(bb[:5]) + (self.increment_yyyymmdd_by_n(bb[5], -1),) for bb in query_bboxes]
