@@ -5,61 +5,18 @@ Created on Wed Oct 14 16:32:25 2020
 
 @author: mmacferrin
 """
-import fcntl, termios, struct, sys
+import sys
 import os
 import psutil
-
-
-def is_run_from_command_line():
-    """Tell whether the parent process is the command-line, or not."""
-    # Get the parent process ID (should either be a command shell, another process, an editor, or "python")
-    ppid = os.getppid()
-    ppname = psutil.Process(ppid).name()
-    # print(ppname)
-
-    shell_process_names = ['bash',     # Various linux shells.
-                           'sh',
-                           'ksh',
-                           'scsh',
-                           'psh',
-                           'pdksh',
-                           'mksh',
-                           'ash',
-                           'dash',
-                           'rc',
-                           'es',
-                           'csh',
-                           'zsh',
-                           'tcsh',
-                           'cmd.exe',   # Windows shells.
-                           'powershell.exe',
-                           'py.exe',
-                           ] # TODO: Look into MacOS calls (or other shells I may have missed here).
-
-    if ppname.lower() in shell_process_names:
-        # input("Pause")
-        return True
-    elif ppname in ['spyder']:
-        # input("Pause")
-        return False
-    elif ppname in ['python', 'python.exe', 'python3', 'python3.exe']:
-        return True
-    else:
-        # input("Pause")
-        return False
 
 
 def get_terminal_width(default=120):
     if not sys.stdout.isatty():
         return default
 
-    if is_run_from_command_line():
-        h, w, hp, wp = struct.unpack("HHHH", fcntl.ioctl(sys.stdin.fileno(),
-                                                         termios.TIOCGWINSZ,
-                                                         struct.pack("HHHH", 0,0,0,0)))
-
-        return w
-    else:
+    try:
+        return os.get_terminal_size().columns
+    except OSError:
         return default
 
 
