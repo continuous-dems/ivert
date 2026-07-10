@@ -4,7 +4,7 @@ import shlex
 import subprocess
 import sys
 
-import ivert_utils.configfile as configfile
+import ivert.utils.configfile as configfile
 
 
 def upgrade():
