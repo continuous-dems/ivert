@@ -28,10 +28,10 @@ import fetchez.spatial
 from fetchez.registry import ModuleRegistry
 from globato.modules.glob_coast import GlobCoast
 
-import utils.configfile
-import utils.dem_geom as dem_geom
+import ivert.utils.configfile
+import ivert.utils.dem_geom as dem_geom
 
-ivert_config = utils.configfile.Config()
+ivert_config = ivert.utils.configfile.Config()
 logger = logging.getLogger(__name__)
 
 # Mask pixel values.

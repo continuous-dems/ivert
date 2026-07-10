@@ -13,16 +13,12 @@ import pandas
 import re
 import traceback
 
-####################################
-# # Include the base /src/ directory of thie project, to add all the other modules.
-# import import_parent_dir; import_parent_dir.import_src_dir_via_pythonpath()
-####################################
-import icesat2_database_v2
-import plot_validation_results as plot_validation_results
-import validate_dem as validate_dem
-import utils.query_yes_no as yes_no
-import utils.is_aws as is_aws
-import utils.configfile as configfile
+import ivert.icesat2_database_v2
+import ivert.plot_validation_results as plot_validation_results
+import ivert.validate_dem as validate_dem
+import ivert.utils.query_yes_no as yes_no
+import ivert.utils.is_aws as is_aws
+import ivert.utils.configfile as configfile
 
 
 def write_summary_csv_file(total_results_df_or_file: pandas.DataFrame | str,
@@ -251,7 +247,7 @@ def validate_list_of_dems(dem_list_or_dir: str | list[str],
     # Generate a single photon database object and pass it repeatedly to all the objects.
     # This saves us a lot of re-reading the geodataframe repeatedly.
     # photon_db_obj = icesat2_photon_database.ICESat2_Database()
-    photon_db_obj = icesat2_database_v2.IS2Database()
+    photon_db_obj = ivert.icesat2_database_v2.IS2Database()
 
     files_to_export = []
     list_of_results_dfs = []

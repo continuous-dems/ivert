@@ -11,9 +11,9 @@ from osgeo import gdal
 # Include the base /src/ directory of thie project, to add all the other modules.
 import import_parent_dir; import_parent_dir.import_src_dir_via_pythonpath()
 ####################################3
-import utils.configfile
-my_config = utils.configfile.Config()
-import icesat2.plot_validation_results
+import ivert.utils.configfile
+my_config = ivert.utils.configfile.Config()
+import ivert.icesat2.plot_validation_results
 
 def add_lat_lons(df):
     """From the filename, get the lat/lon of each grid-cell point, from the filename and the i,j position of the pixel."""
@@ -79,7 +79,7 @@ def plot_errors_against_slope_centrality(results_h5_or_list,
             print(os.path.basename(total_results_h5), "read.")
     else:
 
-        data = icesat2.plot_validation_results.get_data_from_h5_or_list(results_h5_or_list,
+        data = ivert.icesat2.plot_validation_results.get_data_from_h5_or_list(results_h5_or_list,
                                                                         empty_val = empty_val,
                                                                         include_filenames=True,
                                                                         verbose=verbose)
