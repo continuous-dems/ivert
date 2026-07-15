@@ -917,24 +917,7 @@ class IS2Database:
 
             logger.info("Downloaded %d ATL03 granule(s). Classifying and saving as NetCDF...", len(h5_files))
 
-            # Pre-fetch GBA building footprints once for the tile so the on-disk cache
-            # is populated before any per-granule globato.read() call. Without this,
-            # each granule independently hits the GBA server, causing rapid-fire 429s
-            # when the server is under load and the cache file never gets written.
-            tile_region = [sbbox[0], sbbox[1], sbbox[2], sbbox[3]]
             use_external_masks = True
-            try:
-                gba_files = fetchez.get("gba", region=tile_region, outdir=self.icesat2_download_dir)
-                if gba_files:
-                    logger.info("GBA building footprints cached for tile %s.", tile_region)
-                else:
-                    logger.warning("GBA pre-fetch returned no data for tile %s; "
-                                   "building-footprint refinement will be skipped.", tile_region)
-                    use_external_masks = False
-            except Exception as e:
-                logger.warning("GBA pre-fetch failed for tile %s (%s); "
-                               "building-footprint refinement will be skipped.", tile_region, e)
-                use_external_masks = False
 
             existing_gdf = self.open_gdf(read_compressed=False, verbose=False)
             existing_filenames = set(existing_gdf["filename"].values) if existing_gdf is not None else set()
