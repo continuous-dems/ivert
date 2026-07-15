@@ -199,7 +199,8 @@ class IS2Database:
                 "numphotons_bathy_floor":   int(attrs.get("numphotons_bathy_floor", 0)),
                 "numphotons_bathy_surface": int(attrs.get("numphotons_bathy_surface", 0)),
                 "numphotons_buildings":     int(attrs.get("numphotons_buildings", 0)),
-                "numphotons_inland_water_surface": int(attrs.get("numphotons_inland_water_surface", 0)),
+                "numphotons_inland_water_surface": int(
+                    attrs.get("numphotons_inland_water_surface", 0)),
                 "downloaded_on":            int(attrs.get("downloaded_on", 0)),
                 "horizontal_datum":         str(attrs.get("horizontal_datum", "")),
                 "vertical_datum":           str(attrs.get("vertical_datum", "")),
@@ -761,11 +762,14 @@ class IS2Database:
                               max_tile_scale_factor=1.5,
                               min_bathy_confidence=0.01,
                               min_confidence_level: int = 1,
-                              cache_subdir: str | None = None):
+                              cache_subdir: str | None = None,
+                              replace: bool = False):
         """Download ICESat-2 ATL03 granules from NASA using fetchez and register them in the database.
 
         Downloads raw HDF5 files into granules_dir; classification is deferred to read time via globato.
-        Only downloads granules covering bboxes not already in the database.
+        Only downloads granules covering bboxes not already in the database, unless 'replace' is True,
+        in which case the full requested bbox is (re-)downloaded and any existing granules it overlaps
+        are replaced with the newly-downloaded data.
         """
         # Validate the configured water surface and derive the target vertical datum.
         vertical_datum_cfg = self._validate_vertical_datum(self.config.icesat2_vertical_datum)
@@ -798,18 +802,23 @@ class IS2Database:
                         )
                         return
 
-        bboxes = self.filter_query_bbox(bbox)
+        if replace:
+            bboxes = [tuple(bbox)]
+            logger.info("--replace enabled: re-downloading the full requested region and "
+                       "overwriting any overlapping existing granules.")
+        else:
+            bboxes = self.filter_query_bbox(bbox)
 
-        if len(bboxes) == 0:
-            logger.info("All required granules already exist in the database. Nothing new to download.")
-            return
+            if len(bboxes) == 0:
+                logger.info("All required granules already exist in the database. Nothing new to download.")
+                return
 
-        if not (len(bboxes) == 1 and tuple(bboxes[0]) == tuple(bbox)):
-            logger.info(
-                "Existing database coverage partially overlaps the requested region. "
-                "Downloading only the missing sub-region(s) (%d area(s) to fill).",
-                len(bboxes),
-            )
+            if not (len(bboxes) == 1 and tuple(bboxes[0]) == tuple(bbox)):
+                logger.info(
+                    "Existing database coverage partially overlaps the requested region. "
+                    "Downloading only the missing sub-region(s) (%d area(s) to fill).",
+                    len(bboxes),
+                )
 
         if split_big_bboxes:
             bboxes_split = []
@@ -935,7 +944,7 @@ class IS2Database:
             for h5_src in h5_files:
                 nc_basename = self._nc_filename(h5_src, sbbox)
                 nc_dest = os.path.join(self.granules_dir, nc_basename)
-                if nc_basename in existing_filenames:
+                if nc_basename in existing_filenames and not replace:
                     logger.info("Skipping %s (already in database).", nc_basename)
                 else:
                     files_to_process.append((h5_src, nc_dest))
@@ -961,6 +970,12 @@ class IS2Database:
             if existing_gdf is None or len(existing_gdf) == 0:
                 self.gdf = new_gdf
             else:
+                if replace:
+                    new_filenames = set(new_gdf["filename"].values)
+                    n_replaced = existing_gdf["filename"].isin(new_filenames).sum()
+                    if n_replaced:
+                        logger.info("Replacing %d existing record(s) with newly-downloaded data.", n_replaced)
+                        existing_gdf = existing_gdf[~existing_gdf["filename"].isin(new_filenames)]
                 self.gdf = geopandas.GeoDataFrame(
                     pandas.concat([existing_gdf, new_gdf], ignore_index=True),
                     crs=self.crs, geometry="geometry",
