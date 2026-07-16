@@ -380,6 +380,50 @@ class IS2Database:
         """Map a validated vertical_datum value to its vertical EPSG code string."""
         return "EPSG:4979" if vertical_datum == "ellipsoid" else "EPSG:3855"
 
+    # Maps IVERT's internal vertical-datum EPSG codes to the literal strings
+    # globato.read()'s vertical_datum kwarg accepts. globato silently falls back
+    # to "ellipsoid" for any value it doesn't recognize (it does not raise), so
+    # passing an EPSG code straight through would be a silent no-op rather than
+    # an error -- always go through this lookup instead.
+    _EPSG_TO_GLOBATO_VERTICAL_DATUM = {
+        "EPSG:4979": "ellipsoid",
+        "EPSG:3855": "geoid",
+    }
+
+    # Kept separately from the mapping above so a divergence between the two
+    # (e.g. if globato's ICESat2Reader changes its accepted vocabulary) is
+    # caught explicitly rather than silently mis-mapped.
+    _GLOBATO_ACCEPTED_VERTICAL_DATUMS = frozenset(
+        {"ellipsoid", "ellipsoid-mean-tide", "geoid", "geoid-mean-tide"}
+    )
+
+    @classmethod
+    def _vertical_epsg_to_globato_datum(cls, vertical_epsg: str) -> str:
+        """Map an IVERT vertical-datum EPSG code to the literal globato.read() expects.
+
+        Raises ValueError if the EPSG code has no known mapping, or if the mapped
+        value isn't one globato's ICESat2Reader currently accepts.
+        """
+        try:
+            globato_datum = cls._EPSG_TO_GLOBATO_VERTICAL_DATUM[vertical_epsg]
+        except KeyError:
+            raise ValueError(
+                f"No globato vertical_datum mapping for {vertical_epsg!r}. "
+                "Known mappings: "
+                f"{cls._EPSG_TO_GLOBATO_VERTICAL_DATUM}."
+            ) from None
+
+        if globato_datum not in cls._GLOBATO_ACCEPTED_VERTICAL_DATUMS:
+            raise ValueError(
+                f"Mapped globato vertical_datum {globato_datum!r} (from "
+                f"{vertical_epsg!r}) is not one of globato's accepted values "
+                f"{sorted(cls._GLOBATO_ACCEPTED_VERTICAL_DATUMS)}. globato's "
+                "ICESat2Reader may have changed its accepted vertical_datum "
+                "vocabulary; update _EPSG_TO_GLOBATO_VERTICAL_DATUM / "
+                "_GLOBATO_ACCEPTED_VERTICAL_DATUMS to match."
+            )
+        return globato_datum
+
     def _process_h5_to_nc(
         self,
         h5_fn: str,
@@ -415,7 +459,7 @@ class IS2Database:
             data_type="ATL03",
             region=region_str,
             classes=classes_str,
-            vertical_datum=vertical_datum,
+            vertical_datum=self._vertical_epsg_to_globato_datum(vertical_datum),
             reject_failed_qa=True,
             append_atl24=True,
             cache_dir=self.icesat2_download_dir,
