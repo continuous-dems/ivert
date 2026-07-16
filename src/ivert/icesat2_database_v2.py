@@ -7,6 +7,7 @@ import logging
 import numpy
 import os
 import pandas
+import re
 import shapely
 import shutil
 import xarray
@@ -146,6 +147,7 @@ class IS2Database:
         return {
             "granule_id": ["placeholder"],
             "filename": ["placeholder"],
+            "source_granule": ["placeholder"],
             "laser_name": ["all"],
             "query_bbox": [[0.0, 0.0, 0.0, 0.0, 0, 0]],
             "data_bbox": [[0.0, 0.0, 0.0, 0.0, 0, 0]],
@@ -185,6 +187,8 @@ class IS2Database:
             return {
                 "granule_id":               str(attrs.get("granule_id", os.path.splitext(os.path.basename(nc_fn))[0])),
                 "filename":                 os.path.basename(nc_fn),
+                "source_granule":           str(attrs.get(
+                    "source_granule", IS2Database._source_granule_from_filename(os.path.basename(nc_fn)))),
                 "laser_name":               str(attrs.get("laser_name", "all")),
                 "query_bbox":               _bbox(attrs.get("query_bbox", [0.0, 0.0, 0.0, 0.0, 0, 0])),
                 "data_bbox":                data_bbox,
@@ -232,6 +236,22 @@ class IS2Database:
                   f"_{_lat_tag(ymin)}_{_lat_tag(ymax)}"
                   f"_{int(tmin)}_{int(tmax)}")
         return base + suffix + ".nc"
+
+    # Matches the "_<W|E><xmin>_<W|E><xmax>_<S|N><ymin>_<S|N><ymax>_<tmin>_<tmax>.nc" suffix
+    # appended by _nc_filename(), so the source granule id can be recovered from any nc
+    # filename regardless of which query bbox/dates produced it.
+    _NC_SUFFIX_RE = re.compile(
+        r"_[EW]\d{3}\.\d{5}_[EW]\d{3}\.\d{5}_[NS]\d{2}\.\d{5}_[NS]\d{2}\.\d{5}_\d+_\d+\.nc$")
+
+    @classmethod
+    def _source_granule_from_filename(cls, filename: str) -> str:
+        """Recover the original NASA granule id from a database/nc filename.
+
+        Strips the bbox/date suffix appended by _nc_filename(), so that the same granule
+        downloaded under different query regions or dates is still recognized as the same
+        underlying source data (used to match records for --replace).
+        """
+        return cls._NC_SUFFIX_RE.sub("", filename)
 
     @staticmethod
     def _h5_along_track_m(h5_fn: str, beams) -> pandas.DataFrame:
@@ -377,6 +397,7 @@ class IS2Database:
         cc = df["class_code"]
         metadata_attrs = {
             "granule_id":               os.path.splitext(os.path.basename(nc_fn))[0],
+            "source_granule":           os.path.splitext(os.path.basename(h5_fn))[0],
             "laser_name":               "all",
             "query_bbox":               list(query_bbox),
             "data_bbox":                [xmin, xmax, ymin, ymax, tmin, tmax],
@@ -954,11 +975,35 @@ class IS2Database:
                 self.gdf = new_gdf
             else:
                 if replace:
-                    new_filenames = set(new_gdf["filename"].values)
-                    n_replaced = existing_gdf["filename"].isin(new_filenames).sum()
+                    # Match on the underlying NASA granule id (source_granule), not the full
+                    # nc filename: the nc filename embeds the query bbox/dates, which can
+                    # differ between the original download and this --replace re-download,
+                    # so a filename-only comparison would fail to find the old record to drop.
+                    new_source_granules = set(new_gdf["source_granule"].values)
+                    if "source_granule" in existing_gdf.columns:
+                        existing_source_granules = existing_gdf["source_granule"].fillna(
+                            existing_gdf["filename"].apply(self._source_granule_from_filename))
+                    else:
+                        existing_source_granules = existing_gdf["filename"].apply(
+                            self._source_granule_from_filename)
+                    same_granule = existing_source_granules.isin(new_source_granules)
+                    # Only replace records whose query bbox (lat/lon + time) overlaps the
+                    # region/dates just (re-)downloaded (sbbox). Records for the same source
+                    # granule but a non-overlapping query bbox are legitimately distinct data
+                    # (e.g. a different date range or region) and must not be dropped, since
+                    # doing so would discard original data rather than de-duplicate it.
+                    bbox_overlaps = existing_gdf["query_bbox"].apply(
+                        lambda qb: ivert.utils.cuboid_funcs.cuboids_intersect(
+                            qb, sbbox, bbox_order="axis"))
+                    is_replaced = same_granule & bbox_overlaps
+                    n_replaced = int(is_replaced.sum())
                     if n_replaced:
                         logger.info("Replacing %d existing record(s) with newly-downloaded data.", n_replaced)
-                        existing_gdf = existing_gdf[~existing_gdf["filename"].isin(new_filenames)]
+                        for old_fname in existing_gdf.loc[is_replaced, "filename"]:
+                            old_fpath = os.path.join(self.granules_dir, old_fname)
+                            if os.path.exists(old_fpath):
+                                os.remove(old_fpath)
+                        existing_gdf = existing_gdf[~is_replaced]
                 self.gdf = geopandas.GeoDataFrame(
                     pandas.concat([existing_gdf, new_gdf], ignore_index=True),
                     crs=self.crs, geometry="geometry",
