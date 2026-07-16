@@ -16,16 +16,21 @@ import ivert.utils.progress_bar
 
 ivert_config = ivert.utils.configfile.Config()
 
+
 def is_iterable(obj):
     """Tell whether an object is a non-string iterable. (list, tuple, etc)."""
-    return (isinstance(obj, collections.abc.Iterable)
-            and not isinstance(obj, six.string_types))
+    return isinstance(obj, collections.abc.Iterable) and not isinstance(
+        obj, six.string_types
+    )
 
-def get_data_from_h5_or_list(h5_name_or_list: typing.Union[str, typing.List[str]],
-                             orig_filenames: typing.Union[None, str, typing.List[str]] = None,
-                             empty_val: float = ivert_config.dem_default_ndv,
-                             include_filenames: bool = False,
-                             verbose: bool = True) -> pandas.DataFrame:
+
+def get_data_from_h5_or_list(
+    h5_name_or_list: typing.Union[str, typing.List[str]],
+    orig_filenames: typing.Union[None, str, typing.List[str]] = None,
+    empty_val: float = ivert_config.dem_default_ndv,
+    include_filenames: bool = False,
+    verbose: bool = True,
+) -> pandas.DataFrame:
     """Return the data either from a single hdf5 results file, or a list of them. Filter out empty (bad data) values."""
     if type(h5_name_or_list) is str:
         data = pandas.read_hdf(h5_name_or_list)
@@ -37,7 +42,6 @@ def get_data_from_h5_or_list(h5_name_or_list: typing.Union[str, typing.List[str]
                 data["filename"] = os.path.basename(orig_filenames)
 
     elif is_iterable(h5_name_or_list):
-
         if verbose:
             print("Reading {0} h5 results files.".format(len(h5_name_or_list)))
         data_list = []
@@ -55,12 +59,18 @@ def get_data_from_h5_or_list(h5_name_or_list: typing.Union[str, typing.List[str]
                 data_list.append(temp_data)
 
             if verbose:
-                ivert.utils.progress_bar.ProgressBar(i + 1, len(h5_name_or_list),
-                                               suffix='{0}/{1}'.format(i + 1, len(h5_name_or_list)))
+                ivert.utils.progress_bar.ProgressBar(
+                    i + 1,
+                    len(h5_name_or_list),
+                    suffix="{0}/{1}".format(i + 1, len(h5_name_or_list)),
+                )
 
         data = pandas.concat(data_list)
     else:
-        raise TypeError("Non-iterable value for parameter 'results_h5_name_or_list':", h5_name_or_list)
+        raise TypeError(
+            "Non-iterable value for parameter 'results_h5_name_or_list':",
+            h5_name_or_list,
+        )
     # print(data)
 
     # cellstd         = data['stddev'].astype(float)
@@ -81,16 +91,19 @@ def get_data_from_h5_or_list(h5_name_or_list: typing.Union[str, typing.List[str]
 
     return data
 
-def plot_histograms_and_line(results_h5_or_list_or_df,
-                             output_figure_name,
-                             empty_val = ivert_config.dem_default_ndv,
-                             place_name=None,
-                             figsize = (10.0, 4.0), # Width/height, in inches
-                             labels_uppercase = True,
-                             dpi = 600,
-                             hist_cutoff_num_stddevs = 2.5,
-                             also_add_rmse_to_hist = False,
-                             verbose=True):
+
+def plot_histograms_and_line(
+    results_h5_or_list_or_df,
+    output_figure_name,
+    empty_val=ivert_config.dem_default_ndv,
+    place_name=None,
+    figsize=(10.0, 4.0),  # Width/height, in inches
+    labels_uppercase=True,
+    dpi=600,
+    hist_cutoff_num_stddevs=2.5,
+    also_add_rmse_to_hist=False,
+    verbose=True,
+):
     """Generate a 4-panel figure of error stats.
     1) Histograms of mean errors land-only (green)
     2) Histogram of mean errors bathy (blue)
@@ -103,18 +116,17 @@ def plot_histograms_and_line(results_h5_or_list_or_df,
     if os.path.splitext(output_figure_name)[1].lower() == ".png":
         matplotlib.use("Agg")
 
-    if type(results_h5_or_list_or_df) == pandas.DataFrame:
+    if type(results_h5_or_list_or_df) is pandas.DataFrame:
         data = results_h5_or_list_or_df
     else:
-        data = get_data_from_h5_or_list(results_h5_or_list_or_df,
-                                        empty_val = empty_val)
+        data = get_data_from_h5_or_list(results_h5_or_list_or_df, empty_val=empty_val)
 
-    meandiff        = data['diff_mean']
+    meandiff = data["diff_mean"]
     # numphotons      = data['numphotons']
     # numphotons_intd = data['numphotons_intd']
-    numphotons_bathy = data['numphotons_bathy']
-    dem_elev        = data["dem_elev"]
-    mean_elev       = data["mean"]
+    numphotons_bathy = data["numphotons_bathy"]
+    dem_elev = data["dem_elev"]
+    mean_elev = data["mean"]
 
     if len(meandiff) < 3:
         if verbose:
@@ -122,9 +134,9 @@ def plot_histograms_and_line(results_h5_or_list_or_df,
         return
 
     # Determine which histogram panels have data before creating the figure.
-    land_only_mask = (numphotons_bathy == 0)
+    land_only_mask = numphotons_bathy == 0
     meandiff_land = meandiff[land_only_mask]
-    bathy_mask = (numphotons_bathy > 0)
+    bathy_mask = numphotons_bathy > 0
     meandiff_bathy = meandiff[bathy_mask]
     has_land = len(meandiff_land) > 0
     has_bathy = len(meandiff_bathy) > 0
@@ -134,9 +146,11 @@ def plot_histograms_and_line(results_h5_or_list_or_df,
 
     # Generate figure. Scale width proportionally to panel count.
     if figsize is None:
-        figsize = matplotlib.rcParams['figure.figsize']
+        figsize = matplotlib.rcParams["figure.figsize"]
     scaled_figsize = (figsize[0] * ncols / 3, figsize[1])
-    fig, axes = plt.subplots(1, ncols, dpi=dpi, figsize=scaled_figsize, tight_layout=True)
+    fig, axes = plt.subplots(
+        1, ncols, dpi=dpi, figsize=scaled_figsize, tight_layout=True
+    )
     if ncols == 1:
         axes = [axes]
 
@@ -146,7 +160,7 @@ def plot_histograms_and_line(results_h5_or_list_or_df,
     plot_label_size = "large"
     plot_label_weight = "book"
 
-    panel_letters = ("ABCDE" if labels_uppercase else "abcde")
+    panel_letters = "ABCDE" if labels_uppercase else "abcde"
     panel_idx = 0
 
     #############################################################################
@@ -159,17 +173,19 @@ def plot_histograms_and_line(results_h5_or_list_or_df,
 
         ax1.hist(meandiff_land, bins=nbins, color="darkred")
         # Unicode "minus" sign is \u2212
-        ax1.set_title("DEM " + u"\u2212" + " ICESat-2 elevation: land")
+        ax1.set_title("DEM " + "\u2212" + " ICESat-2 elevation: land")
         ax1.set_ylabel("% of data cells")
         ax1.set_xlabel("Elevation difference (m)")
-        ax1.yaxis.set_major_formatter(ticker.PercentFormatter(max(len(meandiff_land), 1), decimals=0))
+        ax1.yaxis.set_major_formatter(
+            ticker.PercentFormatter(max(len(meandiff_land), 1), decimals=0)
+        )
 
         # Add the lines for mean +- std
         center = numpy.mean(meandiff_land)
         std = numpy.std(meandiff_land)
         ax1.axvline(x=center, color="black", linewidth=0.75)
-        ax1.axvline(x=center+std, color="black", linestyle="--", linewidth=0.5)
-        ax1.axvline(x=center-std, color="black", linestyle="--", linewidth=0.5)
+        ax1.axvline(x=center + std, color="black", linestyle="--", linewidth=0.5)
+        ax1.axvline(x=center - std, color="black", linestyle="--", linewidth=0.5)
 
         # Crop the left & right (only if greater than 20 points)
         if len(meandiff_land) >= 20:
@@ -199,25 +215,54 @@ def plot_histograms_and_line(results_h5_or_list_or_df,
         ylim = ax1.get_ylim()
         ax1.set_ylim((ylim[0], ylim[1] * 1.1))
 
-        txt = ax1.text(0.11, 0.95,
-                       r"{0:.2f} $\pm$ {1:.2f} m".format(center, std),
-                       ha="left", va="top", fontsize="small",
-                       transform=ax1.transAxes)
-        txt.set_bbox(dict(facecolor="white", alpha=0.85, edgecolor="white", boxstyle="square,pad=0"))
+        txt = ax1.text(
+            0.11,
+            0.95,
+            r"{0:.2f} $\pm$ {1:.2f} m".format(center, std),
+            ha="left",
+            va="top",
+            fontsize="small",
+            transform=ax1.transAxes,
+        )
+        txt.set_bbox(
+            dict(
+                facecolor="white",
+                alpha=0.85,
+                edgecolor="white",
+                boxstyle="square,pad=0",
+            )
+        )
 
         # If requested, add the RMSE value to the figure.
         if also_add_rmse_to_hist:
-            rmse = numpy.sqrt(numpy.mean(meandiff_land ** 2))
-            txt_std = ax1.text(0.97, 0.95,
-                               "RMSE: {0:0.2f} m".format(rmse),
-                               ha="right", va="top", fontsize="small",
-                               transform=ax1.transAxes)
-            txt_std.set_bbox(dict(facecolor="white", alpha=0.95, edgecolor="white", boxstyle="square,pad=0"))
+            rmse = numpy.sqrt(numpy.mean(meandiff_land**2))
+            txt_std = ax1.text(
+                0.97,
+                0.95,
+                "RMSE: {0:0.2f} m".format(rmse),
+                ha="right",
+                va="top",
+                fontsize="small",
+                transform=ax1.transAxes,
+            )
+            txt_std.set_bbox(
+                dict(
+                    facecolor="white",
+                    alpha=0.95,
+                    edgecolor="white",
+                    boxstyle="square,pad=0",
+                )
+            )
 
-        ax1.text(*plot_label_margin,
-                 panel_letter,
-                 ha=plot_label_ha, va=plot_label_va, fontsize=plot_label_size,
-                 fontweight=plot_label_weight, transform=ax1.transAxes)
+        ax1.text(
+            *plot_label_margin,
+            panel_letter,
+            ha=plot_label_ha,
+            va=plot_label_va,
+            fontsize=plot_label_size,
+            fontweight=plot_label_weight,
+            transform=ax1.transAxes,
+        )
 
     #############################################################################
     # Plot: Histogram of differences from ICESat-2 mean (bathy only), if present.
@@ -229,17 +274,19 @@ def plot_histograms_and_line(results_h5_or_list_or_df,
 
         ax2.hist(meandiff_bathy, bins=nbins, color="blue")
         # Unicode "minus" sign is \u2212
-        ax2.set_title("DEM " + u"\u2212" + " ICESat-2 elevation: bathy")
+        ax2.set_title("DEM " + "\u2212" + " ICESat-2 elevation: bathy")
         ax2.set_ylabel("% of data cells")
         ax2.set_xlabel("Elevation difference (m)")
-        ax2.yaxis.set_major_formatter(ticker.PercentFormatter(max(len(meandiff_bathy), 1), decimals=0))
+        ax2.yaxis.set_major_formatter(
+            ticker.PercentFormatter(max(len(meandiff_bathy), 1), decimals=0)
+        )
 
         # Add the lines for mean +- std
         center = numpy.mean(meandiff_bathy)
         std = numpy.std(meandiff_bathy)
         ax2.axvline(x=center, color="black", linewidth=0.75)
-        ax2.axvline(x=center+std, color="black", linestyle="--", linewidth=0.5)
-        ax2.axvline(x=center-std, color="black", linestyle="--", linewidth=0.5)
+        ax2.axvline(x=center + std, color="black", linestyle="--", linewidth=0.5)
+        ax2.axvline(x=center - std, color="black", linestyle="--", linewidth=0.5)
 
         # Crop the left & right (only if greater than 20 points)
         if len(meandiff_bathy) >= 20:
@@ -269,47 +316,90 @@ def plot_histograms_and_line(results_h5_or_list_or_df,
         ylim = ax2.get_ylim()
         ax2.set_ylim((ylim[0], ylim[1] * 1.1))
 
-        txt = ax2.text(0.11, 0.95,
-                       r"{0:.2f} $\pm$ {1:.2f} m".format(center, std),
-                       ha="left", va="top", fontsize="small",
-                       transform=ax2.transAxes)
-        txt.set_bbox(dict(facecolor="white", alpha=0.85, edgecolor="white", boxstyle="square,pad=0"))
+        txt = ax2.text(
+            0.11,
+            0.95,
+            r"{0:.2f} $\pm$ {1:.2f} m".format(center, std),
+            ha="left",
+            va="top",
+            fontsize="small",
+            transform=ax2.transAxes,
+        )
+        txt.set_bbox(
+            dict(
+                facecolor="white",
+                alpha=0.85,
+                edgecolor="white",
+                boxstyle="square,pad=0",
+            )
+        )
 
         # If requested, add the RMSE value to the figure.
         if also_add_rmse_to_hist:
-            rmse = numpy.sqrt(numpy.mean(meandiff_bathy ** 2))
-            txt_std = ax2.text(0.97, 0.95,
-                               "RMSE: {0:0.2f} m".format(rmse),
-                               ha="right", va="top", fontsize="small",
-                               transform=ax2.transAxes)
-            txt_std.set_bbox(dict(facecolor="white", alpha=0.95, edgecolor="white", boxstyle="square,pad=0"))
+            rmse = numpy.sqrt(numpy.mean(meandiff_bathy**2))
+            txt_std = ax2.text(
+                0.97,
+                0.95,
+                "RMSE: {0:0.2f} m".format(rmse),
+                ha="right",
+                va="top",
+                fontsize="small",
+                transform=ax2.transAxes,
+            )
+            txt_std.set_bbox(
+                dict(
+                    facecolor="white",
+                    alpha=0.95,
+                    edgecolor="white",
+                    boxstyle="square,pad=0",
+                )
+            )
 
-        ax2.text(*plot_label_margin,
-                 panel_letter,
-                 ha=plot_label_ha, va=plot_label_va, fontsize=plot_label_size,
-                 fontweight=plot_label_weight, transform=ax2.transAxes)
+        ax2.text(
+            *plot_label_margin,
+            panel_letter,
+            ha=plot_label_ha,
+            va=plot_label_va,
+            fontsize=plot_label_size,
+            fontweight=plot_label_weight,
+            transform=ax2.transAxes,
+        )
 
     # Plot: 1:1 line of DEM/ICESat-2 elevations (always present).
     #############################################################################
     ax3 = axes[panel_idx]
     panel_letter = panel_letters[panel_idx]
 
-    dotsize=3
+    dotsize = 3
     # Adjust the alpha depending how many points there are (more points == lighter dots)
-    alpha = 0.35 * max(0.0025, min(4, (math.log10(100)/math.log10(len(mean_elev)))))
+    alpha = 0.35 * max(0.0025, min(4, (math.log10(100) / math.log10(len(mean_elev)))))
     # Can't have an alpha > 1.0, so cap it there.
     alpha = min(alpha, 1.0)
 
     # Scatter plots of both land and elev
-    ax3.scatter(mean_elev[land_only_mask], dem_elev[land_only_mask], c="darkred", s=dotsize, linewidth=0, alpha=alpha)
-    ax3.scatter(mean_elev[~land_only_mask], dem_elev[~land_only_mask], c="blue", s=dotsize, linewidth=0, alpha=min(alpha * 2, 0.35))
+    ax3.scatter(
+        mean_elev[land_only_mask],
+        dem_elev[land_only_mask],
+        c="darkred",
+        s=dotsize,
+        linewidth=0,
+        alpha=alpha,
+    )
+    ax3.scatter(
+        mean_elev[~land_only_mask],
+        dem_elev[~land_only_mask],
+        c="blue",
+        s=dotsize,
+        linewidth=0,
+        alpha=min(alpha * 2, 0.35),
+    )
     ax3.set_title("DEM vs. ICESat-2")
     ax3.set_ylabel("DEM elevation (m)")
     ax3.set_xlabel("ICESat-2 elevation (m)")
     xlim = ax3.get_xlim()
     ylim = ax3.get_ylim()
 
-    plotlim =( min(xlim[0], ylim[0]), max(xlim[1],ylim[1]))
+    plotlim = (min(xlim[0], ylim[0]), max(xlim[1], ylim[1]))
     ax3.set_xlim(plotlim)
     ax3.set_ylim(plotlim)
     ax3.plot(plotlim, plotlim, ls="--", c=".3", lw=0.5, alpha=0.6)
@@ -317,22 +407,26 @@ def plot_histograms_and_line(results_h5_or_list_or_df,
     xticks = ax3.get_xticks()
     ax3.set_yticks(xticks)
 
-    ax3.text(*plot_label_margin,
-             panel_letter,
-             ha=plot_label_ha,
-             va=plot_label_va,
-             fontsize=plot_label_size,
-             fontweight=plot_label_weight,
-             transform=ax3.transAxes)
+    ax3.text(
+        *plot_label_margin,
+        panel_letter,
+        ha=plot_label_ha,
+        va=plot_label_va,
+        fontsize=plot_label_size,
+        fontweight=plot_label_weight,
+        transform=ax3.transAxes,
+    )
     # lbltxt.set_bbox(dict(facecolor="white", alpha=0.7, edgecolor="white", boxstyle="square,pad=0"))
 
     # Figure title
     if place_name is None:
         place_name = "DEM"
 
-    rmse = (numpy.sum(meandiff ** 2) / len(meandiff)) ** 0.5
+    rmse = (numpy.sum(meandiff**2) / len(meandiff)) ** 0.5
 
-    fig.suptitle(f"{place_name}: Errors and Distributions\nRMSE = {rmse:0.3f} m,   N = {len(meandiff):,} cells")
+    fig.suptitle(
+        f"{place_name}: Errors and Distributions\nRMSE = {rmse:0.3f} m,   N = {len(meandiff):,} cells"
+    )
     fig.tight_layout()
 
     # Save the figure to disk.
@@ -352,17 +446,19 @@ def plot_histograms_and_line(results_h5_or_list_or_df,
     return
 
 
-def plot_histogram_and_error_stats_4_panels(results_h5_or_list_or_df,
-                                            output_figure_name,
-                                            empty_val = ivert_config.dem_default_ndv,
-                                            place_name=None,
-                                            figsize=None,
-                                            labels_uppercase = True,
-                                            # error_max_cutoff = None,
-                                            dpi = 600,
-                                            hist_cutoff_num_stddevs = 2,
-                                            also_add_rmse_to_hist = False,
-                                            verbose=True):
+def plot_histogram_and_error_stats_4_panels(
+    results_h5_or_list_or_df,
+    output_figure_name,
+    empty_val=ivert_config.dem_default_ndv,
+    place_name=None,
+    figsize=None,
+    labels_uppercase=True,
+    # error_max_cutoff = None,
+    dpi=600,
+    hist_cutoff_num_stddevs=2,
+    also_add_rmse_to_hist=False,
+    verbose=True,
+):
     """Generate a 4-panel figure of error stats.
     1) Histograms of mean errors
     2) 1:1 line of DEM vs ICESat-2 elevations.
@@ -376,20 +472,19 @@ def plot_histogram_and_error_stats_4_panels(results_h5_or_list_or_df,
     if os.path.splitext(output_figure_name)[1].lower() == ".png":
         matplotlib.use("Agg")
 
-    if type(results_h5_or_list_or_df) == pandas.DataFrame:
+    if type(results_h5_or_list_or_df) is pandas.DataFrame:
         data = results_h5_or_list_or_df
     else:
-        data = get_data_from_h5_or_list(results_h5_or_list_or_df,
-                                        empty_val = empty_val)
+        data = get_data_from_h5_or_list(results_h5_or_list_or_df, empty_val=empty_val)
 
     # meddiff         = data['diff_median']
     # cellstd         = data['stddev'].astype(float)
-    meandiff        = data['diff_mean']
+    meandiff = data["diff_mean"]
     # numphotons      = data['numphotons']
-    numphotons_intd = data['numphotons_intd']
+    numphotons_intd = data["numphotons_intd"]
     canopy_fraction = data["canopy_fraction"]
-    dem_elev        = data["dem_elev"]
-    mean_elev       = data["mean"]
+    dem_elev = data["dem_elev"]
+    mean_elev = data["mean"]
 
     # TODO: Get rid of these comments after testing. We already filtered data out after validation, don't need to do it
     #   again here.
@@ -409,7 +504,6 @@ def plot_histogram_and_error_stats_4_panels(results_h5_or_list_or_df,
     # dem_elev           =        dem_elev[good_data_mask]
     # mean_elev          =       mean_elev[good_data_mask]
 
-
     if len(meandiff) < 3:
         if verbose:
             print("Not enough cells to plot statistics. Aborting.")
@@ -417,8 +511,10 @@ def plot_histogram_and_error_stats_4_panels(results_h5_or_list_or_df,
 
     # Generate figure. If a figure size isn't given, use the matplotlib.rcParams default.
     if figsize is None:
-        figsize = matplotlib.rcParams['figure.figsize']
-    fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2,2, dpi=dpi, figsize=figsize, tight_layout=True)
+        figsize = matplotlib.rcParams["figure.figsize"]
+    fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(
+        2, 2, dpi=dpi, figsize=figsize, tight_layout=True
+    )
 
     plot_label_margin = [0.015, 0.97]
     plot_label_ha = "left"
@@ -431,17 +527,19 @@ def plot_histogram_and_error_stats_4_panels(results_h5_or_list_or_df,
     # Plot 1, differences from iceast-2 mean.
     ax1.hist(meandiff, bins=nbins)
     # Unicode "minus" sign is \u2212
-    ax1.set_title("DEM " + u"\u2212" + " ICESat-2 elevation")
+    ax1.set_title("DEM " + "\u2212" + " ICESat-2 elevation")
     ax1.set_ylabel("% of data cells")
     ax1.set_xlabel("Elevation difference (m)")
-    ax1.yaxis.set_major_formatter(ticker.PercentFormatter(max(len(meandiff), 1), decimals=0))
+    ax1.yaxis.set_major_formatter(
+        ticker.PercentFormatter(max(len(meandiff), 1), decimals=0)
+    )
 
     # Add the lines for mean +- std
     center = numpy.mean(meandiff)
     std = numpy.std(meandiff)
     ax1.axvline(x=center, color="darkred", linewidth=0.75)
-    ax1.axvline(x=center+std, color="darkred", linestyle="--", linewidth=0.5)
-    ax1.axvline(x=center-std, color="darkred", linestyle="--", linewidth=0.5)
+    ax1.axvline(x=center + std, color="darkred", linestyle="--", linewidth=0.5)
+    ax1.axvline(x=center - std, color="darkred", linestyle="--", linewidth=0.5)
 
     # Crop the left & right
     cutoffs = numpy.percentile(meandiff, [1, 99])
@@ -456,27 +554,39 @@ def plot_histogram_and_error_stats_4_panels(results_h5_or_list_or_df,
 
     # Detect whether the mean line is closer to the left or the right (we'll put the text box on the other side)
     # (In this case, since we're putting sub-panel letters in the upper-left, we'll just always put the other text in the upper-right.
-    text_left = False # not ((center - cutoffs[0]) < (cutoffs[1] - center))
-    txt = ax1.text(0.11, # if text_left else 0.97,
-                   0.95, # 0.85 if text_left else 0.95,
-                   r"{0:.2f} $\pm$ {1:.2f} m".format(center, std),
-                   ha="left", # if text_left else "right",
-                   va="top",
-                   fontsize="small",
-                   transform=ax1.transAxes)
-    txt.set_bbox(dict(facecolor="white", alpha=0.85, edgecolor="white", boxstyle="square,pad=0"))
+    txt = ax1.text(
+        0.11,  # if text_left else 0.97,
+        0.95,  # 0.85 if text_left else 0.95,
+        r"{0:.2f} $\pm$ {1:.2f} m".format(center, std),
+        ha="left",  # if text_left else "right",
+        va="top",
+        fontsize="small",
+        transform=ax1.transAxes,
+    )
+    txt.set_bbox(
+        dict(facecolor="white", alpha=0.85, edgecolor="white", boxstyle="square,pad=0")
+    )
 
     # If requested, as the RMSE value to the figure.
     if also_add_rmse_to_hist:
-        rmse = numpy.sqrt(numpy.mean(meandiff ** 2))
-        txt_std = ax1.text(0.97, #0.12 if text_left else 0.97,
-                           0.95,
-                           "RMSE: {0:0.2f} m".format(rmse),
-                           ha="right", #"left" if text_left else "right",
-                           va="top",
-                           fontsize="small",
-                           transform=ax1.transAxes)
-        txt_std.set_bbox(dict(facecolor="white", alpha=0.85, edgecolor="white", boxstyle="square,pad=0"))
+        rmse = numpy.sqrt(numpy.mean(meandiff**2))
+        txt_std = ax1.text(
+            0.97,  # 0.12 if text_left else 0.97,
+            0.95,
+            "RMSE: {0:0.2f} m".format(rmse),
+            ha="right",  # "left" if text_left else "right",
+            va="top",
+            fontsize="small",
+            transform=ax1.transAxes,
+        )
+        txt_std.set_bbox(
+            dict(
+                facecolor="white",
+                alpha=0.85,
+                edgecolor="white",
+                boxstyle="square,pad=0",
+            )
+        )
 
     # Add subplot label "a"
     # Add it on the opposite (horizontal) side of wherever the other text has been placed, in this case.
@@ -486,20 +596,22 @@ def plot_histogram_and_error_stats_4_panels(results_h5_or_list_or_df,
     # else:
     #     ax1_label_x = plot_label_margin[0]
     #     ax1_ha = "left"
-    ax1.text(*plot_label_margin,
-             "A" if labels_uppercase else "a",
-             ha = plot_label_ha,
-             va = plot_label_va,
-             fontsize = plot_label_size,
-             fontweight = plot_label_weight,
-             transform = ax1.transAxes)
+    ax1.text(
+        *plot_label_margin,
+        "A" if labels_uppercase else "a",
+        ha=plot_label_ha,
+        va=plot_label_va,
+        fontsize=plot_label_size,
+        fontweight=plot_label_weight,
+        transform=ax1.transAxes,
+    )
     # lbltxt.set_bbox(dict(facecolor="white", alpha=0.7, edgecolor="white", boxstyle="square,pad=0"))
 
     # 2) Plot 1:1 line of DEM/ICESat-2 elevations.
     #############################################################################
     # Subplot 2, elev-elev correlation line
-    dotsize=2
-    alpha = 0.25 * max(0.0025, min(4, (math.log10(100)/math.log10(len(mean_elev)))))
+    dotsize = 2
+    alpha = 0.25 * max(0.0025, min(4, (math.log10(100) / math.log10(len(mean_elev)))))
     ax2.scatter(mean_elev, dem_elev, s=dotsize, linewidth=0, alpha=alpha)
     ax2.set_title("DEM vs. ICESat-2")
     ax2.set_ylabel("DEM elevation (m)")
@@ -508,7 +620,7 @@ def plot_histogram_and_error_stats_4_panels(results_h5_or_list_or_df,
     xlim = ax2.get_xlim()
     ylim = ax2.get_ylim()
 
-    plotlim =( min(xlim[0], ylim[0]), max(xlim[1],ylim[1]))
+    plotlim = (min(xlim[0], ylim[0]), max(xlim[1], ylim[1]))
     ax2.set_xlim(plotlim)
     ax2.set_ylim(plotlim)
     ax2.plot(plotlim, plotlim, ls="--", c=".3", lw=0.5, alpha=0.6)
@@ -518,56 +630,74 @@ def plot_histogram_and_error_stats_4_panels(results_h5_or_list_or_df,
     ax2.set_yticks(xticks)
 
     # Add subplot label "b"
-    ax2.text(*plot_label_margin,
-             "B"  if labels_uppercase else "b",
-             ha=plot_label_ha,
-             va=plot_label_va,
-             fontsize=plot_label_size,
-             fontweight=plot_label_weight,
-             transform=ax2.transAxes)
+    ax2.text(
+        *plot_label_margin,
+        "B" if labels_uppercase else "b",
+        ha=plot_label_ha,
+        va=plot_label_va,
+        fontsize=plot_label_size,
+        fontweight=plot_label_weight,
+        transform=ax2.transAxes,
+    )
     # lbltxt.set_bbox(dict(facecolor="white", alpha=0.7, edgecolor="white", boxstyle="square,pad=0"))
-
 
     # 3) Plot Histogram of # of ICESat-2 photons per cell.
     #############################################################################
     # Plot 4, number of photons in interdecile range
-    ax3.hist(numphotons_intd, bins=min((numphotons_intd.max() - numphotons_intd.min() + 1), 200), color="darkred")
+    ax3.hist(
+        numphotons_intd,
+        bins=min((numphotons_intd.max() - numphotons_intd.min() + 1), 200),
+        color="darkred",
+    )
     ax3.set_title("Number of photons")
     ax3.set_xlabel("Photon count per DEM cell")
     ax3.set_ylabel("% of data cells")
-    ax3.yaxis.set_major_formatter(ticker.PercentFormatter(max(len(numphotons_intd), 1), decimals=1))
+    ax3.yaxis.set_major_formatter(
+        ticker.PercentFormatter(max(len(numphotons_intd), 1), decimals=1)
+    )
 
     # Crop the left & right, right at 98 percentile.
     cutoff = numpy.percentile(numphotons_intd, 99)
     xmin = ax3.get_xlim()[0]
-    ax3.set_xlim(xmin*0.5, cutoff)
+    ax3.set_xlim(xmin * 0.5, cutoff)
 
     center = numpy.mean(numphotons_intd)
     std = numpy.std(numphotons_intd)
 
-    ax3.text(0.95, 0.95, "{0:d} $\\pm$ {1:d}\nphotons per cell".format(int(numpy.round(center)), int(numpy.round(std))),
-             ha="right", va="top",
-             fontsize="small",
-             transform=ax3.transAxes)
+    ax3.text(
+        0.95,
+        0.95,
+        "{0:d} $\\pm$ {1:d}\nphotons per cell".format(
+            int(numpy.round(center)), int(numpy.round(std))
+        ),
+        ha="right",
+        va="top",
+        fontsize="small",
+        transform=ax3.transAxes,
+    )
 
     # Add subplot label "c"
-    ax3.text(*plot_label_margin,
-             "C"  if labels_uppercase else "c",
-             ha=plot_label_ha,
-             va=plot_label_va,
-             fontsize=plot_label_size,
-             fontweight=plot_label_weight,
-             transform=ax3.transAxes)
+    ax3.text(
+        *plot_label_margin,
+        "C" if labels_uppercase else "c",
+        ha=plot_label_ha,
+        va=plot_label_va,
+        fontsize=plot_label_size,
+        fontweight=plot_label_weight,
+        transform=ax3.transAxes,
+    )
     # lbltxt.set_bbox(dict(facecolor="white", alpha=0.7, edgecolor="white", boxstyle="square,pad=0"))
 
     # 4) Plot Histogram of canopy cover.
     #############################################################################
     # Plot 3, percent canopy cover
     canopy_fraction = (canopy_fraction * 100).astype(float)
-    ax4.hist(canopy_fraction, bins=50,color="darkgreen")
+    ax4.hist(canopy_fraction, bins=50, color="darkgreen")
     ax4.set_title("Canopy Cover (%)")
     ax4.set_xlabel("% Canopy Cover")
-    ax4.yaxis.set_major_formatter(ticker.PercentFormatter(max(len(canopy_fraction), 1), decimals=0))
+    ax4.yaxis.set_major_formatter(
+        ticker.PercentFormatter(max(len(canopy_fraction), 1), decimals=0)
+    )
 
     # Crop the right edge at the 99th percentile
     cutoff = numpy.percentile(canopy_fraction, 99)
@@ -578,30 +708,46 @@ def plot_histogram_and_error_stats_4_panels(results_h5_or_list_or_df,
     # center = numpy.mean(canopy_fraction)
     # # std = numpy.std(canopy_fraction)
     # median = numpy.median(canopy_fraction)
-    canopy_mask = (canopy_fraction > 0.0) & numpy.isfinite(canopy_fraction) & ~numpy.isnan(canopy_fraction)
+    canopy_mask = (
+        (canopy_fraction > 0.0)
+        & numpy.isfinite(canopy_fraction)
+        & ~numpy.isnan(canopy_fraction)
+    )
 
-    ax4.text(0.95, 0.95, "{0:0.1f} % of cells have >0 cover:\n{1:0.1f} $\\pm$ {2:0.1f} % canopy cover\nin non-zero cells".format( \
-                         numpy.count_nonzero(canopy_mask) * 100 / canopy_fraction.size,
-                         numpy.mean(canopy_fraction[canopy_mask]),
-                         numpy.std(canopy_fraction[canopy_mask])),
-             ha="right", va="top", transform=ax4.transAxes,
-             fontsize="small")
+    ax4.text(
+        0.95,
+        0.95,
+        "{0:0.1f} % of cells have >0 cover:\n{1:0.1f} $\\pm$ {2:0.1f} % canopy cover\nin non-zero cells".format(
+            numpy.count_nonzero(canopy_mask) * 100 / canopy_fraction.size,
+            numpy.mean(canopy_fraction[canopy_mask]),
+            numpy.std(canopy_fraction[canopy_mask]),
+        ),
+        ha="right",
+        va="top",
+        transform=ax4.transAxes,
+        fontsize="small",
+    )
 
     # Add subplot label "d"
-    ax4.text(*plot_label_margin,
-             "D"  if labels_uppercase else "d",
-             ha=plot_label_ha,
-             va=plot_label_va,
-             fontsize=plot_label_size,
-             fontweight=plot_label_weight,
-             transform=ax4.transAxes)
+    ax4.text(
+        *plot_label_margin,
+        "D" if labels_uppercase else "d",
+        ha=plot_label_ha,
+        va=plot_label_va,
+        fontsize=plot_label_size,
+        fontweight=plot_label_weight,
+        transform=ax4.transAxes,
+    )
     # lbltxt.set_bbox(dict(facecolor="white", alpha=0.7, edgecolor="white", boxstyle="square,pad=0"))
-
 
     # Figure title
     if place_name is None:
         place_name = "DEM"
-    fig.suptitle("{0}: Errors and Distributions\n(N = {1:,} cells)".format(place_name, len(meandiff)))
+    fig.suptitle(
+        "{0}: Errors and Distributions\n(N = {1:,} cells)".format(
+            place_name, len(meandiff)
+        )
+    )
     fig.tight_layout()
 
     # Save the figure to disk.
@@ -610,7 +756,7 @@ def plot_histogram_and_error_stats_4_panels(results_h5_or_list_or_df,
         print(output_figure_name, "written.")
 
         # Compute the RMSE and spit that out too.
-        rmse = (numpy.sum(meandiff ** 2) / len(meandiff)) ** 0.5
+        rmse = (numpy.sum(meandiff**2) / len(meandiff)) ** 0.5
         print("\tRMSE: {0:0.3f} m".format(rmse))
 
     # Clear the figure and close the plot.
@@ -699,22 +845,26 @@ def plot_histogram_and_error_stats_4_panels(results_h5_or_list_or_df,
 #
 #         plot_histogram_and_error_stats_4_panels(h5, plotname, place_name="ETOPO 2022")
 
-    # plot_histograms(h5_names)
-    # plot_error_stats(h5_names)
-    # for fname in fnames:
-    #     print("\n====", fname)
-    #     plot_histograms(fname)
-    #     plot_error_stats(fname)
-    #     # input("<Press <Enter> to continue>")
+# plot_histograms(h5_names)
+# plot_error_stats(h5_names)
+# for fname in fnames:
+#     print("\n====", fname)
+#     plot_histograms(fname)
+#     plot_error_stats(fname)
+#     # input("<Press <Enter> to continue>")
 
 
-if __name__ == '__main__':
-    results_df = pandas.read_hdf("/home/mmacferrin/Research/DEMs/CUDEMs_1_9_Oregon_2025/dems/2025.10.10_w_metadata/icesat2/ncei19_n45x50_w124x00_2025v1_results.h5")
-    plot_histograms_and_line(results_df,
-                             output_figure_name="/home/mmacferrin/Research/DEMs/CUDEMs_1_9_Oregon_2025/dems/2025.10.10_w_metadata/icesat2/ncei19_n45x50_w124x00_2025v1_plot.png",
-                             figsize=(10.0, 3.3),
-                             dpi=600,
-                             place_name="ncei19_n45x50_w124x00_2025v1",
-                             hist_cutoff_num_stddevs = 2.5,
-                             also_add_rmse_to_hist=True,
-                             verbose=True)
+if __name__ == "__main__":
+    results_df = pandas.read_hdf(
+        "/home/mmacferrin/Research/DEMs/CUDEMs_1_9_Oregon_2025/dems/2025.10.10_w_metadata/icesat2/ncei19_n45x50_w124x00_2025v1_results.h5"
+    )
+    plot_histograms_and_line(
+        results_df,
+        output_figure_name="/home/mmacferrin/Research/DEMs/CUDEMs_1_9_Oregon_2025/dems/2025.10.10_w_metadata/icesat2/ncei19_n45x50_w124x00_2025v1_plot.png",
+        figsize=(10.0, 3.3),
+        dpi=600,
+        place_name="ncei19_n45x50_w124x00_2025v1",
+        hist_cutoff_num_stddevs=2.5,
+        also_add_rmse_to_hist=True,
+        verbose=True,
+    )

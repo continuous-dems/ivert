@@ -1,13 +1,14 @@
 # Functionality for reading ICESat-2 data and saving it in a tiled database.
 
 import datetime
+import os
+import re
+
 import dateparser
 import geopandas
 import logging
 import numpy
-import os
 import pandas
-import re
 import shapely
 import shutil
 import xarray

@@ -7,7 +7,7 @@ import os
 import time
 import sys
 
-if vars(sys.modules[__name__])['__package__'] == 'ivert':
+if vars(sys.modules[__name__])["__package__"] == "ivert":
     # When this is built a setup.py package, it names the modules 'ivert' and 'ivert_utils'. This reflects that.
     import ivert_utils.configfile as configfile
     import ivert_utils.create_empty_tiff as create_empty_tiff
@@ -27,8 +27,7 @@ else:
     import jobs_database
 
 
-def run_test_command(args: argparse.Namespace,
-                     wait_time_s: int = 5) -> None:
+def run_test_command(args: argparse.Namespace, wait_time_s: int = 5) -> None:
     """Run an end-to-end test job of the IVERT system, without having it actually process any data."""
 
     ivert_config = configfile.Config()
@@ -40,7 +39,9 @@ def run_test_command(args: argparse.Namespace,
 
     assert os.path.exists(empty_tiff)
 
-    assert hasattr(args, "wait") # The 'wait' command should already be set by the test argparser.
+    assert hasattr(
+        args, "wait"
+    )  # The 'wait' command should already be set by the test argparser.
     wait_opt = args.wait
     files = [empty_tiff]
 
@@ -75,10 +76,14 @@ def run_test_command(args: argparse.Namespace,
         client_job_download.download_job(job_name, local_jobdir)
 
     else:
-        print("Job has been uploaded. You can wait to receive a notification email when it's done, "
-              f"'{bcolors.BOLD}ivert status{bcolors.ENDC}' to check the job status,"
-              f" and/or '{bcolors.BOLD}ivert download{bcolors.ENDC}' to download any results when it's complete.")
+        print(
+            "Job has been uploaded. You can wait to receive a notification email when it's done, "
+            f"'{bcolors.BOLD}ivert status{bcolors.ENDC}' to check the job status,"
+            f" and/or '{bcolors.BOLD}ivert download{bcolors.ENDC}' to download any results when it's complete."
+        )
 
 
 if __name__ == "__main__":
-    run_test_command(argparse.Namespace(**{"command": "test", "wait": True}, wait_time_s=3))
+    run_test_command(
+        argparse.Namespace(**{"command": "test", "wait": True}, wait_time_s=3)
+    )

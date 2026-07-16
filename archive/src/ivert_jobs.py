@@ -4,6 +4,7 @@ import psutil
 
 import jobs_database
 
+
 def is_pid_an_active_ivert_job(pid: int) -> bool:
     """Check if the pid is an IVERT job.
 
@@ -36,8 +37,11 @@ def list_running_ivert_jobs() -> list:
     jobs_db = jobs_database.JobsDatabaseServer()
 
     try:
-        running_jobs = [job for job in jobs_db.list_unfinished_jobs(return_rows=True)
-                       if is_pid_an_active_ivert_job(job['job_pid'])]
+        running_jobs = [
+            job
+            for job in jobs_db.list_unfinished_jobs(return_rows=True)
+            if is_pid_an_active_ivert_job(job["job_pid"])
+        ]
     except FileNotFoundError:
         return []
 
@@ -56,7 +60,8 @@ def are_any_ivert_jobs_running() -> bool:
     else:
         return False
 
+
 # If this is run from the command-line, list all the currently-running IVERT jobs on the server.
 if __name__ == "__main__":
     jobs = list_running_ivert_jobs()
-    print(["{0}_{1}".format(job['username'],job['job_id']) for job in jobs])
+    print(["{0}_{1}".format(job["username"], job["job_id"]) for job in jobs])

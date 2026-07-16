@@ -30,7 +30,7 @@ def query_yes_no(question: str, default: str = "yes") -> bool:
             try:
                 return interpret_yes_no(choice)
             except ValueError:
-                sys.stdout.write("Please respond with 'yes' or 'no' " "(or 'y' or 'n').\n")
+                sys.stdout.write("Please respond with 'yes' or 'no' (or 'y' or 'n').\n")
 
 
 def interpret_yes_no(input_str: str) -> bool:

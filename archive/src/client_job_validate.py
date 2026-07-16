@@ -6,7 +6,7 @@ import os
 import sys
 import time
 
-if vars(sys.modules[__name__])['__package__'] == 'ivert':
+if vars(sys.modules[__name__])["__package__"] == "ivert":
     # When this is built a setup.py package, it names the modules 'ivert' and 'ivert_utils'. This reflects that.
     import ivert.client_job_download as client_job_download
     import ivert.client_job_upload as client_job_upload
@@ -70,7 +70,9 @@ def run_validate_command(args: argparse.Namespace) -> None:
     # If there are no files to send, raise an error. Could happen if the user had a mistake in a glob pattern that
     # doesn't match any files.
     if len(files_to_send) == 0:
-        raise ValueError(f"{args.files_or_directory} has no matching files to validate.")
+        raise ValueError(
+            f"{args.files_or_directory} has no matching files to validate."
+        )
 
     # Convert to absolute paths.
     files_to_send = [os.path.abspath(fn) for fn in files_to_send]
@@ -102,7 +104,6 @@ def run_validate_command(args: argparse.Namespace) -> None:
         start_time = time.time()
 
         while ivert_job_status not in ("complete", "error", "killed", "unknown"):
-
             new_job_status = client_job_status.get_simple_job_status(job_name)
             if new_job_status != ivert_job_status:
                 print(f"'{new_job_status}'", end="")
@@ -112,14 +113,21 @@ def run_validate_command(args: argparse.Namespace) -> None:
             time.sleep(5)
             print(".", end="")
 
-            minutes_since_start = (time.time - start_time) / 60.
-            if minutes_since_start >= ivert_config.ivert_server_job_file_download_timeout_mins:
-                print(f"Job timed out. Exiting. Run '{bcolors.BOLD}ivert status{bcolors.ENDC}' to see if/when it finishes. If it doesn't, you may want to contact your IVERT administrator to see if the IVERT server is still running..")
+            minutes_since_start = (time.time - start_time) / 60.0
+            if (
+                minutes_since_start
+                >= ivert_config.ivert_server_job_file_download_timeout_mins
+            ):
+                print(
+                    f"Job timed out. Exiting. Run '{bcolors.BOLD}ivert status{bcolors.ENDC}' to see if/when it finishes. If it doesn't, you may want to contact your IVERT administrator to see if the IVERT server is still running.."
+                )
                 sys.exit(0)
 
         print("Downloading results.")
         client_job_download.download_job(job_name, dest=".")
 
     else:
-        print(f"Job submitted.\n"
-              f"Run '{bcolors.BOLD}ivert status{bcolors.ENDC}' to check the status of the job, or '{bcolors.BOLD}ivert status -d{bcolors.ENDC}' to provide more detail.")
+        print(
+            f"Job submitted.\n"
+            f"Run '{bcolors.BOLD}ivert status{bcolors.ENDC}' to check the status of the job, or '{bcolors.BOLD}ivert status -d{bcolors.ENDC}' to provide more detail."
+        )

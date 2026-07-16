@@ -10,10 +10,13 @@ def list_files_in_quarantine() -> typing.List[str]:
     iconfig = utils.configfile.Config()
     s3m = s3.S3Manager()
 
-    return s3m.listdir(iconfig.s3_quarantine_prefix_base +
-                       ("" if (iconfig.s3_quarantine_prefix_base[-1] == "/") else "/") + "*",
-                       bucket_type='quarantine',
-                       recursive=True)
+    return s3m.listdir(
+        iconfig.s3_quarantine_prefix_base
+        + ("" if (iconfig.s3_quarantine_prefix_base[-1] == "/") else "/")
+        + "*",
+        bucket_type="quarantine",
+        recursive=True,
+    )
 
 
 def is_quarantined(s3_key: str) -> bool:
@@ -40,7 +43,7 @@ def is_quarantined(s3_key: str) -> bool:
     dirname = s3_key.rsplit("/", 1)[0]
 
     try:
-        fnames = s3m.listdir(dirname, bucket_type='quarantine', recursive=False)
+        fnames = s3m.listdir(dirname, bucket_type="quarantine", recursive=False)
     except FileNotFoundError:
         # If the directory doesn't exist, it's not in quarantine (yet)
         return False

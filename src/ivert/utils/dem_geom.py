@@ -15,8 +15,9 @@ import typing
 
 
 def get_dem_reference_frame_from_user_input(
-        crs: typing.Union[pyproj.CRS, "rasterio.crs.CRS", str, int, None],
-        vert_horz_or_both: str = "both") -> typing.Union[pyproj.CRS, tuple, None]:
+    crs: typing.Union[pyproj.CRS, "rasterio.crs.CRS", str, int, None],
+    vert_horz_or_both: str = "both",
+) -> typing.Union[pyproj.CRS, tuple, None]:
     """Return the horizontal and/or vertical CRS derived from an input CRS value.
 
     Parameters:
@@ -57,12 +58,13 @@ def get_dem_reference_frame_from_user_input(
     else:
         raise ValueError(
             f"Unknown choice '{vert_horz_or_both}' for vert_horz_or_both. "
-            "Must begin with 'h', 'v', or 'b'.")
+            "Must begin with 'h', 'v', or 'b'."
+        )
 
 
 def get_dem_reference_frame_from_file(
-        dem_fname: str,
-        vert_horz_or_both: str = "both") -> typing.Union[pyproj.CRS, tuple, None]:
+    dem_fname: str, vert_horz_or_both: str = "both"
+) -> typing.Union[pyproj.CRS, tuple, None]:
     """Read the CRS embedded in a raster file and return horizontal/vertical components.
 
     Parameters:
@@ -83,8 +85,7 @@ def get_dem_reference_frame_from_file(
     return get_dem_reference_frame_from_user_input(dem_crs_str, vert_horz_or_both)
 
 
-def get_dem_srs_string(horz_reference: pyproj.CRS,
-                       vert_reference: pyproj.CRS) -> str:
+def get_dem_srs_string(horz_reference: pyproj.CRS, vert_reference: pyproj.CRS) -> str:
     """Build a compound SRS string like 'EPSG:4326+3855' from separate H+V pyproj.CRS objects.
 
     Raises:
@@ -98,7 +99,8 @@ def get_dem_srs_string(horz_reference: pyproj.CRS,
 
     if horz_auth != vert_auth:
         raise ValueError(
-            "Reference authorities for the horizontal and vertical datums must match.")
+            "Reference authorities for the horizontal and vertical datums must match."
+        )
 
     if horz_reference.equals(vert_reference):
         return horz_reference.srs
@@ -106,9 +108,8 @@ def get_dem_srs_string(horz_reference: pyproj.CRS,
 
 
 def get_wgs84_bounding_box(
-        polygon_bbox_or_dem_fname: typing.Union[shapely.geometry.Polygon,
-                                                list, tuple, str],
-        dem_horz_reference_frame: typing.Union[str, pyproj.CRS, None] = None
+    polygon_bbox_or_dem_fname: typing.Union[shapely.geometry.Polygon, list, tuple, str],
+    dem_horz_reference_frame: typing.Union[str, pyproj.CRS, None] = None,
 ) -> tuple:
     """Return a 4-tuple (xmin, xmax, ymin, ymax) in WGS84 from a DEM file, bbox, or polygon.
 
@@ -133,7 +134,8 @@ def get_wgs84_bounding_box(
     if isinstance(polygon_bbox_or_dem_fname, shapely.geometry.Polygon):
         polygon = shapely.Polygon(polygon_bbox_or_dem_fname.exterior.coords[:])
         dem_horz_reference_frame = get_dem_reference_frame_from_user_input(
-            dem_horz_reference_frame, "horz")
+            dem_horz_reference_frame, "horz"
+        )
 
     elif type(polygon_bbox_or_dem_fname) in (list, tuple):
         bbox = polygon_bbox_or_dem_fname
@@ -145,20 +147,23 @@ def get_wgs84_bounding_box(
         else:
             raise TypeError(
                 "polygon_bbox_or_dem_fname as a list/tuple must be a 4-value "
-                "(xmin, xmax, ymin, ymax) bbox or an even-length coordinate sequence.")
+                "(xmin, xmax, ymin, ymax) bbox or an even-length coordinate sequence."
+            )
         dem_horz_reference_frame = get_dem_reference_frame_from_user_input(
-            dem_horz_reference_frame, "horz")
+            dem_horz_reference_frame, "horz"
+        )
 
     elif isinstance(polygon_bbox_or_dem_fname, str):
         if not os.path.exists(polygon_bbox_or_dem_fname):
-            raise FileNotFoundError(
-                f"File not found: {polygon_bbox_or_dem_fname}")
+            raise FileNotFoundError(f"File not found: {polygon_bbox_or_dem_fname}")
         if dem_horz_reference_frame is None:
             dem_horz_reference_frame = get_dem_reference_frame_from_file(
-                polygon_bbox_or_dem_fname, "horz")
+                polygon_bbox_or_dem_fname, "horz"
+            )
         else:
             dem_horz_reference_frame = get_dem_reference_frame_from_user_input(
-                dem_horz_reference_frame, "horz")
+                dem_horz_reference_frame, "horz"
+            )
         bbox = rasterio.open(polygon_bbox_or_dem_fname).bounds
         # rasterio bounds are (left, bottom, right, top) = (xmin, ymin, xmax, ymax)
         polygon = shapely.geometry.box(*bbox)
@@ -166,7 +171,8 @@ def get_wgs84_bounding_box(
     else:
         raise TypeError(
             "polygon_bbox_or_dem_fname must be a filename string, a 4-item bbox, "
-            "or a shapely Polygon.")
+            "or a shapely Polygon."
+        )
 
     if dem_horz_reference_frame is None:
         raise ValueError("dem_horz_reference_frame could not be resolved.")
@@ -182,9 +188,11 @@ def get_wgs84_bounding_box(
         return b[0], b[2], b[1], b[3]  # → (xmin, xmax, ymin, ymax)
 
     transformer = pyproj.Transformer.from_crs(
-        dem_horz_reference_frame, wgs84_crs, always_xy=True)
+        dem_horz_reference_frame, wgs84_crs, always_xy=True
+    )
     polygon_wgs84 = shapely.geometry.Polygon(
-        shell=transformer.itransform(polygon.exterior.coords[:]))
+        shell=transformer.itransform(polygon.exterior.coords[:])
+    )
 
     b = polygon_wgs84.bounds  # (xmin, ymin, xmax, ymax)
     return b[0], b[2], b[1], b[3]  # → (xmin, xmax, ymin, ymax)

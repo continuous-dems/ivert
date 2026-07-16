@@ -17,7 +17,7 @@ Developed by the [CIRES Coastal DEM Team](https://ciresdem.github.io). Primary a
 
 - Validate topographic, bathymetric, and coastal DEMs against ICESat-2 ATL03/ATL24 photons
 - Combines [ATL03](https://nsidc.org/data/atl03/)/[ATL08](https://nsidc.org/data/atl08/)/[ATL13](https://nsidc.org/data/atl13/)/[ATL24](https://nsidc.org/data/atl24/) for photon-level classifications, plus external datasets (such as the [Global Buildings Atlas](https://tubvsig-so2sat-vm1.srv.mwn.de/)) to classify built structures.
-- Additional coastline filtering to minimize false-positive ATL08 "ground" photons appearing offshore over water, and unreasonably-shallow "bathy floor" photons with large errors over deep water. 
+- Additional coastline filtering to minimize false-positive ATL08 "ground" photons appearing offshore over water, and unreasonably-shallow "bathy floor" photons with large errors over deep water.
 - Automatic vertical datum conversions (NAVD88, EGM2008, MLLW, and many more)
 - Configurable photon confidence and quality filtering
 - Statistical outputs: bias, RMSE, NMAD, per-cell error maps

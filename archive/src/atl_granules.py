@@ -12,6 +12,7 @@ import utils.configfile as configfile
 
 class ATL_granule:
     """Base class for other ATLXX granules, such as ATL03, ATL06, ATL08."""
+
     # Save the configuration file as a base class variable, shared one instance among all class instances.
     config = configfile.Config()
 
@@ -24,8 +25,12 @@ class ATL_granule:
         self.atl_sdp_epoch = dateparser.parse(self.config.atlas_sdp_epoch)
 
         # We can retrieve a granule just from two integers. Handy if we want to pull it up from a database.
-        if ((type(h5name) in (list, tuple)) or (isinstance(h5name, numpy.ndarray))) and len(h5name) == 2:
-            h5name = self.intx2_to_granule_id(h5name, atl_version=int(dataset_name[3:5]))
+        if (
+            (type(h5name) in (list, tuple)) or (isinstance(h5name, numpy.ndarray))
+        ) and len(h5name) == 2:
+            h5name = self.intx2_to_granule_id(
+                h5name, atl_version=int(dataset_name[3:5])
+            )
 
         # Search for the .h5 exension. If it doesn't exist, append it.
         # This allows us to just feed in a granule_id and it will find the file.
@@ -36,7 +41,6 @@ class ATL_granule:
         if os.path.exists(h5name):
             self.h5name = h5name
         else:
-
             # If it's not found there, look for it in the data directory.
             dataset_name = dataset_name.strip().upper()
             # Right now I just have ATL03,06,08 explicitly implemented. However, the "else" branch
@@ -73,7 +77,7 @@ class ATL_granule:
                 print("Opening", self.h5name)
 
             try:
-                self.h5file = h5py.File(self.h5name, 'r')
+                self.h5file = h5py.File(self.h5name, "r")
             except OSError as e:
                 print(self.h5name)
                 raise e
@@ -90,7 +94,12 @@ class ATL_granule:
 
     def _print_tree_recursive(self, h5_obj):
         """Recursive function to print out the tree structure."""
-        print("    " * (len(h5_obj.name.split("/"))-2) + "/" + os.path.split(h5_obj.name)[1], end="")
+        print(
+            "    " * (len(h5_obj.name.split("/")) - 2)
+            + "/"
+            + os.path.split(h5_obj.name)[1],
+            end="",
+        )
 
         if isinstance(h5_obj, h5py.File) or isinstance(h5_obj, h5py.Group):
             print()
@@ -103,7 +112,14 @@ class ATL_granule:
 
         return
 
-    def get_data(self, dataset_str, beam=None, warn_if_not_present=False, max_warnings=10, warnings_so_far=[0]):
+    def get_data(
+        self,
+        dataset_str,
+        beam=None,
+        warn_if_not_present=False,
+        max_warnings=10,
+        warnings_so_far=[0],
+    ):
         """Given an hdf5 path to a leaf of the dataset, e.g.\
             '/quality_assessment/qa_granule_pass_fail'
         accumulate all the values in the granule and pass them along in the
@@ -129,7 +145,7 @@ class ATL_granule:
         # Get a list of the beams to query.
         if dataset_str.find("[gtx]") > -1:
             if beam is None:
-                beams = ['gt1l','gt1r','gt2l','gt2r','gt3l','gt3r']
+                beams = ["gt1l", "gt1r", "gt2l", "gt2r", "gt3l", "gt3r"]
             elif type(beam) == str:
                 beams = [beam.lower()]
             elif type(beam) in (list, tuple):
@@ -139,12 +155,16 @@ class ATL_granule:
 
             for beam_name in beams:
                 try:
-                    query_str = dataset_str.replace("[gtx]",beam_name)
+                    query_str = dataset_str.replace("[gtx]", beam_name)
                     data_temp = h5[query_str][:]
                 except KeyError as e:
                     if warn_if_not_present:
                         if warnings_so_far[0] < max_warnings:
-                            warnings.warn("{0} is not present in granule '{1}'".format(query_str, self.granule_id))
+                            warnings.warn(
+                                "{0} is not present in granule '{1}'".format(
+                                    query_str, self.granule_id
+                                )
+                            )
                             warnings_so_far[0] = warnings_so_far[0] + 1
                         continue
                     else:
@@ -163,7 +183,11 @@ class ATL_granule:
             except KeyError as e:
                 if warn_if_not_present:
                     if warnings_so_far[0] < max_warnings:
-                        warnings.warn("{0} is not present in granule '{1}'".format(query_str, self.granule_id))
+                        warnings.warn(
+                            "{0} is not present in granule '{1}'".format(
+                                query_str, self.granule_id
+                            )
+                        )
                         warnings_so_far[0] = warnings_so_far[0] + 1
                         data = numpy.array([])
                 else:
@@ -193,7 +217,7 @@ class ATL_granule:
         """
         # Get a list of the beams to query.
         if beam is None:
-            beams = ['gt1l','gt1r','gt2l','gt2r','gt3l','gt3r']
+            beams = ["gt1l", "gt1r", "gt2l", "gt2r", "gt3l", "gt3r"]
         elif type(beam) == str:
             beams = [beam.lower()]
         elif type(beam) in (list, tuple):
@@ -210,7 +234,9 @@ class ATL_granule:
         # h5 = self._open_dataset()
 
         for beam_name in beams:
-            longitudes, latitudes = self.get_coordinates(beam=beam_name, include_height=False)
+            longitudes, latitudes = self.get_coordinates(
+                beam=beam_name, include_height=False
+            )
             lon_min = min(lon_min, numpy.min(longitudes))
             lon_max = max(lon_max, numpy.max(longitudes))
 
@@ -240,7 +266,7 @@ class ATL_granule:
         """Given two long integers (defined above in granule_id_to_intx2), create a granule_id string."""
         return intx2_to_granule_id(ix2, atl_version)
 
-    def beam_name_to_int(self, beam_name):\
+    def beam_name_to_int(self, beam_name):
         return beam_name_to_int(beam_name)
 
     def beam_int_to_name(self, beam_code):
@@ -254,14 +280,15 @@ class ATL_granule:
     def __del__(self):
         self.close()
 
-class ATL03_granule (ATL_granule):
+
+class ATL03_granule(ATL_granule):
     """Class for retreiving and selecting data from an ATL03 HDF5 granule file."""
 
     def __init__(self, h5name):
         # Initialize the base ATL_granule class here.
         super().__init__(h5name, "ATL03")
 
-    def region_number(self, start_or_end = 'start'):
+    def region_number(self, start_or_end="start"):
         """Return the ATL03 Region Number. values 1 thru 14.
 
         See ATL03-V004-UserGuide.pdf, Figure 3 (Page 6), for reference."""
@@ -275,7 +302,7 @@ class ATL03_granule (ATL_granule):
         This is a required function for each subclass of ATL_granule."""
 
         longitudes = self.get_data("/[gtx]/heights/lon_ph", beam=beam)
-        latitudes  = self.get_data("/[gtx]/heights/lat_ph", beam=beam)
+        latitudes = self.get_data("/[gtx]/heights/lat_ph", beam=beam)
 
         if include_height:
             heights = self.get_data("/[gtx]/heights/h_ph", beam=beam)
@@ -283,7 +310,8 @@ class ATL03_granule (ATL_granule):
         else:
             return longitudes, latitudes
 
-class ATL06_granule (ATL_granule):
+
+class ATL06_granule(ATL_granule):
     """Class for retreiving and selecting data from an ATL06 HDF5 granule file."""
 
     def __init__(self, h5name):
@@ -295,12 +323,11 @@ class ATL06_granule (ATL_granule):
 
         This is a required function for each subclass of ATL_granule."""
         longitudes = self.get_data("/[gtx]/land_ice_segments/latitude", beam=beam)
-        latitudes  = self.get_data("/[gtx]/land_ice_segments/longitude", beam=beam)
+        latitudes = self.get_data("/[gtx]/land_ice_segments/longitude", beam=beam)
 
         if include_height:
             pass
         else:
-
             return longitudes, latitudes
 
     def get_segment_numbers(self, beam=None):
@@ -313,7 +340,8 @@ class ATL06_granule (ATL_granule):
 
         return self.get_data("[gtx]/land_ice_segments/segment_id")
 
-class ATL08_granule (ATL_granule):
+
+class ATL08_granule(ATL_granule):
     """Class for retreiving and selecting data from an ATL08 HDF5 granule file."""
 
     def __init__(self, h5name):
@@ -327,19 +355,27 @@ class ATL08_granule (ATL_granule):
         h5 = self._open_dataset()
         return h5["ancillary_data/land/atl08_region"][0]
 
-    def get_coordinates(self, beam=None, include_heights=False, warn_if_not_present=True):
+    def get_coordinates(
+        self, beam=None, include_heights=False, warn_if_not_present=True
+    ):
         """Return the longitude & latitude coordinates for the given beam(s).
 
         This is a required function for each subclass of ATL_granule."""
-        longitudes = self.get_data("/[gtx]/land_segments/longitude", beam=beam, warn_if_not_present=warn_if_not_present)
-        latitudes  = self.get_data("/[gtx]/land_segments/latitude", beam=beam, warn_if_not_present=warn_if_not_present)
+        longitudes = self.get_data(
+            "/[gtx]/land_segments/longitude",
+            beam=beam,
+            warn_if_not_present=warn_if_not_present,
+        )
+        latitudes = self.get_data(
+            "/[gtx]/land_segments/latitude",
+            beam=beam,
+            warn_if_not_present=warn_if_not_present,
+        )
 
         if include_heights:
             pass
         else:
-
             return longitudes, latitudes
-
 
     def granule_passes_qa(self):
         """Return the "/quality_assessment/qa_granule_pass_fail" value."""
@@ -385,14 +421,14 @@ class ATL08_granule (ATL_granule):
         """
         # Get the list of beams.
         if beam is None:
-            beams = ['gt1l','gt1r','gt2l','gt2r','gt3l','gt3r']
+            beams = ["gt1l", "gt1r", "gt2l", "gt2r", "gt3l", "gt3r"]
         elif type(beam) == str:
             beams = [beam.lower()]
         elif type(beam) in (list, tuple):
             beams = [b.lower() for b in beam]
 
         # Our list of flags to collect:
-        surf_types = numpy.empty([0,5], dtype=numpy.uint8)
+        surf_types = numpy.empty([0, 5], dtype=numpy.uint8)
 
         h5 = self._open_dataset()
 
@@ -400,7 +436,7 @@ class ATL08_granule (ATL_granule):
             surf_types = numpy.append(surf_types, h5["{0}/land_segments/surf_type"])
 
         # Make sure all our arrays are the same length.
-        assert surf_types.shape[0] # == other_stuff.shape[0] == ....
+        assert surf_types.shape[0]  # == other_stuff.shape[0] == ....
         N = surf_types.shape[0]
 
         # Get the overall granule QA flag. If it fails, just return all zeros.
@@ -410,23 +446,24 @@ class ATL08_granule (ATL_granule):
         # Create the surface mask, we want land points (not other surface types).
         # NOTE: Land ice points can be had from the ATL06 dataset, not from here.
         # TODO: Think about inland water? Some large water bodies perhaps shouldn't be ignored here.
-        surf_mask = (surf_types[:,0] == 1)
+        surf_mask = surf_types[:, 0] == 1
         if land_only:
-            surf_mask = surf_mask & (numpy.sum(surf_types[:,1:], axis=1) == 0)
+            surf_mask = surf_mask & (numpy.sum(surf_types[:, 1:], axis=1) == 0)
 
-        return surf_mask # & next_msak & other_mask ...
+        return surf_mask  # & next_msak & other_mask ...
 
 
 # Standalone functions that don't need the class encapsulation
 def granule_id_to_intx2(granule_id):
     """Convert the granule_ID to 2x int64 integers. Far easier to store in a searchable database that way."""
     granule_id = os.path.split(granule_id)[1]
-    granule_id = granule_id[granule_id.find("ATL"):]
+    granule_id = granule_id[granule_id.find("ATL") :]
     assert (granule_id[0:3].upper() == "ATL") and (int(granule_id[3:5]) < 20)
     i1 = int(granule_id[6:20])
-    i2 = int(granule_id[21:29]+granule_id[30:33]+granule_id[34:36])
+    i2 = int(granule_id[21:29] + granule_id[30:33] + granule_id[34:36])
 
     return (i1, i2)
+
 
 def intx2_to_granule_id(ix2, atl_version=3):
     """Given two long integers (defined above in granule_id_to_intx2), create a granule_id string."""
@@ -438,6 +475,7 @@ def intx2_to_granule_id(ix2, atl_version=3):
 
     return granule_template.format(atl_version, i1, i2s[0:8], i2s[8:11], i2s[11:13])
 
+
 def beam_name_to_int(beam_name):
     """Return the integer from the beam name.
 
@@ -446,13 +484,13 @@ def beam_name_to_int(beam_name):
 
     return ATL_granule.beam_name_dict[beam_name]
 
+
 def beam_int_to_name(beam_code):
     """Return the beam name from the integer.
 
     In databases, we use an integer identifier for the beam name rather than the name."""
 
     return ATL_granule.beam_code_dict[beam_code]
-
 
 
 if __name__ == "__main__":

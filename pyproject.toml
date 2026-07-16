@@ -44,8 +44,11 @@ dependencies = [
     "transformez",
 ]
 
+[tool.ruff]
+extend-exclude = ["archive"]
+
 [project.urls]
-Source = "https://github.com/ciresdem/IVERT"
+Source = "https://github.com/continuous-dems/ivert"
 
 [project.scripts]
 ivert = "ivert.cli:ivert_cli"

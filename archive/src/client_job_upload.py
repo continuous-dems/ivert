@@ -7,7 +7,7 @@ import os
 import string
 import sys
 
-if vars(sys.modules[__name__])['__package__'] == 'ivert':
+if vars(sys.modules[__name__])["__package__"] == "ivert":
     # When this is built a setup.py package, it names the modules 'ivert' and 'ivert_utils'. This reflects that.
     import ivert.jobs_database as jobs_database
     import ivert.s3 as s3
@@ -51,9 +51,9 @@ def convert_cmd_args_to_string(args):
     for fname in args.files:
         if len(fname) == 0:
             continue
-        command_str = command_str + " " + (f'"{fname}"'
-                                           if contains_whitespace(fname)
-                                           else fname)
+        command_str = (
+            command_str + " " + (f'"{fname}"' if contains_whitespace(fname) else fname)
+        )
 
     return command_str
 
@@ -119,8 +119,9 @@ def wrap_fname_in_quotes_if_needed(fn: str) -> str:
     return fn if (" " not in fn and len(fn) > 0) else f'"{fn}"'
 
 
-def create_new_job_config(ivert_args: argparse.Namespace,
-                          verbose: bool = True) -> tuple[str, str, list[str]]:
+def create_new_job_config(
+    ivert_args: argparse.Namespace, verbose: bool = True
+) -> tuple[str, str, list[str]]:
     """Create a new job Config file to upload to the S3 bucket.
 
     Saves the Config file locally and returns a path to it.
@@ -149,7 +150,14 @@ def create_new_job_config(ivert_args: argparse.Namespace,
     username, new_job_number = create_new_job_params(ivert_config.username)
 
     # Genereate the full upload prefix for this new job.
-    upload_prefix = str(os.path.join(ivert_config.s3_import_untrusted_prefix_base, args.command, username, str(new_job_number)))
+    upload_prefix = str(
+        os.path.join(
+            ivert_config.s3_import_untrusted_prefix_base,
+            args.command,
+            username,
+            str(new_job_number),
+        )
+    )
     # AWS S3 paths only use forward-slashes.
     upload_prefix = upload_prefix.replace(os.path.sep, "/")
 
@@ -194,20 +202,22 @@ def create_new_job_config(ivert_args: argparse.Namespace,
     # Get the command arguments as a string. Remove the "Namespace(...)" part of the string.
     cmd_args_text = repr(vars(args))
     if len(cmd_args_text) == 0:
-        cmd_args_text = '{}'
+        cmd_args_text = "{}"
 
     ivert_version = version.__version__
 
     # Now that we've gathered all the fields needed, insert them into the Config template text.
     config_text = grab_job_config_template()
-    config_text = config_text.replace("[USERNAME]", username) \
-        .replace("[JOB_ID]", str(new_job_number)) \
-        .replace("[JOB_NAME]", job_name) \
-        .replace("[JOB_UPLOAD_PREFIX]", upload_prefix) \
-        .replace("[JOB_COMMAND]", command) \
-        .replace("[IVERT_VERSION]", ivert_version) \
-        .replace("[LIST_OF_FILES]", files_text) \
+    config_text = (
+        config_text.replace("[USERNAME]", username)
+        .replace("[JOB_ID]", str(new_job_number))
+        .replace("[JOB_NAME]", job_name)
+        .replace("[JOB_UPLOAD_PREFIX]", upload_prefix)
+        .replace("[JOB_COMMAND]", command)
+        .replace("[IVERT_VERSION]", ivert_version)
+        .replace("[LIST_OF_FILES]", files_text)
         .replace("[PARAMS_STRING]", cmd_args_text)
+    )
 
     # Create the new job local directory if it doesn't exist.
     local_jobdir = os.path.join(ivert_config.ivert_jobs_directory_local, job_name)
@@ -216,7 +226,7 @@ def create_new_job_config(ivert_args: argparse.Namespace,
 
     # Write out the new Config file.
     new_job_config_fname = os.path.join(local_jobdir, f"{job_name}.ini")
-    with open(new_job_config_fname, 'w') as f:
+    with open(new_job_config_fname, "w") as f:
         f.write(config_text)
 
     if verbose:
@@ -232,7 +242,7 @@ def grab_job_config_template() -> str:
 
     job_template_file = ivert_config.ivert_job_config_template
     assert os.path.exists(job_template_file)
-    return open(job_template_file, 'r').read()
+    return open(job_template_file, "r").read()
 
 
 def upload_new_job(args: argparse.Namespace, verbose=True) -> str:
@@ -240,7 +250,9 @@ def upload_new_job(args: argparse.Namespace, verbose=True) -> str:
 
     Will create a local Config file and upload it to the S3 bucket along with all the files associated with the job.
     """
-    new_job_config_fname, upload_prefix, list_of_other_files = create_new_job_config(args, verbose=verbose)
+    new_job_config_fname, upload_prefix, list_of_other_files = create_new_job_config(
+        args, verbose=verbose
+    )
 
     job_name = os.path.splitext(os.path.basename(new_job_config_fname))[0]
 
@@ -250,21 +262,25 @@ def upload_new_job(args: argparse.Namespace, verbose=True) -> str:
 
     # Upload the Config file to the S3 bucket.
     s3m = s3.S3Manager()
-    s3m.upload(new_job_config_fname,
-               upload_prefix + "/" + os.path.basename(new_job_config_fname),
-               bucket_type="untrusted")
+    s3m.upload(
+        new_job_config_fname,
+        upload_prefix + "/" + os.path.basename(new_job_config_fname),
+        bucket_type="untrusted",
+    )
 
     if verbose:
         progress_bar.ProgressBar(1, numfiles, decimals=0, suffix=f"1/{numfiles}")
 
     # Upload the other files to the S3 bucket.
     for i, f in enumerate(list_of_other_files):
-        s3m.upload(f,
-                   upload_prefix + "/" + os.path.basename(f),
-                   bucket_type="untrusted")
+        s3m.upload(
+            f, upload_prefix + "/" + os.path.basename(f), bucket_type="untrusted"
+        )
 
         if verbose:
-            progress_bar.ProgressBar(2 + i, numfiles, decimals=0, suffix=f"{2 + i}/{numfiles}")
+            progress_bar.ProgressBar(
+                2 + i, numfiles, decimals=0, suffix=f"{2 + i}/{numfiles}"
+            )
 
     return job_name
 

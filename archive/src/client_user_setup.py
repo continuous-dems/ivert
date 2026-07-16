@@ -9,19 +9,17 @@ import sys
 import shutil
 import typing
 
-if vars(sys.modules[__name__])['__package__'] == 'ivert':
+if vars(sys.modules[__name__])["__package__"] == "ivert":
     # When this is built a setup.py package, it names the modules 'ivert' and 'ivert_utils'. This reflects that.
     import ivert.client_job_upload as client_job_upload
     from ivert_utils.bcolors import bcolors
     import ivert_utils.configfile as configfile
-    import ivert_utils.is_email as is_email
     import ivert_utils.fetch_text as fetch_text
 else:
     # If running as a script, import this way.
     import client_job_upload
     from utils.bcolors import bcolors
     import utils.configfile as configfile
-    import utils.is_email as is_email
     import utils.fetch_text as fetch_text
 
 ivert_config = None
@@ -60,20 +58,28 @@ def setup_new_user(args: argparse.Namespace) -> None:
     # And the s3 module.
 
     if args.subscribe_to_sns:
-        print("\nSending a job to the IVERT server to subscribe you to IVERT SNS notifications.")
+        print(
+            "\nSending a job to the IVERT server to subscribe you to IVERT SNS notifications."
+        )
         # Send new_user Config (as an "update" command) to the IVERT cloud tool. This will subscribe the user to the IVERT SNS topic.
         subscribe_user_to_sns_notifications(args)
 
     print("\nIVERT user setup complete!")
     if args.subscribe_to_sns:
-        print(f"\nYou sould soon receive an email from the IVERT server to {bcolors.BOLD}{args.email}{bcolors.ENDC} confirming your subscription to the IVERT SNS notifications.")
+        print(
+            f"\nYou sould soon receive an email from the IVERT server to {bcolors.BOLD}{args.email}{bcolors.ENDC} confirming your subscription to the IVERT SNS notifications."
+        )
         print("\nAfter receiveing that email, you may ", end="")
     else:
         print("\nYou may now ", end="")
 
-    print(f"run\n> {bcolors.BOLD}{bcolors.OKBLUE}ivert test{bcolors.ENDC}{bcolors.ENDC}\n...to perform a dry run end-to-end test the IVERT system.\n")
-    print(f"At any time, run\n> {bcolors.BOLD}{bcolors.OKBLUE}ivert --help{bcolors.ENDC}{bcolors.ENDC}\n...to see a complete list of other IVERT commands. "
-          f"Happy Validations!\n")
+    print(
+        f"run\n> {bcolors.BOLD}{bcolors.OKBLUE}ivert test{bcolors.ENDC}{bcolors.ENDC}\n...to perform a dry run end-to-end test the IVERT system.\n"
+    )
+    print(
+        f"At any time, run\n> {bcolors.BOLD}{bcolors.OKBLUE}ivert --help{bcolors.ENDC}{bcolors.ENDC}\n...to see a complete list of other IVERT commands. "
+        f"Happy Validations!\n"
+    )
 
 
 def read_ivert_s3_credentials(creds_file: str = "", error_if_not_found: bool = True):
@@ -84,11 +90,17 @@ def read_ivert_s3_credentials(creds_file: str = "", error_if_not_found: bool = T
     if not ivert_config:
         ivert_config = configfile.Config(ignore_errors=True)
 
-    if os.path.exists(creds_file) and \
-            (os.path.normcase(os.path.realpath(creds_file)) !=
-             os.path.normcase(os.path.realpath(ivert_config.ivert_s3_credentials_file))):
+    if os.path.exists(creds_file) and (
+        os.path.normcase(os.path.realpath(creds_file))
+        != os.path.normcase(os.path.realpath(ivert_config.ivert_s3_credentials_file))
+    ):
         # Move the old creds file to the new location
-        print("Moving", os.path.basename(creds_file), "to", ivert_config.ivert_s3_credentials_file)
+        print(
+            "Moving",
+            os.path.basename(creds_file),
+            "to",
+            ivert_config.ivert_s3_credentials_file,
+        )
         # Create the directory if it doesn't exist yet.
         if not os.path.exists(os.path.dirname(ivert_config.ivert_s3_credentials_file)):
             os.makedirs(os.path.dirname(ivert_config.ivert_s3_credentials_file))
@@ -99,12 +111,16 @@ def read_ivert_s3_credentials(creds_file: str = "", error_if_not_found: bool = T
         return configfile.Config(ivert_config.ivert_s3_credentials_file)
     else:
         if error_if_not_found:
-            raise FileNotFoundError(f"IVERT S3 credentials file '{ivert_config.ivert_s3_credentials_file}' not found.")
+            raise FileNotFoundError(
+                f"IVERT S3 credentials file '{ivert_config.ivert_s3_credentials_file}' not found."
+            )
         else:
             return None
 
 
-def read_ivert_personal_credentials(pcreds_file: str = "", error_if_not_found: bool = True):
+def read_ivert_personal_credentials(
+    pcreds_file: str = "", error_if_not_found: bool = True
+):
     """Read the IVERT personal credentials file.
 
     If we're given a path, move it first into the default credentials location."""
@@ -112,23 +128,35 @@ def read_ivert_personal_credentials(pcreds_file: str = "", error_if_not_found: b
     if not ivert_config:
         ivert_config = configfile.Config(ignore_errors=True)
 
-    if os.path.exists(pcreds_file) and \
-            (os.path.normcase(os.path.realpath(pcreds_file)) !=
-             os.path.normcase(os.path.realpath(ivert_config.ivert_personal_credentials_file))):
+    if os.path.exists(pcreds_file) and (
+        os.path.normcase(os.path.realpath(pcreds_file))
+        != os.path.normcase(
+            os.path.realpath(ivert_config.ivert_personal_credentials_file)
+        )
+    ):
         # Move the old creds file to the new location
-        print("Moving", os.path.basename(pcreds_file), "to", ivert_config.ivert_personal_credentials_file)
+        print(
+            "Moving",
+            os.path.basename(pcreds_file),
+            "to",
+            ivert_config.ivert_personal_credentials_file,
+        )
 
         # Create the directory if it doesn't exist yet.
-        if not os.path.exists(os.path.dirname(ivert_config.ivert_personal_credentials_file)):
+        if not os.path.exists(
+            os.path.dirname(ivert_config.ivert_personal_credentials_file)
+        ):
             os.makedirs(os.path.dirname(ivert_config.ivert_personal_credentials_file))
 
         shutil.move(pcreds_file, ivert_config.ivert_personal_credentials_file)
 
     if os.path.exists(ivert_config.ivert_personal_credentials_file):
-        return open(ivert_config.ivert_personal_credentials_file, 'r').read()
+        return open(ivert_config.ivert_personal_credentials_file, "r").read()
     else:
         if error_if_not_found:
-            raise FileNotFoundError(f"IVERT personal S3 credentials file '{ivert_config.ivert_personal_credentials_file}' not found.")
+            raise FileNotFoundError(
+                f"IVERT personal S3 credentials file '{ivert_config.ivert_personal_credentials_file}' not found."
+            )
         else:
             return None
 
@@ -186,7 +214,9 @@ def subscribe_user_to_sns_notifications(args: argparse.Namespace) -> None:
     return
 
 
-def collect_inputs(args: argparse.Namespace, only_if_not_provided: bool = True) -> argparse.Namespace:
+def collect_inputs(
+    args: argparse.Namespace, only_if_not_provided: bool = True
+) -> argparse.Namespace:
     """Collect user inputs and return them as a dictionary.
 
     Any arguments that were not provided at the command line will be collected from existing Config and credentials files."""
@@ -212,7 +242,9 @@ def collect_inputs(args: argparse.Namespace, only_if_not_provided: bool = True) 
     assert "ivert_export_alt_profile" in args
 
     if not args.email.strip() or not only_if_not_provided:
-        args.email = input("\n" + bcolors.UNDERLINE + "Your email address" + bcolors.ENDC + ": ").strip()
+        args.email = input(
+            "\n" + bcolors.UNDERLINE + "Your email address" + bcolors.ENDC + ": "
+        ).strip()
 
     # Convert email to lowercase.
     args.email = args.email.lower()
@@ -229,35 +261,55 @@ def collect_inputs(args: argparse.Namespace, only_if_not_provided: bool = True) 
 
     global ivert_user_config_template
     if not ivert_user_config_template:
-        ivert_user_config_template = configfile.Config(ivert_config.ivert_user_config_template)
+        ivert_user_config_template = configfile.Config(
+            ivert_config.ivert_user_config_template
+        )
 
     # Check for valid AWS profile names (they can basically be anyting except empty strings)
     # If we weren't provided a profile name or we aren't using the defaults, prompt for them.
     if not args.ivert_import_profile.strip() or not only_if_not_provided:
         args.ivert_import_profile = (
-                input("\nAWS profile name to use for import "
-                      f"[default: {ivert_user_config_template.aws_profile_ivert_import_untrusted}]: ").strip()
-                or ivert_user_config_template.aws_profile_ivert_import_untrusted.strip())
+            input(
+                "\nAWS profile name to use for import "
+                f"[default: {ivert_user_config_template.aws_profile_ivert_import_untrusted}]: "
+            ).strip()
+            or ivert_user_config_template.aws_profile_ivert_import_untrusted.strip()
+        )
 
     if not args.ivert_export_client_profile.strip() or not only_if_not_provided:
         args.ivert_export_client_profile = (
-                input("\nAWS profile name to use for export "
-                      f"[default: {ivert_user_config_template.aws_profile_ivert_export_client}]: ").strip()
-                or ivert_user_config_template.aws_profile_ivert_export_client.strip())
+            input(
+                "\nAWS profile name to use for export "
+                f"[default: {ivert_user_config_template.aws_profile_ivert_export_client}]: "
+            ).strip()
+            or ivert_user_config_template.aws_profile_ivert_export_client.strip()
+        )
 
     # Strip any whitespace
     args.untrusted_bucket_name = args.untrusted_bucket_name.strip()
     args.untrusted_access_key_id = args.untrusted_access_key_id.strip()
     args.untrusted_secret_access_key = args.untrusted_secret_access_key.strip()
-    args.untrusted_endpoint_url = "" if args.untrusted_endpoint_url is None else args.untrusted_endpoint_url.strip()
+    args.untrusted_endpoint_url = (
+        ""
+        if args.untrusted_endpoint_url is None
+        else args.untrusted_endpoint_url.strip()
+    )
     args.export_client_bucket_name = args.export_client_bucket_name.strip()
     args.export_client_access_key_id = args.export_client_access_key_id.strip()
     args.export_client_secret_access_key = args.export_client_secret_access_key.strip()
-    args.export_client_endpoint_url = "" if args.export_client_endpoint_url is None else args.export_client_endpoint_url.strip()
+    args.export_client_endpoint_url = (
+        ""
+        if args.export_client_endpoint_url is None
+        else args.export_client_endpoint_url.strip()
+    )
     args.export_alt_bucket_name = args.export_alt_bucket_name.strip()
     args.export_alt_access_key_id = args.export_alt_access_key_id.strip()
     args.export_alt_secret_access_key = args.export_alt_secret_access_key.strip()
-    args.export_alt_endpoint_url = "" if args.export_alt_endpoint_url is None else args.export_alt_endpoint_url.strip()
+    args.export_alt_endpoint_url = (
+        ""
+        if args.export_alt_endpoint_url is None
+        else args.export_alt_endpoint_url.strip()
+    )
 
     # Boolean flags should be strictly True/False
     args.subscribe_to_sns = bool(args.subscribe_to_sns)
@@ -291,13 +343,17 @@ def collect_inputs(args: argparse.Namespace, only_if_not_provided: bool = True) 
         if not s3_creds_obj:
             s3_creds_obj = read_ivert_s3_credentials(args.creds)
         if s3_creds_obj is not None:
-            args.untrusted_access_key_id = s3_creds_obj.s3_import_untrusted_access_key_id
+            args.untrusted_access_key_id = (
+                s3_creds_obj.s3_import_untrusted_access_key_id
+            )
 
     if not args.untrusted_secret_access_key or not only_if_not_provided:
         if not s3_creds_obj:
             s3_creds_obj = read_ivert_s3_credentials(args.creds)
         if s3_creds_obj is not None:
-            args.untrusted_secret_access_key = s3_creds_obj.s3_import_untrusted_secret_access_key
+            args.untrusted_secret_access_key = (
+                s3_creds_obj.s3_import_untrusted_secret_access_key
+            )
 
     if not args.untrusted_endpoint_url or not only_if_not_provided:
         if not s3_creds_obj:
@@ -309,13 +365,17 @@ def collect_inputs(args: argparse.Namespace, only_if_not_provided: bool = True) 
         if not s3_creds_obj:
             s3_creds_obj = read_ivert_s3_credentials(args.creds)
         if s3_creds_obj is not None:
-            args.export_client_access_key_id = s3_creds_obj.s3_export_client_access_key_id
+            args.export_client_access_key_id = (
+                s3_creds_obj.s3_export_client_access_key_id
+            )
 
     if not args.export_client_secret_access_key or not only_if_not_provided:
         if not s3_creds_obj:
             s3_creds_obj = read_ivert_s3_credentials(args.creds)
         if s3_creds_obj is not None:
-            args.export_client_secret_access_key = s3_creds_obj.s3_export_client_secret_access_key
+            args.export_client_secret_access_key = (
+                s3_creds_obj.s3_export_client_secret_access_key
+            )
 
     if not args.export_client_endpoint_url or not only_if_not_provided:
         if not s3_creds_obj:
@@ -333,7 +393,9 @@ def collect_inputs(args: argparse.Namespace, only_if_not_provided: bool = True) 
         if not s3_creds_obj:
             s3_creds_obj = read_ivert_s3_credentials(args.creds)
         if s3_creds_obj is not None:
-            args.export_alt_secret_access_key = s3_creds_obj.s3_export_alt_secret_access_key
+            args.export_alt_secret_access_key = (
+                s3_creds_obj.s3_export_alt_secret_access_key
+            )
 
     if not args.export_alt_endpoint_url or not only_if_not_provided:
         if not s3_creds_obj:
@@ -357,7 +419,9 @@ def collect_inputs(args: argparse.Namespace, only_if_not_provided: bool = True) 
         if not pcreds_text or not only_if_not_provided:
             pcreds_text = read_ivert_personal_credentials(args.personal_creds)
         if pcreds_text:
-            args.export_client_access_key_id = fetch_text.fetch_access_key_id(pcreds_text)
+            args.export_client_access_key_id = fetch_text.fetch_access_key_id(
+                pcreds_text
+            )
 
     if args.export_alt_access_key_id == "[USE_PERSONAL_ACCESS_KEY_ID]":
         if not pcreds_text or not only_if_not_provided:
@@ -369,52 +433,86 @@ def collect_inputs(args: argparse.Namespace, only_if_not_provided: bool = True) 
         if not pcreds_text or not only_if_not_provided:
             pcreds_text = read_ivert_personal_credentials(args.personal_creds)
         if pcreds_text:
-            args.untrusted_secret_access_key = fetch_text.fetch_secret_access_key(pcreds_text)
+            args.untrusted_secret_access_key = fetch_text.fetch_secret_access_key(
+                pcreds_text
+            )
 
     if args.export_client_secret_access_key == "[USE_PERSONAL_SECRET_ACCESS_KEY]":
         if not pcreds_text or not only_if_not_provided:
             pcreds_text = read_ivert_personal_credentials(args.personal_creds)
         if pcreds_text:
-            args.export_client_secret_access_key = fetch_text.fetch_secret_access_key(pcreds_text)
+            args.export_client_secret_access_key = fetch_text.fetch_secret_access_key(
+                pcreds_text
+            )
 
     if args.export_alt_secret_access_key == "[USE_PERSONAL_SECRET_ACCESS_KEY]":
         if not pcreds_text or not only_if_not_provided:
             pcreds_text = read_ivert_personal_credentials(args.personal_creds)
         if pcreds_text:
-            args.export_alt_secret_access_key = fetch_text.fetch_secret_access_key(pcreds_text)
+            args.export_alt_secret_access_key = fetch_text.fetch_secret_access_key(
+                pcreds_text
+            )
 
     ##############################################################################################################
     # Make sure we have all the required credentials and bucket names.
     # If not, warn the user and exit.
     ##############################################################################################################
-    if not (args.untrusted_bucket_name and args.export_client_bucket_name and args.untrusted_access_key_id and
-            args.untrusted_secret_access_key and args.export_client_access_key_id and args.export_client_secret_access_key and
-            args.export_alt_access_key_id and args.export_alt_secret_access_key and
-            args.untrusted_access_key_id != "[USE_PERSONAL_ACCESS_KEY_ID]" and
-            args.export_client_access_key_id != "[USE_PERSONAL_ACCESS_KEY_ID]" and
-            args.untrusted_secret_access_key != "[USE_PERSONAL_SECRET_ACCESS_KEY]" and
-            args.export_client_secret_access_key != "[USE_PERSONAL_SECRET_ACCESS_KEY]" and
-            args.export_alt_access_key_id != "[USE_PERSONAL_ACCESS_KEY_ID]" and
-            args.export_client_secret_access_key != "[USE_PERSONAL_ACCESS_KEY_ID]"):
+    if not (
+        args.untrusted_bucket_name
+        and args.export_client_bucket_name
+        and args.untrusted_access_key_id
+        and args.untrusted_secret_access_key
+        and args.export_client_access_key_id
+        and args.export_client_secret_access_key
+        and args.export_alt_access_key_id
+        and args.export_alt_secret_access_key
+        and args.untrusted_access_key_id != "[USE_PERSONAL_ACCESS_KEY_ID]"
+        and args.export_client_access_key_id != "[USE_PERSONAL_ACCESS_KEY_ID]"
+        and args.untrusted_secret_access_key != "[USE_PERSONAL_SECRET_ACCESS_KEY]"
+        and args.export_client_secret_access_key != "[USE_PERSONAL_SECRET_ACCESS_KEY]"
+        and args.export_alt_access_key_id != "[USE_PERSONAL_ACCESS_KEY_ID]"
+        and args.export_client_secret_access_key != "[USE_PERSONAL_ACCESS_KEY_ID]"
+    ):
         if not args.untrusted_bucket_name:
             print("Missing untrusted bucket name.")
         if not args.export_client_bucket_name:
             print("Missing export client bucket name.")
-        if not args.untrusted_access_key_id or args.untrusted_access_key_id == "[USE_PERSONAL_ACCESS_KEY_ID]":
+        if (
+            not args.untrusted_access_key_id
+            or args.untrusted_access_key_id == "[USE_PERSONAL_ACCESS_KEY_ID]"
+        ):
             print("Missing untrusted bucket access key ID.")
-        if not args.export_client_access_key_id or args.export_client_access_key_id == "[USE_PERSONAL_ACCESS_KEY_ID]":
+        if (
+            not args.export_client_access_key_id
+            or args.export_client_access_key_id == "[USE_PERSONAL_ACCESS_KEY_ID]"
+        ):
             print("Missing export bucket access key ID.")
-        if not args.untrusted_secret_access_key or args.untrusted_secret_access_key == "[USE_PERSONAL_SECRET_ACCESS_KEY]":
+        if (
+            not args.untrusted_secret_access_key
+            or args.untrusted_secret_access_key == "[USE_PERSONAL_SECRET_ACCESS_KEY]"
+        ):
             print("Missing untrusted bucket secret access key.")
-        if not args.export_client_secret_access_key or args.export_client_secret_access_key == "[USE_PERSONAL_SECRET_ACCESS_KEY]":
+        if (
+            not args.export_client_secret_access_key
+            or args.export_client_secret_access_key
+            == "[USE_PERSONAL_SECRET_ACCESS_KEY]"
+        ):
             print("Missing export bucket secret access key.")
-        if not args.export_alt_access_key_id or args.export_alt_access_key_id == "[USE_PERSONAL_ACCESS_KEY_ID]":
+        if (
+            not args.export_alt_access_key_id
+            or args.export_alt_access_key_id == "[USE_PERSONAL_ACCESS_KEY_ID]"
+        ):
             print("Missing export-alt bucket access key ID.")
-        if not args.export_alt_secret_access_key or args.export_alt_secret_access_key == "[USE_PERSONAL_SECRET_ACCESS_KEY]":
+        if (
+            not args.export_alt_secret_access_key
+            or args.export_alt_secret_access_key == "[USE_PERSONAL_SECRET_ACCESS_KEY]"
+        ):
             print("Missing export-alt bucket secret access key.")
 
-        print("Check your credentials file and/or your personal credentials file, and try again."
-              "\nIf the problem persists, contact your IVERT administrator.")
+        print(
+            "Check your credentials file and/or your personal credentials file, and try again."
+            "\nIf the problem persists, contact your IVERT administrator."
+        )
         sys.exit(0)
 
     return args
@@ -448,25 +546,31 @@ def validate_inputs(args: argparse.Namespace) -> None:
         raise ValueError(f"{args.email} is an invalid email address.")
 
     # Check bucket names for validity.
-    for bname in [args.untrusted_bucket_name,
-                  args.export_client_bucket_name,
-                  args.export_alt_bucket_name]:
+    for bname in [
+        args.untrusted_bucket_name,
+        args.export_client_bucket_name,
+        args.export_alt_bucket_name,
+    ]:
         if not fetch_text.fetch_aws_bucketname(bname):
             print()
             raise ValueError(f"{bname} is an invalid bucket name.")
 
     # Check access key IDs for validity.
-    for akid in [args.untrusted_access_key_id,
-                 args.export_client_access_key_id,
-                 args.export_alt_access_key_id]:
+    for akid in [
+        args.untrusted_access_key_id,
+        args.export_client_access_key_id,
+        args.export_alt_access_key_id,
+    ]:
         if not fetch_text.fetch_access_key_id(akid):
             print()
             raise ValueError(f"{akid} is an invalid access key ID.")
 
     # Check secret access keys for validity.
-    for sak in [args.untrusted_secret_access_key,
-                args.export_client_secret_access_key,
-                args.export_alt_secret_access_key]:
+    for sak in [
+        args.untrusted_secret_access_key,
+        args.export_client_secret_access_key,
+        args.export_alt_secret_access_key,
+    ]:
         if not fetch_text.fetch_secret_access_key(sak):
             print()
             raise ValueError(f"{sak} is an invalid secret access key.")
@@ -481,47 +585,57 @@ def confirm_inputs_with_user(args: argparse.Namespace) -> None:
     print()
     print(bcolors.OKGREEN + "Please confirm the following:" + bcolors.ENDC)
 
-    headings = ("Email",
-                "Username",
-                "Untrusted bucket",
-                "Untrusted access key ID",
-                "Untrusted secret access key",
-                "Untrusted endpoint URL"
-                "Export bucket",
-                "Export access key ID",
-                "Export secret access key",
-                "Export endpoint URL"
-                "Export bucket (alt)",
-                "Export access key ID (alt)",
-                "Export secret access key (alt)",
-                "Export endpoint URL (alt)"
-                "Subscribe to email notifications",
-                "Filter email notifications by user",)
+    headings = (
+        "Email",
+        "Username",
+        "Untrusted bucket",
+        "Untrusted access key ID",
+        "Untrusted secret access key",
+        "Untrusted endpoint URLExport bucket",
+        "Export access key ID",
+        "Export secret access key",
+        "Export endpoint URLExport bucket (alt)",
+        "Export access key ID (alt)",
+        "Export secret access key (alt)",
+        "Export endpoint URL (alt)Subscribe to email notifications",
+        "Filter email notifications by user",
+    )
 
     # Get max lengths of each field:
     max_left = max([len(k) for k in headings])
-    for k, v in zip(headings,
-                    (args.email,
-                     args.user,
-                     args.untrusted_bucket_name,
-                     args.untrusted_access_key_id,
-                     args.untrusted_secret_access_key,
-                     args.untrusted_endpoint_url,
-                     args.export_client_bucket_name,
-                     args.export_client_access_key_id,
-                     args.export_client_secret_access_key,
-                     args.export_client_endpoint_url,
-                     args.export_alt_bucket_name,
-                     args.export_alt_access_key_id,
-                     args.export_alt_secret_access_key,
-                     args.export_alt_endpoint_url,
-                     args.subscribe_to_sns,
-                     args.filter_sns,)):
+    for k, v in zip(
+        headings,
+        (
+            args.email,
+            args.user,
+            args.untrusted_bucket_name,
+            args.untrusted_access_key_id,
+            args.untrusted_secret_access_key,
+            args.untrusted_endpoint_url,
+            args.export_client_bucket_name,
+            args.export_client_access_key_id,
+            args.export_client_secret_access_key,
+            args.export_client_endpoint_url,
+            args.export_alt_bucket_name,
+            args.export_alt_access_key_id,
+            args.export_alt_secret_access_key,
+            args.export_alt_endpoint_url,
+            args.subscribe_to_sns,
+            args.filter_sns,
+        ),
+    ):
         print(f"  {(k + r': ').ljust(max_left + 2)}{v}")
 
     print()
-    print(bcolors.OKGREEN + bcolors.BOLD + "Is this correct?" + bcolors.ENDC + bcolors.ENDC, end="")
-    params_confirmed = (input(" [y]/n: ") or "y")
+    print(
+        bcolors.OKGREEN
+        + bcolors.BOLD
+        + "Is this correct?"
+        + bcolors.ENDC
+        + bcolors.ENDC,
+        end="",
+    )
+    params_confirmed = input(" [y]/n: ") or "y"
 
     if params_confirmed.strip()[0].lower() != "y":
         print()
@@ -542,8 +656,7 @@ def update_local_aws_profiles(args: argparse.Namespace) -> None:
     return
 
 
-def update_local_aws_config(aws_config_file: str,
-                            args: argparse.Namespace) -> None:
+def update_local_aws_config(aws_config_file: str, args: argparse.Namespace) -> None:
     """
     Update the AWS Config file.
     """
@@ -567,27 +680,55 @@ def update_local_aws_config(aws_config_file: str,
     # config_text_old = config_text
 
     # Find eac profile if it already exists. If so, replace it. If not, add it.
-    for profile_id_string, bname, endpoint_url in \
-            [(args.ivert_import_profile, args.untrusted_bucket_name, args.untrusted_endpoint_url),
-             (args.ivert_export_client_profile, args.export_client_bucket_name, args.export_client_endpoint_url),
-             (args.ivert_export_alt_profile, args.export_alt_bucket_name, args.export_alt_endpoint_url)]:
+    for profile_id_string, bname, endpoint_url in [
+        (
+            args.ivert_import_profile,
+            args.untrusted_bucket_name,
+            args.untrusted_endpoint_url,
+        ),
+        (
+            args.ivert_export_client_profile,
+            args.export_client_bucket_name,
+            args.export_client_endpoint_url,
+        ),
+        (
+            args.ivert_export_alt_profile,
+            args.export_alt_bucket_name,
+            args.export_alt_endpoint_url,
+        ),
+    ]:
         # Identify if old IVERT profile names are being used here.
-        if '[profile ivert_ingest]' in config_text and profile_id_string == args.ivert_import_profile:
-            old_ivert_profile_string = '[profile ivert_ingest]'
-        elif '[profile ivert_export]' in config_text and profile_id_string == args.ivert_export_client_profile:
-            old_ivert_profile_string = '[profile ivert_export]'
+        if (
+            "[profile ivert_ingest]" in config_text
+            and profile_id_string == args.ivert_import_profile
+        ):
+            old_ivert_profile_string = "[profile ivert_ingest]"
+        elif (
+            "[profile ivert_export]" in config_text
+            and profile_id_string == args.ivert_export_client_profile
+        ):
+            old_ivert_profile_string = "[profile ivert_export]"
         else:
             old_ivert_profile_string = f"[profile {profile_id_string}]"
 
-        new_ivert_profile = ("\n".join([f"[profile {profile_id_string}]",
-                                        "output = json",
-                                        f"region = {get_region_name_from_bucket_name(bname)}"]) +
-                             (f"\nendpoint_url = {endpoint_url}" if endpoint_url else "") + "\n\n")
+        new_ivert_profile = (
+            "\n".join(
+                [
+                    f"[profile {profile_id_string}]",
+                    "output = json",
+                    f"region = {get_region_name_from_bucket_name(bname)}",
+                ]
+            )
+            + (f"\nendpoint_url = {endpoint_url}" if endpoint_url else "")
+            + "\n\n"
+        )
 
         if old_ivert_profile_string in config_text:
             # Try to find the entire profile string with all options, until either the end of the file or the next profile string.
-            old_ivert_profile_search_regex = old_ivert_profile_string.replace("[", r"\[").replace("]", r"\]") + \
-                                         r"[\w\s\d\=\-\"\':\+/\.]*(?=(\s\[profile )|\Z)"
+            old_ivert_profile_search_regex = (
+                old_ivert_profile_string.replace("[", r"\[").replace("]", r"\]")
+                + r"[\w\s\d\=\-\"\':\+/\.]*(?=(\s\[profile )|\Z)"
+            )
 
             m = re.search(old_ivert_profile_search_regex, config_text)
         else:
@@ -598,7 +739,9 @@ def update_local_aws_config(aws_config_file: str,
         if m is None:
             config_text = str(config_text.rstrip("\n\r ")) + "\n\n" + new_ivert_profile
         else:
-            config_text = re.sub(old_ivert_profile_search_regex, new_ivert_profile, config_text, count=1)
+            config_text = re.sub(
+                old_ivert_profile_search_regex, new_ivert_profile, config_text, count=1
+            )
 
     # Get rid of excess newlines that may have accidentally been added in the Config file, which sometimes happens.
     config_text = config_text.rstrip("\n\r ").lstrip("\n\r ") + "\n"
@@ -614,8 +757,9 @@ def update_local_aws_config(aws_config_file: str,
     return
 
 
-def update_local_aws_credentials(aws_credentials_file: str,
-                                 args: argparse.Namespace) -> None:
+def update_local_aws_credentials(
+    aws_credentials_file: str, args: argparse.Namespace
+) -> None:
     """
     Update the AWS credentials file.
     """
@@ -634,40 +778,64 @@ def update_local_aws_credentials(aws_credentials_file: str,
     credentials_text_old = credentials_text
 
     # Find IAC profile if it already exists. If so, replace it. If not, add it.
-    for profile_id_string, access_key_id, secret_access_key, endpoint_url in \
-            [(args.ivert_import_profile, args.untrusted_access_key_id,
-              args.untrusted_secret_access_key, args.untrusted_endpoint_url),
-
-             (args.ivert_export_client_profile, args.export_client_access_key_id,
-              args.export_client_secret_access_key, args.export_client_endpoint_url),
-
-             (args.ivert_export_alt_profile, args.export_alt_access_key_id,
-              args.export_alt_secret_access_key, args.export_alt_endpoint_url),
-             ]:
-
+    for profile_id_string, access_key_id, secret_access_key, endpoint_url in [
+        (
+            args.ivert_import_profile,
+            args.untrusted_access_key_id,
+            args.untrusted_secret_access_key,
+            args.untrusted_endpoint_url,
+        ),
+        (
+            args.ivert_export_client_profile,
+            args.export_client_access_key_id,
+            args.export_client_secret_access_key,
+            args.export_client_endpoint_url,
+        ),
+        (
+            args.ivert_export_alt_profile,
+            args.export_alt_access_key_id,
+            args.export_alt_secret_access_key,
+            args.export_alt_endpoint_url,
+        ),
+    ]:
         new_ivert_profile_string = f"[{profile_id_string}]"
 
         # Old IVERT versions (<0.5.0) used "ivert_ingest" instead of "ivert_import_untrusted"
         # and "ivert_export" instead of "ivert_export_untrusted". Look for those.
-        if "[ivert_ingest]" in credentials_text and profile_id_string == args.ivert_import_profile:
+        if (
+            "[ivert_ingest]" in credentials_text
+            and profile_id_string == args.ivert_import_profile
+        ):
             old_ivert_profile_string = "[ivert_ingest]"
-        elif "[ivert_export]" in credentials_text and profile_id_string == args.ivert_export_client_profile:
+        elif (
+            "[ivert_export]" in credentials_text
+            and profile_id_string == args.ivert_export_client_profile
+        ):
             old_ivert_profile_string = "[ivert_export]"
         else:
             old_ivert_profile_string = new_ivert_profile_string
 
         # Create a new profile string for that profile.
-        new_ivert_profile = ("\n".join([new_ivert_profile_string,
-                                        f"aws_access_key_id = {access_key_id}",
-                                        f"aws_secret_access_key = {secret_access_key}"]) +
-                             (f"\nendpoint_url = {endpoint_url}" if endpoint_url else "") + "\n\n")
+        new_ivert_profile = (
+            "\n".join(
+                [
+                    new_ivert_profile_string,
+                    f"aws_access_key_id = {access_key_id}",
+                    f"aws_secret_access_key = {secret_access_key}",
+                ]
+            )
+            + (f"\nendpoint_url = {endpoint_url}" if endpoint_url else "")
+            + "\n\n"
+        )
 
         # Create a search regex for the complete text of the previous profile.
         if old_ivert_profile_string in credentials_text:
             # Try to find the entire profile string with all options, until either the end of the file or the next
             # profile string.
-            old_ivert_profile_search_regex = old_ivert_profile_string.replace(
-                "[", r"\[").replace("]", r"\]") + r"[\w\s\d\=\-\"\'\+/:\.]*(?=(\s\[)|\Z)"
+            old_ivert_profile_search_regex = (
+                old_ivert_profile_string.replace("[", r"\[").replace("]", r"\]")
+                + r"[\w\s\d\=\-\"\'\+/:\.]*(?=(\s\[)|\Z)"
+            )
 
             m = re.search(old_ivert_profile_search_regex, credentials_text)
         else:
@@ -676,9 +844,16 @@ def update_local_aws_credentials(aws_credentials_file: str,
 
         # If we found the profile, replace it. If not, add it.
         if m is None:
-            credentials_text = str(credentials_text.rstrip()) + "\n\n" + new_ivert_profile
+            credentials_text = (
+                str(credentials_text.rstrip()) + "\n\n" + new_ivert_profile
+            )
         else:
-            credentials_text = re.sub(old_ivert_profile_search_regex, new_ivert_profile, credentials_text, count=1)
+            credentials_text = re.sub(
+                old_ivert_profile_search_regex,
+                new_ivert_profile,
+                credentials_text,
+                count=1,
+            )
 
     # Get rid of excess newlines that may have accidentally been added in the Config file.
     credentials_text = credentials_text.rstrip("\n\r ").lstrip("\n\r ") + "\n"
@@ -741,23 +916,33 @@ def update_ivert_user_config(args: argparse.Namespace) -> None:
 
     # Update the aws_profile_ivert_import_untrusted in the user Config text, if needed.
     # If it's using a different profile name, then update it.
-    user_config_text = re.sub(r"aws_profile_ivert_import_untrusted\s*[=]\s*[\w\[\].-]+",
-                              f"aws_profile_ivert_import_untrusted = {args.ivert_import_profile}",
-                              user_config_text)
-    user_config_text = re.sub(r"aws_profile_ivert_export_client\s*[=]\s*[\w\[\].-]+",
-                              f"aws_profile_ivert_export_client = {args.ivert_export_client_profile}",
-                              user_config_text)
-    user_config_text = re.sub(r"aws_profile_ivert_export_alt\s*[=]\s*[\w\[\].-]+",
-                              f"aws_profile_ivert_export_alt = {args.ivert_export_alt_profile}",
-                              user_config_text)
+    user_config_text = re.sub(
+        r"aws_profile_ivert_import_untrusted\s*[=]\s*[\w\[\].-]+",
+        f"aws_profile_ivert_import_untrusted = {args.ivert_import_profile}",
+        user_config_text,
+    )
+    user_config_text = re.sub(
+        r"aws_profile_ivert_export_client\s*[=]\s*[\w\[\].-]+",
+        f"aws_profile_ivert_export_client = {args.ivert_export_client_profile}",
+        user_config_text,
+    )
+    user_config_text = re.sub(
+        r"aws_profile_ivert_export_alt\s*[=]\s*[\w\[\].-]+",
+        f"aws_profile_ivert_export_alt = {args.ivert_export_alt_profile}",
+        user_config_text,
+    )
 
     # Write the boolean flags for the user Config file. Overwrite any old ones.
-    user_config_text = re.sub(r"subscribe_to_sns\s*[=]\s*[\w\[\].-]+",
-                              f"subscribe_to_sns = {str(args.subscribe_to_sns)}",
-                              user_config_text)
-    user_config_text = re.sub(r"filter_sns_by_username\s*[=]\s*[\w\[\].-]+",
-                              f"filter_sns_by_username = {str(args.filter_sns)}",
-                              user_config_text)
+    user_config_text = re.sub(
+        r"subscribe_to_sns\s*[=]\s*[\w\[\].-]+",
+        f"subscribe_to_sns = {str(args.subscribe_to_sns)}",
+        user_config_text,
+    )
+    user_config_text = re.sub(
+        r"filter_sns_by_username\s*[=]\s*[\w\[\].-]+",
+        f"filter_sns_by_username = {str(args.filter_sns)}",
+        user_config_text,
+    )
 
     # Write the user Config file. Overwrite any old one.
     with open(user_config_file, "w") as f:
@@ -828,8 +1013,9 @@ def get_region_name_from_bucket_name(bucket_name: str) -> str:
     return "us-east-1"
 
 
-def define_and_parse_args(just_return_parser: bool = False,
-                          ignore_config_errors: bool = False):
+def define_and_parse_args(
+    just_return_parser: bool = False, ignore_config_errors: bool = False
+):
     """Define and parse command-line arguments."""
 
     global ivert_config
@@ -838,9 +1024,13 @@ def define_and_parse_args(just_return_parser: bool = False,
     if not ivert_config:
         ivert_config = configfile.Config(ignore_errors=ignore_config_errors)
     if not ivert_user_config_template:
-        ivert_user_config_template = configfile.Config(ivert_config.ivert_user_config_template)
+        ivert_user_config_template = configfile.Config(
+            ivert_config.ivert_user_config_template
+        )
 
-    parser = argparse.ArgumentParser(description="Change IVERT default settings on the local machine.")
+    parser = argparse.ArgumentParser(
+        description="Change IVERT default settings on the local machine."
+    )
     # TODO: Add options for setting local variables to your IVERT jobs and default directories.
 
     # No longer operating in "online" mode. Just offline (for now)

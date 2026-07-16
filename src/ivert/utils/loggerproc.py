@@ -1,4 +1,3 @@
-
 import io
 import multiprocessing as mp
 import sys
@@ -14,12 +13,14 @@ class LoggerProc(mp.Process):
     'include_terminal' argument. If True, print to the terminal as well as return in the logfile. If False, just write
     to the logfile (not to the terminal)."""
 
-    def __init__(self,
-                 target: callable,
-                 filename_out: str,
-                 args: typing.Union[typing.List, typing.Tuple, None] = None,
-                 kwargs: typing.Union[typing.Dict, None] = None,
-                 output_to_terminal: bool = False):
+    def __init__(
+        self,
+        target: callable,
+        filename_out: str,
+        args: typing.Union[typing.List, typing.Tuple, None] = None,
+        kwargs: typing.Union[typing.Dict, None] = None,
+        output_to_terminal: bool = False,
+    ):
 
         self.filename = filename_out
         self.target = target
@@ -46,8 +47,9 @@ class LoggerProc(mp.Process):
         from this object (see the mp.Process setup at the end of the __init__ method).
         """
         # Assign a logger to stdout and stderr in this sub-process. Then call the target function.
-        logger = Logger(filename=self.filename,
-                        output_to_terminal=self.output_to_terminal)
+        logger = Logger(
+            filename=self.filename, output_to_terminal=self.output_to_terminal
+        )
 
         # Redirect this process's stdout and stderr to the logger.
         sys.stdout = logger
@@ -67,9 +69,7 @@ class Logger(io.TextIOWrapper):
 
     At some point we may add support for logging stderr to a separate file."""
 
-    def __init__(self,
-                 filename: str,
-                 output_to_terminal: bool = True):
+    def __init__(self, filename: str, output_to_terminal: bool = True):
 
         self.output_to_terminal = output_to_terminal
         if self.output_to_terminal:
@@ -124,15 +124,29 @@ def dummy_test():
 
     var1 = "hello"
     kwvar2 = "world"
-    outfile = os.path.abspath(os.path.join("..", "scratch_data", "loggerproc_test_out.txt"))
+    outfile = os.path.abspath(
+        os.path.join("..", "scratch_data", "loggerproc_test_out.txt")
+    )
 
-    proc = LoggerProc(do_stuff, outfile, args=(var1,), kwargs={"barfoo": kwvar2}, output_to_terminal=False)
+    proc = LoggerProc(
+        do_stuff,
+        outfile,
+        args=(var1,),
+        kwargs={"barfoo": kwvar2},
+        output_to_terminal=False,
+    )
     proc.start()
     proc.join()
 
     print("Process 1 done! Now test with enabling terminal output.")
 
-    proc = LoggerProc(do_stuff, outfile, args=(var1,), kwargs={"barfoo": kwvar2}, output_to_terminal=True)
+    proc = LoggerProc(
+        do_stuff,
+        outfile,
+        args=(var1,),
+        kwargs={"barfoo": kwvar2},
+        output_to_terminal=True,
+    )
     proc.start()
     proc.join()
 

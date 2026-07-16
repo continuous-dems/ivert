@@ -3,7 +3,7 @@ import glob
 import os
 import sys
 
-if vars(sys.modules[__name__])['__package__'] == 'ivert':
+if vars(sys.modules[__name__])["__package__"] == "ivert":
     # When this is built a setup.py package, it names the modules 'ivert' and 'ivert_utils'. This reflects that.
     import ivert.client_job_upload as client_job_upload
     # import ivert.s3 as s3

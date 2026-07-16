@@ -17,14 +17,14 @@ import ivert.icesat2_database_v2
 import ivert.plot_validation_results as plot_validation_results
 import ivert.validate_dem as validate_dem
 import ivert.utils.query_yes_no as yes_no
-import ivert.utils.is_aws as is_aws
-import ivert.utils.configfile as configfile
 
 
-def write_summary_csv_file(total_results_df_or_file: pandas.DataFrame | str,
-                           list_of_empty_files: list[str] | tuple[str],
-                           csv_name: str,
-                           verbose: bool = True) -> pandas.DataFrame:
+def write_summary_csv_file(
+    total_results_df_or_file: pandas.DataFrame | str,
+    list_of_empty_files: list[str] | tuple[str],
+    csv_name: str,
+    verbose: bool = True,
+) -> pandas.DataFrame:
     """Write a summary csv of all the results in a collection, after they've been run."""
     if type(total_results_df_or_file) is str:
         total_df = pandas.read_hdf(total_results_df_or_file)
@@ -32,10 +32,10 @@ def write_summary_csv_file(total_results_df_or_file: pandas.DataFrame | str,
         assert isinstance(total_results_df_or_file, pandas.DataFrame)
         total_df = total_results_df_or_file
 
-    if 'filename' not in total_df.columns:
+    if "filename" not in total_df.columns:
         raise ValueError("total_df must have a 'filename' column.")
 
-    unique_files = total_df['filename'].unique().tolist()
+    unique_files = total_df["filename"].unique().tolist()
     all_filenames = list(unique_files) + list(list_of_empty_files)
     N = len(all_filenames)
 
@@ -45,17 +45,17 @@ def write_summary_csv_file(total_results_df_or_file: pandas.DataFrame | str,
     n_cells = numpy.empty((N,), dtype=int)
     photons_per_cell = numpy.empty((N,), dtype=float)
     # canopy_mean = numpy.empty((N,), dtype=float)
-    canopy_mean_gt0 = numpy.empty((N,), dtype=float)
+    # canopy_mean_gt0 = numpy.empty((N,), dtype=float)
 
     # Fill in the values
     for i, fname in enumerate(all_filenames):
         if fname in unique_files:
-            temp_df = total_df[total_df['filename'] == fname]
-            means[i] = temp_df['diff_mean'].mean()
-            stds[i] = temp_df['diff_mean'].std()
-            rmses[i] = (sum((temp_df['diff_mean'] ** 2)) / (len(temp_df) - 1)) ** 0.5
+            temp_df = total_df[total_df["filename"] == fname]
+            means[i] = temp_df["diff_mean"].mean()
+            stds[i] = temp_df["diff_mean"].std()
+            rmses[i] = (sum((temp_df["diff_mean"] ** 2)) / (len(temp_df) - 1)) ** 0.5
             n_cells[i] = len(temp_df)
-            photons_per_cell[i] = temp_df['numphotons_intd'].mean()
+            photons_per_cell[i] = temp_df["numphotons_intd"].mean()
             # canopy_mean[i] = temp_df['canopy_fraction'].mean()
             # canopy_mean_gt0[i] = temp_df[temp_df['canopy_fraction'] > 0]['canopy_fraction'].mean()
 
@@ -70,16 +70,18 @@ def write_summary_csv_file(total_results_df_or_file: pandas.DataFrame | str,
             # canopy_mean[i] = numpy.nan
             # canopy_mean_gt0[i] = numpy.nan
 
-    output_df = pandas.DataFrame(data={'filename': all_filenames,
-                                       "rmse": rmses,
-                                       "mean_bias": means,
-                                       "stddev_from_mean": stds,
-                                       "n_cells_validated": n_cells,
-                                       "mean_photons_per_cell": photons_per_cell,
-                                       # "canopy_mean": canopy_mean,
-                                       # "canopy_mean_gt0": canopy_mean_gt0
-                                       }
-                                 )
+    output_df = pandas.DataFrame(
+        data={
+            "filename": all_filenames,
+            "rmse": rmses,
+            "mean_bias": means,
+            "stddev_from_mean": stds,
+            "n_cells_validated": n_cells,
+            "mean_photons_per_cell": photons_per_cell,
+            # "canopy_mean": canopy_mean,
+            # "canopy_mean_gt0": canopy_mean_gt0
+        }
+    )
 
     output_df.to_csv(csv_name, index=False)
     if verbose:
@@ -88,27 +90,29 @@ def write_summary_csv_file(total_results_df_or_file: pandas.DataFrame | str,
     return output_df
 
 
-def validate_list_of_dems(dem_list_or_dir: str | list[str],
-                          classes: list[int] | tuple[int] = [1, 6, 40],
-                          output_dir: str | None = None,
-                          fname_filter: str | None = r"\.tif\Z",
-                          fname_omit: str | None = None,
-                          band_num: int = 1,
-                          input_vdatum: str | int | None = None,
-                          dem_ndv: float | None = None,
-                          overwrite: bool = False,
-                          place_name: str | None = None,
-                          create_individual_results: bool = True,
-                          delete_datafiles: bool = False,
-                          include_photon_validation: bool = True,
-                          write_result_tifs: bool = False,
-                          write_summary_csv: bool = True,
-                          measure_coverage: bool = False,
-                          outliers_sd_threshold: float = 2.5,
-                          min_confidence_level: int = 1,
-                          min_bathy_confidence: float = 0.75,
-                          export_error_formats: str | list | None = None,
-                          verbose: bool = True):
+def validate_list_of_dems(
+    dem_list_or_dir: str | list[str],
+    classes: list[int] | tuple[int] = [1, 6, 40],
+    output_dir: str | None = None,
+    fname_filter: str | None = r"\.tif\Z",
+    fname_omit: str | None = None,
+    band_num: int = 1,
+    input_vdatum: str | int | None = None,
+    dem_ndv: float | None = None,
+    overwrite: bool = False,
+    place_name: str | None = None,
+    create_individual_results: bool = True,
+    delete_datafiles: bool = False,
+    include_photon_validation: bool = True,
+    write_result_tifs: bool = False,
+    write_summary_csv: bool = True,
+    measure_coverage: bool = False,
+    outliers_sd_threshold: float = 2.5,
+    min_confidence_level: int = 1,
+    min_bathy_confidence: float = 0.75,
+    export_error_formats: str | list | None = None,
+    verbose: bool = True,
+):
     """Take a list of DEMs, presumably in a single area, and output validation files for those DEMs.
 
     DEMs should encompass a contiguous area so as to use the same set of ICESat-2 granules for
@@ -116,76 +120,106 @@ def validate_list_of_dems(dem_list_or_dir: str | list[str],
     if output_dir is None:
         if isinstance(dem_list_or_dir, str) and os.path.isdir(dem_list_or_dir):
             stats_and_plots_dir = dem_list_or_dir
-        elif type(dem_list_or_dir) == str:
+        elif type(dem_list_or_dir) is str:
             stats_and_plots_dir = os.path.dirname(dem_list_or_dir)
         else:
-            dem_list_fitting_filter = [fn for fn in dem_list_or_dir if
-                                       (((fname_filter is None) or (
-                                                   re.search(fname_filter, os.path.split(fn)[1]) is not None))
-                                        and
-                                        ((fname_omit is None) or (
-                                                    re.search(fname_omit, os.path.split(fn)[1]) is None)))]
+            dem_list_fitting_filter = [
+                fn
+                for fn in dem_list_or_dir
+                if (
+                    (
+                        (fname_filter is None)
+                        or (re.search(fname_filter, os.path.split(fn)[1]) is not None)
+                    )
+                    and (
+                        (fname_omit is None)
+                        or (re.search(fname_omit, os.path.split(fn)[1]) is None)
+                    )
+                )
+            ]
             stats_and_plots_dir = os.path.dirname(dem_list_fitting_filter[0])
     else:
         if os.path.isdir(output_dir):
             stats_and_plots_dir = output_dir
         else:
             # If the output dir appears to be a relative path, then join it with the input dir.
-            if type(dem_list_or_dir) == str:
-                stats_and_plots_dir = os.path.join(os.path.dirname(dem_list_or_dir), output_dir)
+            if type(dem_list_or_dir) is str:
+                stats_and_plots_dir = os.path.join(
+                    os.path.dirname(dem_list_or_dir), output_dir
+                )
             else:
-                dem_list_fitting_filter = [fn for fn in dem_list_or_dir if
-                                           (((fname_filter is None) or (
-                                                       re.search(fname_filter, os.path.split(fn)[1]) is not None))
-                                            and
-                                            ((fname_omit is None) or (
-                                                        re.search(fname_omit, os.path.split(fn)[1]) is None)))]
-                stats_and_plots_dir = os.path.join(os.path.dirname(dem_list_fitting_filter[0]), output_dir)
+                dem_list_fitting_filter = [
+                    fn
+                    for fn in dem_list_or_dir
+                    if (
+                        (
+                            (fname_filter is None)
+                            or (
+                                re.search(fname_filter, os.path.split(fn)[1])
+                                is not None
+                            )
+                        )
+                        and (
+                            (fname_omit is None)
+                            or (re.search(fname_omit, os.path.split(fn)[1]) is None)
+                        )
+                    )
+                ]
+                stats_and_plots_dir = os.path.join(
+                    os.path.dirname(dem_list_fitting_filter[0]), output_dir
+                )
 
     # If a place name wasn't provided, just use "summary_results"
     if place_name is None:
         stats_and_plots_base = "summary_results"
     else:
         # Remove any problematic characters from the place name to create a file name.
-        stats_and_plots_base = (place_name.replace(" ", "_")
-                                .replace("/", "_")
-                                .replace(":", "_")
-                                .replace("|", "_")
-                                .replace("\\", "_")
-                                .replace("?", "_")
-                                .replace("*", "_")
-                                .replace("<", "_")
-                                .replace(">", "_")
-                                .replace("\"", "_")
-                                .replace("'", "_")
-                                .replace("`", "_")
-                                .replace("!", "_")
-                                .replace("@", "_")
-                                .replace("#", "_")
-                                .replace("$", "_")
-                                .replace("%", "_")
-                                .replace("^", "_")
-                                .replace("&", "_")
-                                .replace("(", "_")
-                                .replace(")", "_")
-                                .replace("+", "_")
-                                .replace("=", "_")
-                                .replace("{", "_")
-                                .replace("}", "_")
-                                .replace("[", "_")
-                                .replace("]", "_")
-                                .replace(";", "_")
-                                .replace(",", "_")
-                                .replace("/", "_")
-                                .replace("__", "_") + "_results").replace("__", "_")
+        stats_and_plots_base = (
+            place_name.replace(" ", "_")
+            .replace("/", "_")
+            .replace(":", "_")
+            .replace("|", "_")
+            .replace("\\", "_")
+            .replace("?", "_")
+            .replace("*", "_")
+            .replace("<", "_")
+            .replace(">", "_")
+            .replace('"', "_")
+            .replace("'", "_")
+            .replace("`", "_")
+            .replace("!", "_")
+            .replace("@", "_")
+            .replace("#", "_")
+            .replace("$", "_")
+            .replace("%", "_")
+            .replace("^", "_")
+            .replace("&", "_")
+            .replace("(", "_")
+            .replace(")", "_")
+            .replace("+", "_")
+            .replace("=", "_")
+            .replace("{", "_")
+            .replace("}", "_")
+            .replace("[", "_")
+            .replace("]", "_")
+            .replace(";", "_")
+            .replace(",", "_")
+            .replace("/", "_")
+            .replace("__", "_")
+            + "_results"
+        ).replace("__", "_")
 
-
-    statsfile_name = os.path.join(stats_and_plots_dir, stats_and_plots_base.replace("_results",
-                                                                                    "_summary_stats") + ".txt")
-    plot_file_name = os.path.join(stats_and_plots_dir, stats_and_plots_base.replace("_results",
-                                                                                    "_plot") + ".png")
-    csv_name = os.path.join(stats_and_plots_dir, stats_and_plots_base.replace("_results",
-                                                                              "_individual_results") + ".csv")
+    statsfile_name = os.path.join(
+        stats_and_plots_dir,
+        stats_and_plots_base.replace("_results", "_summary_stats") + ".txt",
+    )
+    plot_file_name = os.path.join(
+        stats_and_plots_dir, stats_and_plots_base.replace("_results", "_plot") + ".png"
+    )
+    csv_name = os.path.join(
+        stats_and_plots_dir,
+        stats_and_plots_base.replace("_results", "_individual_results") + ".csv",
+    )
     results_h5 = os.path.join(stats_and_plots_dir, stats_and_plots_base + ".h5")
 
     # If the .h5 results file already exists but not the other files, just
@@ -197,27 +231,29 @@ def validate_list_of_dems(dem_list_or_dir: str | list[str],
             results_df = pandas.read_hdf(results_h5)
             if verbose:
                 print(results_df, "read.")
-            validate_dem.write_summary_stats_file(results_df,
-                                                  statsfile_name,
-                                                  verbose=verbose)
+            validate_dem.write_summary_stats_file(
+                results_df, statsfile_name, verbose=verbose
+            )
 
         if not os.path.exists(plot_file_name):
             if results_df is None:
                 results_df = pandas.read_hdf(results_h5)
                 if verbose:
                     print(results_df, "read.")
-            plot_validation_results.plot_histograms_and_line(results_df,
-                                                             plot_file_name,
-                                                             place_name=place_name,
-                                                             verbose=verbose)
+            plot_validation_results.plot_histograms_and_line(
+                results_df, plot_file_name, place_name=place_name, verbose=verbose
+            )
 
         if (results_df is None) and verbose:
-            print("Files '" + results_h5 + "',",
-                  "'" + statsfile_name + "', and '",
-                  plot_file_name + "' are all already written. There's nothing left to do here.\n",
-                  "To recompute them, run with --overwrite enabled, or delete output files as needed and re-run to "
-                  "create them again.\n",
-                  "Exiting.")
+            print(
+                "Files '" + results_h5 + "',",
+                "'" + statsfile_name + "', and '",
+                plot_file_name
+                + "' are all already written. There's nothing left to do here.\n",
+                "To recompute them, run with --overwrite enabled, or delete output files as needed and re-run to "
+                "create them again.\n",
+                "Exiting.",
+            )
         return
 
     path = dem_list_or_dir
@@ -256,7 +292,14 @@ def validate_list_of_dems(dem_list_or_dir: str | list[str],
     # For each DEM, validate it.
     for i, dem_path in enumerate(dem_list):
         if verbose:
-            print("\n=======", os.path.split(dem_path)[1], "(" + str(i + 1), "of", str(len(dem_list)) + ")", "=======")
+            print(
+                "\n=======",
+                os.path.split(dem_path)[1],
+                "(" + str(i + 1),
+                "of",
+                str(len(dem_list)) + ")",
+                "=======",
+            )
 
         if output_dir is None:
             this_output_dir = os.path.split(dem_path)[0]
@@ -268,7 +311,10 @@ def validate_list_of_dems(dem_list_or_dir: str | list[str],
             if not os.path.exists(this_output_dir):
                 os.mkdir(this_output_dir)
 
-        results_h5_file = os.path.join(this_output_dir, os.path.splitext(os.path.split(dem_path)[1])[0] + "_results.h5")
+        results_h5_file = os.path.join(
+            this_output_dir,
+            os.path.splitext(os.path.split(dem_path)[1])[0] + "_results.h5",
+        )
         empty_fname = results_h5_file.replace("_results.h5", "_results_EMPTY.txt")
 
         try:
@@ -276,28 +322,30 @@ def validate_list_of_dems(dem_list_or_dir: str | list[str],
             # Do the validation.
             # Note: We automatically skip the icesat-2 download here because we already downloaded it above for the
             # whole directory.
-            validate_dem.validate_dem(dem_path,
-                                      output_dir,
-                                      classes=classes,
-                                      band_num=band_num,
-                                      shared_ret_values=shared_ret_values,
-                                      icesat2_photon_database_obj=photon_db_obj,
-                                      dem_vertical_datum=input_vdatum,
-                                      dem_ndv=dem_ndv,
-                                      interim_data_dir=this_output_dir,
-                                      overwrite=overwrite,
-                                      delete_datafiles=delete_datafiles,
-                                      write_result_tifs=write_result_tifs,
-                                      write_summary_stats=create_individual_results,
-                                      include_photon_level_validation=include_photon_validation,
-                                      plot_results=create_individual_results,
-                                      outliers_sd_threshold=outliers_sd_threshold,
-                                      mark_empty_results=True,
-                                      measure_coverage=measure_coverage,
-                                      min_confidence_level=min_confidence_level,
-                                      min_bathy_confidence=min_bathy_confidence,
-                                      export_error_formats=export_error_formats,
-                                      verbose=verbose)
+            validate_dem.validate_dem(
+                dem_path,
+                output_dir,
+                classes=classes,
+                band_num=band_num,
+                shared_ret_values=shared_ret_values,
+                icesat2_photon_database_obj=photon_db_obj,
+                dem_vertical_datum=input_vdatum,
+                dem_ndv=dem_ndv,
+                interim_data_dir=this_output_dir,
+                overwrite=overwrite,
+                delete_datafiles=delete_datafiles,
+                write_result_tifs=write_result_tifs,
+                write_summary_stats=create_individual_results,
+                include_photon_level_validation=include_photon_validation,
+                plot_results=create_individual_results,
+                outliers_sd_threshold=outliers_sd_threshold,
+                mark_empty_results=True,
+                measure_coverage=measure_coverage,
+                min_confidence_level=min_confidence_level,
+                min_bathy_confidence=min_bathy_confidence,
+                export_error_formats=export_error_formats,
+                verbose=verbose,
+            )
         except MemoryError:
             if verbose:
                 print(f"Skipping {os.path.basename(dem_path)} due to memory error.")
@@ -308,7 +356,9 @@ def validate_list_of_dems(dem_list_or_dir: str | list[str],
 
         except Exception:
             if verbose:
-                print(f"Skipping {os.path.basename(dem_path)}: {traceback.format_exc()}")
+                print(
+                    f"Skipping {os.path.basename(dem_path)}: {traceback.format_exc()}"
+                )
             continue
 
         files_to_export.extend(list(shared_ret_values.values()))
@@ -318,21 +368,6 @@ def validate_list_of_dems(dem_list_or_dir: str | list[str],
 
         elif os.path.exists(empty_fname):
             list_of_empty_files.append(empty_fname)
-
-
-        # On the IVERT server, the local EC2 instance has limited disk space. If it's more than the maximnum disk usage
-        # threshold outlined in ivert_config, clean it up. BUT ONLY IF IT'S AN AWS INSTANCE AND
-        # NO OTHER JOBS BESIDES THIS ONE ARE RUNNING.
-        ivert_config = configfile.get_ivert_config()
-        if is_aws.is_aws() and \
-                clean_ivert_files.disk_usage_pct() >= ivert_config.ivert_disk_usage_max_percent and \
-                len(ivert_jobs.list_running_ivert_jobs()) <= 1:
-
-            if verbose:
-                print(f"Disk usage is over {ivert_config.ivert_disk_usage_max_percent:0.1f}%. Cleaning up...")
-            clean_ivert_files.delete_local_photon_tiles(ivert_config, verbose=verbose)
-            clean_ivert_files.clean_cudem_cache(ivert_config, False, verbose=verbose)
-
 
     # An extra newline is appreciated here just for readability's sake.
     if verbose:
@@ -344,24 +379,29 @@ def validate_list_of_dems(dem_list_or_dir: str | list[str],
         return
 
     # Generate the overall summary stats file.
-    total_results_df = plot_validation_results.get_data_from_h5_or_list(list_of_results_dfs,
-                                                                        orig_filenames=dem_list,
-                                                                        include_filenames=True,
-                                                                        verbose=verbose)
+    total_results_df = plot_validation_results.get_data_from_h5_or_list(
+        list_of_results_dfs,
+        orig_filenames=dem_list,
+        include_filenames=True,
+        verbose=verbose,
+    )
 
     if write_summary_csv:
-        write_summary_csv_file(total_results_df, list_of_empty_files, csv_name, verbose=verbose)
+        write_summary_csv_file(
+            total_results_df, list_of_empty_files, csv_name, verbose=verbose
+        )
         files_to_export.append(csv_name)
 
     # Output the statistics summary file.
-    validate_dem.write_summary_stats_file(total_results_df, statsfile_name, verbose=verbose)
+    validate_dem.write_summary_stats_file(
+        total_results_df, statsfile_name, verbose=verbose
+    )
     files_to_export.append(statsfile_name)
 
     # Output the validation results plot.
-    plot_validation_results.plot_histograms_and_line(total_results_df,
-                                                     plot_file_name,
-                                                     place_name=place_name,
-                                                     verbose=verbose)
+    plot_validation_results.plot_histograms_and_line(
+        total_results_df, plot_file_name, place_name=place_name, verbose=verbose
+    )
     files_to_export.append(plot_file_name)
 
     if results_h5 is not None:
@@ -375,42 +415,80 @@ def validate_list_of_dems(dem_list_or_dir: str | list[str],
 
 def define_and_parse_args():
     parser = argparse.ArgumentParser(
-        description="Tool for validating a list or directory of DEMs against ICESat-2 photon data.")
+        description="Tool for validating a list or directory of DEMs against ICESat-2 photon data."
+    )
 
-    parser.add_argument("directory_or_files", type=str, nargs='+',
-                        help="A directory path, or a list of individual DEM tiles. Defaults to the same as the input "
-                             "directory, or the directory in which the first DEM resides.")
+    parser.add_argument(
+        "directory_or_files",
+        type=str,
+        nargs="+",
+        help="A directory path, or a list of individual DEM tiles. Defaults to the same as the input "
+        "directory, or the directory in which the first DEM resides.",
+    )
 
-    parser.add_argument("--fname_filter", "-ff", type=str, default=r"\.tif\Z",
-                        help=r"A regex string to search for in all DEM file names, to use as a filter. Defaults to "
-                             "r'\\.tif\\Z', indicating .tif at the end of the file name. Helps elimiate files that "
-                             "shouldn't be considered.")
+    parser.add_argument(
+        "--fname_filter",
+        "-ff",
+        type=str,
+        default=r"\.tif\Z",
+        help=r"A regex string to search for in all DEM file names, to use as a filter. Defaults to "
+        "r'\\.tif\\Z', indicating .tif at the end of the file name. Helps elimiate files that "
+        "shouldn't be considered.",
+    )
 
-    parser.add_argument("--fname_omit", "-fo", type=str, default=None,
-                        help="A regex string to search for and OMIT if it contains a match in the file name. Useful "
-                             "for avoiding derived datasets (such as converted DEMs) in the folder.")
+    parser.add_argument(
+        "--fname_omit",
+        "-fo",
+        type=str,
+        default=None,
+        help="A regex string to search for and OMIT if it contains a match in the file name. Useful "
+        "for avoiding derived datasets (such as converted DEMs) in the folder.",
+    )
 
-    parser.add_argument("--output_dir", "-od", type=str, default=None,
-                        help="Directory to output results. Default to the a sub-directory named 'icesat2' within the "
-                             "input directory.")
+    parser.add_argument(
+        "--output_dir",
+        "-od",
+        type=str,
+        default=None,
+        help="Directory to output results. Default to the a sub-directory named 'icesat2' within the "
+        "input directory.",
+    )
 
-    parser.add_argument("--input_vdatum", "-ivd", default="egm2008",
-                        help="The vertical datum of the input DEMs. "
-                             "Default: 'egm2008'")
+    parser.add_argument(
+        "--input_vdatum",
+        "-ivd",
+        default="egm2008",
+        help="The vertical datum of the input DEMs. Default: 'egm2008'",
+    )
 
-    parser.add_argument("--place_name", "-name", type=str, default=None,
-                        help="Readable name of the location being validated. Will be used in output summary plots and "
-                             "validation report.")
+    parser.add_argument(
+        "--place_name",
+        "-name",
+        type=str,
+        default=None,
+        help="Readable name of the location being validated. Will be used in output summary plots and "
+        "validation report.",
+    )
 
-    parser.add_argument("--overwrite", "-o", action="store_true", default=False,
-                        help="Overwrite all files, including intermittent data files. Default: False "
-                             "(skips re-computing already-computed reseults.")
+    parser.add_argument(
+        "--overwrite",
+        "-o",
+        action="store_true",
+        default=False,
+        help="Overwrite all files, including intermittent data files. Default: False "
+        "(skips re-computing already-computed reseults.",
+    )
 
-    parser.add_argument("-cf", "--create_folders", dest="create_folders",
-                        type=yes_no.interpret_yes_no, default=True,
-                        help="Create folders specified in -output_dir and -data_dir, as well as the full path to "
-                             "-photon_h5, if they do not already exist. Otherwise will raise errors if directories "
-                             "don't already exist. Default: True.")
+    parser.add_argument(
+        "-cf",
+        "--create_folders",
+        dest="create_folders",
+        type=yes_no.interpret_yes_no,
+        default=True,
+        help="Create folders specified in -output_dir and -data_dir, as well as the full path to "
+        "-photon_h5, if they do not already exist. Otherwise will raise errors if directories "
+        "don't already exist. Default: True.",
+    )
 
     # parser.add_argument("-mob", "--mask_osm_buildings", dest="mask_osm_buildings",
     #                     type=yes_no.interpret_yes_no, default=True,
@@ -437,38 +515,72 @@ def define_and_parse_args():
     #                     help="Whether to make out lakes, using Hydrolakes and the National Hydrologic Dataset. "
     #                          "(Default: True)")
 
-    parser.add_argument("-ind", "--individual_results", dest="individual_results",
-                        type=yes_no.interpret_yes_no, default=True,
-                        help="By default, a summary plot and text file are generated for the dataset. If this is "
-                             "selected, they will be generated for each individual DEM as well. Files will be placed "
-                             "in the -output_dir directory. Default: True")
+    parser.add_argument(
+        "-ind",
+        "--individual_results",
+        dest="individual_results",
+        type=yes_no.interpret_yes_no,
+        default=True,
+        help="By default, a summary plot and text file are generated for the dataset. If this is "
+        "selected, they will be generated for each individual DEM as well. Files will be placed "
+        "in the -output_dir directory. Default: True",
+    )
 
-    parser.add_argument("--include_photon_validation", "-ph", action="store_true", default=False,
-                        help="Produce a photon database (stored in '*_photon_level_results.h5') with errors on a "
-                             "photon-level (not cell-level) scale. Useful for identifying bad ICESat-2 granules.")
+    parser.add_argument(
+        "--include_photon_validation",
+        "-ph",
+        action="store_true",
+        default=False,
+        help="Produce a photon database (stored in '*_photon_level_results.h5') with errors on a "
+        "photon-level (not cell-level) scale. Useful for identifying bad ICESat-2 granules.",
+    )
 
-    parser.add_argument("--delete_datafiles", "-del", action="store_true", default=False,
-                        help="By default, all data files generted in this process are kept. If this option is chosen, "
-                             "delete them.")
+    parser.add_argument(
+        "--delete_datafiles",
+        "-del",
+        action="store_true",
+        default=False,
+        help="By default, all data files generted in this process are kept. If this option is chosen, "
+        "delete them.",
+    )
 
-    parser.add_argument("--outlier_sd_threshold", default="2.5",
-                        help="Number of standard-deviations away from the mean to omit outliers. Default 2.5. "
-                             "May choose 'None' if no filtering is requested.")
+    parser.add_argument(
+        "--outlier_sd_threshold",
+        default="2.5",
+        help="Number of standard-deviations away from the mean to omit outliers. Default 2.5. "
+        "May choose 'None' if no filtering is requested.",
+    )
 
-    parser.add_argument("--measure_coverage", "-mc", action="store_true", default=False,
-                        help="Measure the coverage %age of icesat-2 data in each of the output DEM cells.")
+    parser.add_argument(
+        "--measure_coverage",
+        "-mc",
+        action="store_true",
+        default=False,
+        help="Measure the coverage %age of icesat-2 data in each of the output DEM cells.",
+    )
 
-    parser.add_argument("-wrt", "--write_result_tifs", dest="write_result_tifs",
-                        type=yes_no.interpret_yes_no, default=True,
-                        help="Write output geotiff with the errors in cells that have ICESat-2 photons, "
-                             "NDVs elsewhere. Default: True")
+    parser.add_argument(
+        "-wrt",
+        "--write_result_tifs",
+        dest="write_result_tifs",
+        type=yes_no.interpret_yes_no,
+        default=True,
+        help="Write output geotiff with the errors in cells that have ICESat-2 photons, "
+        "NDVs elsewhere. Default: True",
+    )
 
-    parser.add_argument("-wsc", "--write_summary_csv", dest="write_summary_csv",
-                        type=yes_no.interpret_yes_no, default=True,
-                        help="Write a CSV with summary results of each individual DEM.")
+    parser.add_argument(
+        "-wsc",
+        "--write_summary_csv",
+        dest="write_summary_csv",
+        type=yes_no.interpret_yes_no,
+        default=True,
+        help="Write a CSV with summary results of each individual DEM.",
+    )
 
-    parser.add_argument("--quiet", "-q", action="store_true", default=False,
-                        help="Suppress output.")
+    parser.add_argument(
+        "--quiet", "-q", action="store_true", default=False, help="Suppress output."
+    )
 
     return parser.parse_args()
 
@@ -484,7 +596,7 @@ def main():
         else:
             args.output_dir = os.path.join(os.path.split(path)[0], "icesat2")
 
-        assert type(args.output_dir) == str
+        assert type(args.output_dir) is str
 
     if (type(args.fname_filter) in (list, tuple)) and (len(args.fname_filter) == 1):
         args.fname_filter = args.fname_filter[0]
@@ -496,8 +608,10 @@ def main():
         if args.create_folders:
             os.makedirs(output_dir)
         else:
-            raise FileNotFoundError(f"Output directory '{args.output_dir}' does not exist. "
-                                    "Create directory or use the --create_folders flag upon execution.")
+            raise FileNotFoundError(
+                f"Output directory '{args.output_dir}' does not exist. "
+                "Create directory or use the --create_folders flag upon execution."
+            )
 
     # NOTE: This code assumes that if we create the directory here, it will
     # not be erased before the code gets to putting files there later. Seems
@@ -506,28 +620,30 @@ def main():
     # the program to crash when it tries to write files there. That's a user error.
 
     # Set up multiprocessing. 'spawn' is the slowest but the most reliable. Otherwise, file handlers are fucking us up.
-    mp.set_start_method('spawn')
+    mp.set_start_method("spawn")
 
-    validate_list_of_dems(args.directory_or_files,
-                          fname_filter=args.fname_filter,
-                          fname_omit=args.fname_omit,
-                          output_dir=args.output_dir,
-                          input_vdatum=args.input_vdatum,
-                          overwrite=args.overwrite,
-                          place_name=args.place_name,
-                          create_individual_results=args.individual_results,
-                          delete_datafiles=args.delete_datafiles,
-                          include_photon_validation=args.include_photon_validation,
-                          write_result_tifs=args.write_result_tifs,
-                          # mask_osm_buildings=args.mask_osm_buildings,
-                          # mask_bing_buildings=args.mask_bing_buildings,
-                          # mask_wsf_urban=args.mask_wsf_urban,
-                          # mask_out_lakes=args.mask_lakes,
-                          # omit_bad_granules=True,
-                          measure_coverage=args.measure_coverage,
-                          write_summary_csv=args.write_summary_csv,
-                          outliers_sd_threshold=ast.literal_eval(args.outlier_sd_threshold),
-                          verbose=not args.quiet)
+    validate_list_of_dems(
+        args.directory_or_files,
+        fname_filter=args.fname_filter,
+        fname_omit=args.fname_omit,
+        output_dir=args.output_dir,
+        input_vdatum=args.input_vdatum,
+        overwrite=args.overwrite,
+        place_name=args.place_name,
+        create_individual_results=args.individual_results,
+        delete_datafiles=args.delete_datafiles,
+        include_photon_validation=args.include_photon_validation,
+        write_result_tifs=args.write_result_tifs,
+        # mask_osm_buildings=args.mask_osm_buildings,
+        # mask_bing_buildings=args.mask_bing_buildings,
+        # mask_wsf_urban=args.mask_wsf_urban,
+        # mask_out_lakes=args.mask_lakes,
+        # omit_bad_granules=True,
+        measure_coverage=args.measure_coverage,
+        write_summary_csv=args.write_summary_csv,
+        outliers_sd_threshold=ast.literal_eval(args.outlier_sd_threshold),
+        verbose=not args.quiet,
+    )
 
 
 if __name__ == "__main__":

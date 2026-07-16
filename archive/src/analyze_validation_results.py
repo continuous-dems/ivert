@@ -37,24 +37,57 @@ def plot_analysis(photon_h5_name):
     print("All:", len(errors), "photons,", numpy.mean(errors), "+/-", numpy.std(errors))
     print("By quality_ph:")
     ph0_errors = errors[df.quality_ph == 0]
-    print("\t0:", len(ph0_errors), "photons,",  numpy.mean(ph0_errors), "+/-", numpy.std(ph0_errors))
+    print(
+        "\t0:",
+        len(ph0_errors),
+        "photons,",
+        numpy.mean(ph0_errors),
+        "+/-",
+        numpy.std(ph0_errors),
+    )
     ph1_errors = errors[df.quality_ph == 1]
-    print("\t1:", len(ph1_errors), "photons,", numpy.mean(ph1_errors), "+/-", numpy.std(ph1_errors))
+    print(
+        "\t1:",
+        len(ph1_errors),
+        "photons,",
+        numpy.mean(ph1_errors),
+        "+/-",
+        numpy.std(ph1_errors),
+    )
     ph2_errors = errors[df.quality_ph == 2]
-    print("\t2:", len(ph2_errors), "photons,", numpy.mean(ph2_errors), "+/-", numpy.std(ph2_errors))
+    print(
+        "\t2:",
+        len(ph2_errors),
+        "photons,",
+        numpy.mean(ph2_errors),
+        "+/-",
+        numpy.std(ph2_errors),
+    )
 
     print("By conf_land:")
     for val in numpy.unique(df.conf_land):
         c0_errors = errors[df.conf_land == val]
-        print("\t{0}:".format(val), len(c0_errors), "photons,",  numpy.mean(c0_errors), "+/-", numpy.std(c0_errors))
+        print(
+            "\t{0}:".format(val),
+            len(c0_errors),
+            "photons,",
+            numpy.mean(c0_errors),
+            "+/-",
+            numpy.std(c0_errors),
+        )
+
 
 def define_and_parse_args():
-    parser = argparse.ArgumentParser(description="Break down validation results into different photon categories. Just to see.")
-    parser.add_argument("photon_file", help="The photon_level_results.h5 file we want to analyze.")
+    parser = argparse.ArgumentParser(
+        description="Break down validation results into different photon categories. Just to see."
+    )
+    parser.add_argument(
+        "photon_file", help="The photon_level_results.h5 file we want to analyze."
+    )
 
     return parser.parse_args()
+
 
 if __name__ == "__main__":
     args = define_and_parse_args()
     plot_analysis(args.photon_file)
-

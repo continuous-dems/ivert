@@ -1,8 +1,6 @@
 """A helper utility for listing all photon tiles in an S3 bucket."""
 
 import os
-import re
-import sys
 
 import argparse
 
@@ -27,8 +25,16 @@ def write_photon_tiles_to_file(outfile: str):
     else:
         dirname = ivert_config.icesat2_photon_tiles_directory
         # Get rid of any subdirectories listed.
-        fnames = sorted([fn for fn in os.listdir(dirname)
-                         if ((not os.path.isdir(os.path.join(dirname, fn))) and fn.startswith("photon_tile"))])
+        fnames = sorted(
+            [
+                fn
+                for fn in os.listdir(dirname)
+                if (
+                    (not os.path.isdir(os.path.join(dirname, fn)))
+                    and fn.startswith("photon_tile")
+                )
+            ]
+        )
 
     with open(outfile, "w") as f:
         for fn in fnames:
@@ -39,10 +45,13 @@ def write_photon_tiles_to_file(outfile: str):
 
 def define_and_parse_args():
     """Define and parse command line arguments."""
-    parser = argparse.ArgumentParser(description="List all photon tiles in an S3 bucket and write out to a file.")
+    parser = argparse.ArgumentParser(
+        description="List all photon tiles in an S3 bucket and write out to a file."
+    )
     parser.add_argument("outfile", help="The name of the output file.")
 
     return parser.parse_args()
+
 
 if __name__ == "__main__":
     args = define_and_parse_args()

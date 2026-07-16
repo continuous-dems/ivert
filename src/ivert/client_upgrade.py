@@ -2,7 +2,6 @@
 
 import shlex
 import subprocess
-import sys
 
 import ivert.utils.configfile as configfile
 

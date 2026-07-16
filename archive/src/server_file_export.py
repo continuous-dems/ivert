@@ -1,4 +1,3 @@
-
 import os
 import re
 
@@ -30,9 +29,11 @@ class IvertExporter:
     This is it its own separate class & module because it's used by several other modules in the code hierarchy.
     """
 
-    def __init__(self,
-                 s3_manager: typing.Union[s3.S3Manager, None] = None,
-                 jobs_db: typing.Union[jobs_database.JobsDatabaseServer, None] = None):
+    def __init__(
+        self,
+        s3_manager: typing.Union[s3.S3Manager, None] = None,
+        jobs_db: typing.Union[jobs_database.JobsDatabaseServer, None] = None,
+    ):
         if s3_manager:
             self.s3m = s3_manager
         else:
@@ -43,12 +44,14 @@ class IvertExporter:
         else:
             self.jobs_db = jobs_database.JobsDatabaseServer()
 
-    def upload_file_to_export_bucket(self,
-                                     job_name_or_id: typing.Union[str, int],
-                                     fname: str,
-                                     username: typing.Union[str, None] = None,
-                                     overwrite: bool = False,
-                                     upload_to_s3: bool = True) -> None:
+    def upload_file_to_export_bucket(
+        self,
+        job_name_or_id: typing.Union[str, int],
+        fname: str,
+        username: typing.Union[str, None] = None,
+        overwrite: bool = False,
+        upload_to_s3: bool = True,
+    ) -> None:
         """When exporting a file, upload it here and update the file's status in the database.
 
         Args:
@@ -66,18 +69,23 @@ class IvertExporter:
         if type(job_name_or_id) is int or str.isnumeric(job_name_or_id):
             username = username
             if username is None:
-                raise ValueError("username must be specified if job_name_or_id is an integer.")
+                raise ValueError(
+                    "username must be specified if job_name_or_id is an integer."
+                )
             job_id = int(job_name_or_id)
         else:
             job_id = get_job_id(job_name_or_id)
             username = get_username(job_name_or_id)
 
-        export_prefix = self.jobs_db.populate_export_prefix_if_not_set(username,
-                                                                       job_id,
-                                                                       increment_vnum=False,
-                                                                       upload_to_s3=False)
+        export_prefix = self.jobs_db.populate_export_prefix_if_not_set(
+            username, job_id, increment_vnum=False, upload_to_s3=False
+        )
 
-        f_key = export_prefix + ("" if export_prefix.endswith("/") else "/") + os.path.basename(fname)
+        f_key = (
+            export_prefix
+            + ("" if export_prefix.endswith("/") else "/")
+            + os.path.basename(fname)
+        )
 
         # Determine which export bucket we're using.
         if self.s3m.config.use_export_alt_bucket:
@@ -86,15 +94,23 @@ class IvertExporter:
             bucket_type = "export_server"
 
         # Upload the file, only if it doesn't already exist in the export bucket.
-        if overwrite or not self.s3m.exists(f_key, bucket_type=bucket_type, return_head=False):
+        if overwrite or not self.s3m.exists(
+            f_key, bucket_type=bucket_type, return_head=False
+        ):
             self.s3m.upload(fname, f_key, bucket_type=bucket_type)
 
         # Add an export file entry into the database for this job.
         if self.jobs_db.file_exists(username, job_id, fname):
-            self.jobs_db.update_file_statistics(username, job_id, fname, new_status="uploaded",
-                                                upload_to_s3=upload_to_s3)
+            self.jobs_db.update_file_statistics(
+                username,
+                job_id,
+                fname,
+                new_status="uploaded",
+                upload_to_s3=upload_to_s3,
+            )
         else:
-            self.jobs_db.create_new_file_record(fname, job_id, username, 1, status="uploaded",
-                                                upload_to_s3=upload_to_s3)
+            self.jobs_db.create_new_file_record(
+                fname, job_id, username, 1, status="uploaded", upload_to_s3=upload_to_s3
+            )
 
         return

@@ -53,4 +53,3 @@ done
 echo "nohup python3 server_maintain_manager.py -v >> /mnt/uvol0/ivert_data/ivert_server.log 2>&1 <&- &"
 # Start the server
 nohup python3 server_maintain_manager.py -v >> /mnt/uvol0/ivert_data/ivert_server.log 2>&1 <&- &
-

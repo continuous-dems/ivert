@@ -27,18 +27,16 @@ def get_bounding_box_and_step(gdal_dataset, bbox_interleaved=True):
     # Get the actual min/max by taking the min() & max() of each pair.
     if bbox_interleaved:
         # Everything else is looking for (xmin,ymin,xmax,ymax)
-        return [min(xmin, xmax),
-                min(ymin, ymax),
-                max(xmin, xmax),
-                max(ymin, ymax)], \
-            [abs(xstep), abs(ystep)]
+        return [min(xmin, xmax), min(ymin, ymax), max(xmin, xmax), max(ymin, ymax)], [
+            abs(xstep),
+            abs(ystep),
+        ]
     else:
         # The waffles command wants (xmin,xmax,ymin,ymax)
-        return [min(xmin, xmax),
-                max(xmin, xmax),
-                min(ymin, ymax),
-                max(ymin, ymax)], \
-            [abs(xstep), abs(ystep)]
+        return [min(xmin, xmax), max(xmin, xmax), min(ymin, ymax), max(ymin, ymax)], [
+            abs(xstep),
+            abs(ystep),
+        ]
 
 
 def get_horizontal_projection_only(gdal_ds_crs_wkt_or_epsg, as_epsg: bool = True):
@@ -63,11 +61,11 @@ def get_horizontal_projection_only(gdal_ds_crs_wkt_or_epsg, as_epsg: bool = True
         prj = pyproj.crs.CRS.from_wkt(gdal_ds_crs_wkt_or_epsg.GetProjection())
 
     # If it's an integer, presume it's an EPSG.
-    elif type(gdal_ds_crs_wkt_or_epsg) == int:
+    elif type(gdal_ds_crs_wkt_or_epsg) is int:
         prj = pyproj.crs.CRS.from_epsg(gdal_ds_crs_wkt_or_epsg)
 
     # If it's a string, presume it's a WKT, proj-string, or other user input (let the from_user_input() method handle that).
-    elif type(gdal_ds_crs_wkt_or_epsg) == str:
+    elif type(gdal_ds_crs_wkt_or_epsg) is str:
         prj = pyproj.crs.CRS.from_user_input(gdal_ds_crs_wkt_or_epsg)
 
     # If it's already a pyproj.crs.CRS object, just use it.
@@ -115,7 +113,11 @@ def get_dataset_epsg(gdal_dataset, warn_if_not_present=True, horizontal_only=Fal
         if wkt.find('GEOGCS["NAD83",') >= 0:
             return 4269
         elif warn_if_not_present:
-            raise UserWarning("File {0} has no retrievable EPSG value.".format(gdal_dataset.GetFileList()[0]))
+            raise UserWarning(
+                "File {0} has no retrievable EPSG value.".format(
+                    gdal_dataset.GetFileList()[0]
+                )
+            )
         return epsg
 
     else:

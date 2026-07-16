@@ -19,18 +19,19 @@ import utm
 import typing
 
 
-def plot_photon_data(photon_gpkg: typing.Union[str, geopandas.GeoDataFrame],
-                     outfile: str,
-                     unique_laser_id: int = 0,
-                     figsize: typing.Union[tuple, list] = (6.5, 3.2),
-                     dpi = 300,
-                     bbox = None,
-                     x = "x",
-                     y = "y",
-                     z = "z",
-                     ylim = None,
-                     plot_north = True,
-                     ):
+def plot_photon_data(
+    photon_gpkg: typing.Union[str, geopandas.GeoDataFrame],
+    outfile: str,
+    unique_laser_id: int = 0,
+    figsize: typing.Union[tuple, list] = (6.5, 3.2),
+    dpi=300,
+    bbox=None,
+    x="x",
+    y="y",
+    z="z",
+    ylim=None,
+    plot_north=True,
+):
     """Read an IVERT-derived ICESat-2 photon geodataframe and plot one of the laser paths.
 
     Parameters
@@ -72,7 +73,9 @@ def plot_photon_data(photon_gpkg: typing.Union[str, geopandas.GeoDataFrame],
         gdf = utils.pickle_blosc.read(photon_gpkg)
         print(" done.", flush=True)
     else:
-        raise ValueError("Unrecognized file extension: " + os.path.splitext(photon_gpkg)[1])
+        raise ValueError(
+            "Unrecognized file extension: " + os.path.splitext(photon_gpkg)[1]
+        )
 
     # Type codes:
     # -1 : uncoded
@@ -102,9 +105,19 @@ def plot_photon_data(photon_gpkg: typing.Union[str, geopandas.GeoDataFrame],
     if bbox is not None:
         min_x, max_x, min_y, max_y = bbox
 
-        gdf = gdf[numexpr.evaluate("(x >= min_x) & (x <= max_x) & (y >= min_y) & (y <= max_y)",
-                                   local_dict={"x": gdf[x], "y": gdf[y],
-                                               "min_x": min_x, "max_x": max_x, "min_y": min_y, "max_y": max_y})]
+        gdf = gdf[
+            numexpr.evaluate(
+                "(x >= min_x) & (x <= max_x) & (y >= min_y) & (y <= max_y)",
+                local_dict={
+                    "x": gdf[x],
+                    "y": gdf[y],
+                    "min_x": min_x,
+                    "max_x": max_x,
+                    "min_y": min_y,
+                    "max_y": max_y,
+                },
+            )
+        ]
 
     # Sort the points going either north or south.
     gdf.sort_values(y, axis=0, ascending=plot_north, inplace=True, ignore_index=True)
@@ -126,7 +139,7 @@ def plot_photon_data(photon_gpkg: typing.Union[str, geopandas.GeoDataFrame],
             color = "lightgrey"
             label = "Noise"
             zorder = 0
-            marker = 'o'
+            marker = "o"
             alpha = 0.4
             size = 1
 
@@ -134,7 +147,7 @@ def plot_photon_data(photon_gpkg: typing.Union[str, geopandas.GeoDataFrame],
             color = "brown"
             label = "Land"
             zorder = 1
-            marker = 'o'
+            marker = "o"
             alpha = 1.0
             size = 2.5
 
@@ -142,7 +155,7 @@ def plot_photon_data(photon_gpkg: typing.Union[str, geopandas.GeoDataFrame],
             color = "mediumseagreen"
             label = "Canopy"
             zorder = 0
-            marker = 'o'
+            marker = "o"
             alpha = 0.4
             size = 1
 
@@ -150,7 +163,7 @@ def plot_photon_data(photon_gpkg: typing.Union[str, geopandas.GeoDataFrame],
             color = "green"
             label = "Canopy Top"
             zorder = 0
-            marker = 'o'
+            marker = "o"
             alpha = 0.4
             size = 1
 
@@ -158,7 +171,7 @@ def plot_photon_data(photon_gpkg: typing.Union[str, geopandas.GeoDataFrame],
             color = "saddlebrown"
             label = "Sea Floor"
             zorder = 1
-            marker = 'o'
+            marker = "o"
             alpha = 1.0
             size = 2.5
 
@@ -166,7 +179,7 @@ def plot_photon_data(photon_gpkg: typing.Union[str, geopandas.GeoDataFrame],
             color = "dodgerblue"
             label = "Sea Surface"
             zorder = 0
-            marker = '.'
+            marker = "."
             alpha = 1.0
             size = 1
 
@@ -174,7 +187,7 @@ def plot_photon_data(photon_gpkg: typing.Union[str, geopandas.GeoDataFrame],
             color = "lightblue"
             label = "Ice Surface"
             zorder = 1
-            marker = 'o'
+            marker = "o"
             alpha = 1.0
             size = 2.5
 
@@ -182,7 +195,7 @@ def plot_photon_data(photon_gpkg: typing.Union[str, geopandas.GeoDataFrame],
             color = "red"
             label = "Built Structure"
             zorder = 1
-            marker = 'o'
+            marker = "o"
             alpha = 0.4
             size = 1
 
@@ -205,11 +218,17 @@ def plot_photon_data(photon_gpkg: typing.Union[str, geopandas.GeoDataFrame],
         # If there are no photons of that class code, don't bother including it in the index.
         gdf_class = gdf[gdf["class_code"] == class_code].copy()
         print(f"class {class_code}, {len(gdf_class)} points", flush=True)
-        ax.scatter(gdf_class["distance_km"], gdf_class[z],
-                   color=colors[class_code], zorder=zorders[class_code],
-                   marker=markers[class_code], label=labels[class_code],
-                   s=sizes[class_code], linewidth=0,
-                   alpha=alphas[class_code])
+        ax.scatter(
+            gdf_class["distance_km"],
+            gdf_class[z],
+            color=colors[class_code],
+            zorder=zorders[class_code],
+            marker=markers[class_code],
+            label=labels[class_code],
+            s=sizes[class_code],
+            linewidth=0,
+            alpha=alphas[class_code],
+        )
 
     lgnd = ax.legend(loc="upper right", fontsize="small", labelspacing=0.5)
 
@@ -221,8 +240,15 @@ def plot_photon_data(photon_gpkg: typing.Union[str, geopandas.GeoDataFrame],
     ax.set_xlabel("Distance (km)")
     ax.set_ylabel("Elevation (m)")
 
-    ax.text(0.02, 0.98, "Eureka, CA",
-            ha="left", va="top", fontsize="large", transform=ax.transAxes)
+    ax.text(
+        0.02,
+        0.98,
+        "Eureka, CA",
+        ha="left",
+        va="top",
+        fontsize="large",
+        transform=ax.transAxes,
+    )
 
     if ylim is None:
         # If we haven't specified y-limits, just use whatever matplot lib automatically selects but pad the top by
@@ -244,7 +270,9 @@ def plot_photon_data(photon_gpkg: typing.Union[str, geopandas.GeoDataFrame],
 def calculate_distances(gdf, unit="km", x="x", y="y"):
     """Given a geopandas GeoDataFrame, calculate the distance from the first point to each point in the GeoDataFrame."""
 
-    utm_e, utm_n, zone, zone_letter = utm.from_latlon(gdf[y].to_numpy(), gdf[x].to_numpy())
+    utm_e, utm_n, zone, zone_letter = utm.from_latlon(
+        gdf[y].to_numpy(), gdf[x].to_numpy()
+    )
     print("UTM", zone, zone_letter)
 
     e1 = utm_e[0]
@@ -270,12 +298,11 @@ def calculate_distances(gdf, unit="km", x="x", y="y"):
 
 
 if __name__ == "__main__":
-
-    plot_photon_data("/home/mmacferrin/.ivert/jobs/elliot.lim_202409260002/ncei1_westCoast_CRM_2024v1_photons_14.blosc2",
-                     "/home/mmacferrin/.ivert/jobs/elliot.lim_202409260002/ncei1_westCoast_CRM_2024v1_photons_14_sub1.png",
-                     unique_laser_id=0,
-                     bbox = [-124.5, -124, 40.73, 40.92],
-                     # bbox = [-124.5, -124, 40.8013, 40.815],
-                     ylim=(-40, 160)
-                     )
-
+    plot_photon_data(
+        "/home/mmacferrin/.ivert/jobs/elliot.lim_202409260002/ncei1_westCoast_CRM_2024v1_photons_14.blosc2",
+        "/home/mmacferrin/.ivert/jobs/elliot.lim_202409260002/ncei1_westCoast_CRM_2024v1_photons_14_sub1.png",
+        unique_laser_id=0,
+        bbox=[-124.5, -124, 40.73, 40.92],
+        # bbox = [-124.5, -124, 40.8013, 40.815],
+        ylim=(-40, 160),
+    )

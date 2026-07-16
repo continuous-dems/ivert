@@ -4,7 +4,7 @@ import os
 import sys
 import time
 
-if vars(sys.modules[__name__])['__package__'] == 'ivert':
+if vars(sys.modules[__name__])["__package__"] == "ivert":
     # When this is built a setup.py package, it names the modules 'ivert' and 'ivert_utils'. This reflects that.
     import ivert.client_job_upload as client_job_upload
     import ivert.client_job_status as client_job_status
@@ -46,8 +46,10 @@ def run_import_command(args: argparse.Namespace) -> None:
         files_to_send_2 = []
         for fn in files_to_send:
             if os.path.splitext(fn)[-1].lower() == ".txt":
-                with open(fn, 'r') as f:
-                    files_to_send_2.extend([fn.strip() for fn in f.readlines() if len(fn.strip()) > 0])
+                with open(fn, "r") as f:
+                    files_to_send_2.extend(
+                        [fn.strip() for fn in f.readlines() if len(fn.strip()) > 0]
+                    )
             else:
                 files_to_send_2.append(fn)
 
@@ -73,15 +75,21 @@ def run_import_command(args: argparse.Namespace) -> None:
 
     # NOW, if we've hit either of the maximums (size, or number of files), we need to divvy this up into chunks.
 
-    total_size_gb = sum([os.path.getsize(fn) for fn in files_to_send])/(1024**3)
+    total_size_gb = sum([os.path.getsize(fn) for fn in files_to_send]) / (1024**3)
 
     # If this job is too big, split it into separate chunks.
-    if ((args.max_gb_per_chunk > 0) and (total_size_gb > args.max_gb_per_chunk)) or \
-            ((args.max_files_per_chunk > 0) and (len(files_to_send) > args.max_files_per_chunk)):
-        print("Your job is larger than the maximum allowed. Splitting it up into chunks.")
+    if ((args.max_gb_per_chunk > 0) and (total_size_gb > args.max_gb_per_chunk)) or (
+        (args.max_files_per_chunk > 0)
+        and (len(files_to_send) > args.max_files_per_chunk)
+    ):
+        print(
+            "Your job is larger than the maximum allowed. Splitting it up into chunks."
+        )
 
         # Split up the job into chunks
-        list_of_file_chunks = split_job_into_chunks(files_to_send, args.max_files_per_chunk, args.max_gb_per_chunk)
+        list_of_file_chunks = split_job_into_chunks(
+            files_to_send, args.max_files_per_chunk, args.max_gb_per_chunk
+        )
         db = jobs_database.JobsDatabaseClient()
 
         # For each chunk, upload it
@@ -107,11 +115,15 @@ def run_import_command(args: argparse.Namespace) -> None:
                 print(".", end="", flush=True)
 
             total_files_processed += len(chunk_list)
-            print(f"\n{(total_files_processed + start_n):,} of {(len(files_to_send) + start_n):,} files processed.")
+            print(
+                f"\n{(total_files_processed + start_n):,} of {(len(files_to_send) + start_n):,} files processed."
+            )
 
-        print(len(chunk_statuses),
-              "jobs finished importing with statuses:",
-              str(chunk_statuses).lstrip("[").rstrip("]"))
+        print(
+            len(chunk_statuses),
+            "jobs finished importing with statuses:",
+            str(chunk_statuses).lstrip("[").rstrip("]"),
+        )
 
     else:
         # Append the "files" argument to the args_to_send object
@@ -120,10 +132,14 @@ def run_import_command(args: argparse.Namespace) -> None:
         # Upload the job
         client_job_upload.upload_new_job(args_to_send)
 
-        print(f"Job uploaded. Use '{bcolors.BOLD}ivert status{bcolors.ENDC}' to check the status.")
+        print(
+            f"Job uploaded. Use '{bcolors.BOLD}ivert status{bcolors.ENDC}' to check the status."
+        )
 
 
-def split_job_into_chunks(files_to_send: list[str], max_files_per_chunk: int, max_gb_per_chunk: float) -> list[list[str]]:
+def split_job_into_chunks(
+    files_to_send: list[str], max_files_per_chunk: int, max_gb_per_chunk: float
+) -> list[list[str]]:
     """Split a list of files into chunks.
 
     Args:
@@ -140,9 +156,11 @@ def split_job_into_chunks(files_to_send: list[str], max_files_per_chunk: int, ma
     cur_chunk_size_gb = 0
 
     for fn in files_to_send:
-        fn_size_gb = os.path.getsize(fn) / (1024 ** 3)
+        fn_size_gb = os.path.getsize(fn) / (1024**3)
 
-        if ((len(cur_chunk) + 1) <= max_files_per_chunk) and ((cur_chunk_size_gb + fn_size_gb) <= max_gb_per_chunk):
+        if ((len(cur_chunk) + 1) <= max_files_per_chunk) and (
+            (cur_chunk_size_gb + fn_size_gb) <= max_gb_per_chunk
+        ):
             cur_chunk.append(fn)
             cur_chunk_size_gb += fn_size_gb
         else:

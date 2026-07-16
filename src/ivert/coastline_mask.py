@@ -35,8 +35,8 @@ ivert_config = ivert.utils.configfile.Config()
 logger = logging.getLogger(__name__)
 
 # Mask pixel values.
-MASK_WATER = 0    # offshore
-MASK_LAND = 1     # onshore
+MASK_WATER = 0  # offshore
+MASK_LAND = 1  # onshore
 MASK_NODATA = 255  # unknown (treated as "keep" by the misclassification filter)
 
 
@@ -67,11 +67,13 @@ def _dem_grid_and_bbox(dem_name: str):
     return projection, gt, xsize, ysize, native_bbox, wgs84_bbox
 
 
-def get_or_create_coastline_mask(dem_name: str,
-                                 output_fname: str | None = None,
-                                 sources: str | None = None,
-                                 overwrite: bool = False,
-                                 verbose: bool = True) -> str | None:
+def get_or_create_coastline_mask(
+    dem_name: str,
+    output_fname: str | None = None,
+    sources: str | None = None,
+    overwrite: bool = False,
+    verbose: bool = True,
+) -> str | None:
     """Generate (or reuse) a coastline mask raster aligned to the input DEM's grid.
 
     The output is a single-band uint8 GeoTIFF on the DEM's exact grid and CRS, with
@@ -102,33 +104,38 @@ def get_or_create_coastline_mask(dem_name: str,
         sources = ivert_config.coastline_mask_sources
 
     try:
-        projection, _, xsize, ysize, native_bbox, wgs84_bbox = _dem_grid_and_bbox(dem_name)
+        projection, _, xsize, ysize, native_bbox, wgs84_bbox = _dem_grid_and_bbox(
+            dem_name
+        )
         wgs_xmin, wgs_xmax, wgs_ymin, wgs_ymax = wgs84_bbox
 
         # GlobCoast works in EPSG:4326. Build its region (west/east/south/north) and a
         # target resolution at least as fine as the DEM (in degrees), then resample to
         # the DEM grid afterwards.
         region = fetchez.spatial.parse_region(
-            f"{wgs_xmin}/{wgs_xmax}/{wgs_ymin}/{wgs_ymax}")[0]
-        res_deg = min((wgs_xmax - wgs_xmin) / max(xsize, 1),
-                      (wgs_ymax - wgs_ymin) / max(ysize, 1))
+            f"{wgs_xmin}/{wgs_xmax}/{wgs_ymin}/{wgs_ymax}"
+        )[0]
+        res_deg = min(
+            (wgs_xmax - wgs_xmin) / max(xsize, 1), (wgs_ymax - wgs_ymin) / max(ysize, 1)
+        )
 
         cache_dir = os.path.join(ivert_config.cache_directory, "coastline_mask")
         os.makedirs(cache_dir, exist_ok=True)
 
         if verbose:
-            print(f"Generating coastline mask from [{sources}] for "
-                  f"{os.path.basename(dem_name)} ...")
+            print(
+                f"Generating coastline mask from [{sources}] for "
+                f"{os.path.basename(dem_name)} ..."
+            )
 
         # GlobCoast looks its source modules up by name via the fetchez ModuleRegistry, which
         # the fetchez/globato CLIs populate at startup. We're calling it programmatically, so we
         # must load the registry ourselves or every source resolves to "Unknown source".
         ModuleRegistry.load_all()
 
-        mod = GlobCoast(res=str(res_deg),
-                        sources=sources,
-                        src_region=region,
-                        outdir=cache_dir)
+        mod = GlobCoast(
+            res=str(res_deg), sources=sources, src_region=region, outdir=cache_dir
+        )
         mod.run()
 
         globcoast_fn = mod.out_fn
@@ -158,7 +165,8 @@ def get_or_create_coastline_mask(dem_name: str,
             resampleAlg="near",
             outputType=gdal.GDT_Byte,
             dstNodata=MASK_NODATA,
-            creationOptions=["COMPRESS=DEFLATE", "PREDICTOR=2", "TILED=YES"])
+            creationOptions=["COMPRESS=DEFLATE", "PREDICTOR=2", "TILED=YES"],
+        )
 
         out_ds = gdal.Warp(output_fname, globcoast_fn, options=warp_opts)
         if out_ds is None:
@@ -173,8 +181,10 @@ def get_or_create_coastline_mask(dem_name: str,
     except Exception as e:  # noqa: BLE001 -- mask generation must never break validation
         logger.warning("Could not generate coastline mask for %s: %s", dem_name, e)
         if verbose:
-            print(f"Warning: could not generate coastline mask for "
-                  f"{os.path.basename(dem_name)}: {e}")
+            print(
+                f"Warning: could not generate coastline mask for "
+                f"{os.path.basename(dem_name)}: {e}"
+            )
         return None
 
 
@@ -193,26 +203,45 @@ def load_coastline_mask_array(mask_fname: str) -> numpy.ndarray:
 
 def _parse_args():
     parser = argparse.ArgumentParser(
-        description="Generate a DEM-aligned land/water (coastline) mask raster.")
+        description="Generate a DEM-aligned land/water (coastline) mask raster."
+    )
     parser.add_argument("input_dem", type=str, help="Input DEM file.")
-    parser.add_argument("output_fname", type=str, nargs="?", default=None,
-                        help="Output mask path. Default: '<dem-base>_coastline_mask.tif'.")
-    parser.add_argument("--sources", type=str, default=None,
-                        help="Comma-separated source list (default: config "
-                             "'coastline_mask_sources').")
-    parser.add_argument("--overwrite", action="store_true", default=False,
-                        help="Regenerate the mask even if it already exists.")
-    parser.add_argument("--quiet", action="store_true", default=False,
-                        help="Suppress progress messages.")
+    parser.add_argument(
+        "output_fname",
+        type=str,
+        nargs="?",
+        default=None,
+        help="Output mask path. Default: '<dem-base>_coastline_mask.tif'.",
+    )
+    parser.add_argument(
+        "--sources",
+        type=str,
+        default=None,
+        help="Comma-separated source list (default: config 'coastline_mask_sources').",
+    )
+    parser.add_argument(
+        "--overwrite",
+        action="store_true",
+        default=False,
+        help="Regenerate the mask even if it already exists.",
+    )
+    parser.add_argument(
+        "--quiet",
+        action="store_true",
+        default=False,
+        help="Suppress progress messages.",
+    )
     return parser.parse_args()
 
 
 if __name__ == "__main__":
     args = _parse_args()
-    result = get_or_create_coastline_mask(args.input_dem,
-                                          output_fname=args.output_fname,
-                                          sources=args.sources,
-                                          overwrite=args.overwrite,
-                                          verbose=not args.quiet)
+    result = get_or_create_coastline_mask(
+        args.input_dem,
+        output_fname=args.output_fname,
+        sources=args.sources,
+        overwrite=args.overwrite,
+        verbose=not args.quiet,
+    )
     if result is None:
         sys.exit(1)
