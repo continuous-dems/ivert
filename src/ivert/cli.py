@@ -589,7 +589,8 @@ def database_download(bbox_or_files, date_start, date_end, projection, wsen, rep
 
     db.download_new_granules(full_bbox, classes_to_keep=class_list,
                              min_confidence_level=confidence_level,
-                             min_bathy_confidence=bathy_confidence)
+                             min_bathy_confidence=bathy_confidence,
+                             replace=replace)
 
 
 ###############################################################

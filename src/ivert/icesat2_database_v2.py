@@ -7,6 +7,7 @@ import logging
 import numpy
 import os
 import pandas
+import re
 import shapely
 import shutil
 import xarray
@@ -30,18 +31,22 @@ _ICESAT2_EPOCH = datetime.datetime(2018, 1, 1, 0, 0, 0)
 
 def _yyyymmdd_to_delta_time(yyyymmdd: int | str) -> float:
     """Convert a YYYYMMDD integer to ICESat-2 delta_time (seconds since 2018-01-01)."""
-    return (datetime.datetime.strptime(str(int(yyyymmdd)), "%Y%m%d") - _ICESAT2_EPOCH).total_seconds()
+    return (
+        datetime.datetime.strptime(str(int(yyyymmdd)), "%Y%m%d") - _ICESAT2_EPOCH
+    ).total_seconds()
 
 
 def _delta_time_to_yyyymmdd(delta_time: float) -> int:
     """Convert ICESat-2 delta_time (seconds since 2018-01-01) to a YYYYMMDD integer."""
-    return int((_ICESAT2_EPOCH + datetime.timedelta(seconds=float(delta_time))).strftime("%Y%m%d"))
+    return int(
+        (_ICESAT2_EPOCH + datetime.timedelta(seconds=float(delta_time))).strftime(
+            "%Y%m%d"
+        )
+    )
 
 
 class IS2Database:
-
-    def __init__(self,
-                 ivert_config: ivert.utils.configfile.Config | None = None):
+    def __init__(self, ivert_config: ivert.utils.configfile.Config | None = None):
         # Define the structure of the object.
         if ivert_config is None:
             self.config = ivert.utils.configfile.Config()
@@ -62,9 +67,9 @@ class IS2Database:
         self.granules_dir = self.config.icesat2_granules_directory
         self.icesat2_download_dir = self.config.icesat2_download_directory
 
-    def create_new_database(self,
-                            populate: bool = True,
-                            overwrite: bool = False) -> geopandas.GeoDataFrame:
+    def create_new_database(
+        self, populate: bool = True, overwrite: bool = False
+    ) -> geopandas.GeoDataFrame:
         """Create a new database from scratch.
 
         Parameters
@@ -94,11 +99,18 @@ class IS2Database:
                 logger.info("Removing old %s", " and ".join(removed))
 
         elif os.path.exists(self.db_fname):
-            raise OSError("Database file already exists. Use overwrite=True to overwrite it.")
+            raise OSError(
+                "Database file already exists. Use overwrite=True to overwrite it."
+            )
 
         if populate:
-            nc_files = sorted([os.path.join(self.granules_dir, fn) for fn in os.listdir(self.granules_dir)
-                               if os.path.splitext(fn)[-1].lower() == ".nc"])
+            nc_files = sorted(
+                [
+                    os.path.join(self.granules_dir, fn)
+                    for fn in os.listdir(self.granules_dir)
+                    if os.path.splitext(fn)[-1].lower() == ".nc"
+                ]
+            )
 
             records = []
             for nc_fn in nc_files:
@@ -124,16 +136,25 @@ class IS2Database:
 
         gdf.to_file(self.db_fname, driver="GPKG")
         if os.path.exists(self.db_fname):
-            logger.info("Created %s with %d records.", os.path.basename(self.db_fname), len(gdf))
+            logger.info(
+                "Created %s with %d records.", os.path.basename(self.db_fname), len(gdf)
+            )
         else:
             raise OSError("Failed to create", os.path.basename(self.db_fname))
 
         if len(gdf) > 0:
             ivert.utils.pickle_blosc.write(gdf, self.db_fname_compressed)
             if os.path.exists(self.db_fname_compressed):
-                logger.info("Created compressed %s with %d records.", os.path.basename(self.db_fname_compressed), len(gdf))
+                logger.info(
+                    "Created compressed %s with %d records.",
+                    os.path.basename(self.db_fname_compressed),
+                    len(gdf),
+                )
             else:
-                logger.warning("Failed to create compressed %s.", os.path.basename(self.db_fname_compressed))
+                logger.warning(
+                    "Failed to create compressed %s.",
+                    os.path.basename(self.db_fname_compressed),
+                )
 
         # This becomes the new database for this object.
         self.gdf = gdf
@@ -146,6 +167,7 @@ class IS2Database:
         return {
             "granule_id": ["placeholder"],
             "filename": ["placeholder"],
+            "source_granule": ["placeholder"],
             "laser_name": ["all"],
             "query_bbox": [[0.0, 0.0, 0.0, 0.0, 0, 0]],
             "data_bbox": [[0.0, 0.0, 0.0, 0.0, 0, 0]],
@@ -156,12 +178,14 @@ class IS2Database:
             "numphotons_ground": [0],
             "numphotons_canopy": [0],
             "numphotons_canopy_top": [0],
+            "numphotons_ice_surface": [0],
             "numphotons_bathy_floor": [0],
             "numphotons_bathy_surface": [0],
             "numphotons_buildings": [0],
+            "numphotons_inland_water_surface": [0],
             "downloaded_on": [0],
             "horizontal_datum": ["EPSG:4326"],
-            "vertical_datum":   ["EPSG:4979"],
+            "vertical_datum": ["EPSG:4979"],
             "geometry": [shapely.box(0.0, 0.0, 1.0, 1.0)],
         }
 
@@ -177,33 +201,66 @@ class IS2Database:
 
             def _bbox(raw):
                 b = list(raw)
-                return [float(b[0]), float(b[1]), float(b[2]), float(b[3]), int(b[4]), int(b[5])]
+                return [
+                    float(b[0]),
+                    float(b[1]),
+                    float(b[2]),
+                    float(b[3]),
+                    int(b[4]),
+                    int(b[5]),
+                ]
 
             data_bbox = _bbox(attrs["data_bbox"])
             return {
-                "granule_id":               str(attrs.get("granule_id", os.path.splitext(os.path.basename(nc_fn))[0])),
-                "filename":                 os.path.basename(nc_fn),
-                "laser_name":               str(attrs.get("laser_name", "all")),
-                "query_bbox":               _bbox(attrs.get("query_bbox", [0.0, 0.0, 0.0, 0.0, 0, 0])),
-                "data_bbox":                data_bbox,
-                "zbounds":                  [float(v) for v in attrs.get("zbounds", [float("nan"), float("nan")])],
-                "numphotons":               int(attrs.get("numphotons", 0)),
-                "numphotons_unclassified":  int(attrs.get("numphotons_unclassified", 0)),
-                "numphotons_noise":         int(attrs.get("numphotons_noise", 0)),
-                "numphotons_ground":        int(attrs.get("numphotons_ground", 0)),
-                "numphotons_canopy":        int(attrs.get("numphotons_canopy", 0)),
-                "numphotons_canopy_top":    int(attrs.get("numphotons_canopy_top", 0)),
-                "numphotons_bathy_floor":   int(attrs.get("numphotons_bathy_floor", 0)),
-                "numphotons_bathy_surface": int(attrs.get("numphotons_bathy_surface", 0)),
-                "numphotons_buildings":     int(attrs.get("numphotons_buildings", 0)),
-                "downloaded_on":            int(attrs.get("downloaded_on", 0)),
-                "horizontal_datum":         str(attrs.get("horizontal_datum", "")),
-                "vertical_datum":           str(attrs.get("vertical_datum", "")),
+                "granule_id": str(
+                    attrs.get(
+                        "granule_id", os.path.splitext(os.path.basename(nc_fn))[0]
+                    )
+                ),
+                "filename": os.path.basename(nc_fn),
+                "source_granule": str(
+                    attrs.get(
+                        "source_granule",
+                        IS2Database._source_granule_from_filename(
+                            os.path.basename(nc_fn)
+                        ),
+                    )
+                ),
+                "laser_name": str(attrs.get("laser_name", "all")),
+                "query_bbox": _bbox(
+                    attrs.get("query_bbox", [0.0, 0.0, 0.0, 0.0, 0, 0])
+                ),
+                "data_bbox": data_bbox,
+                "zbounds": [
+                    float(v) for v in attrs.get("zbounds", [float("nan"), float("nan")])
+                ],
+                "numphotons": int(attrs.get("numphotons", 0)),
+                "numphotons_unclassified": int(attrs.get("numphotons_unclassified", 0)),
+                "numphotons_noise": int(attrs.get("numphotons_noise", 0)),
+                "numphotons_ground": int(attrs.get("numphotons_ground", 0)),
+                "numphotons_canopy": int(attrs.get("numphotons_canopy", 0)),
+                "numphotons_canopy_top": int(attrs.get("numphotons_canopy_top", 0)),
+                "numphotons_ice_surface": int(attrs.get("numphotons_ice_surface", 0)),
+                "numphotons_bathy_floor": int(attrs.get("numphotons_bathy_floor", 0)),
+                "numphotons_bathy_surface": int(
+                    attrs.get("numphotons_bathy_surface", 0)
+                ),
+                "numphotons_buildings": int(attrs.get("numphotons_buildings", 0)),
+                "numphotons_inland_water_surface": int(
+                    attrs.get("numphotons_inland_water_surface", 0)
+                ),
+                "downloaded_on": int(attrs.get("downloaded_on", 0)),
+                "horizontal_datum": str(attrs.get("horizontal_datum", "")),
+                "vertical_datum": str(attrs.get("vertical_datum", "")),
                 # shapely.box(xmin, ymin, xmax, ymax)
-                "geometry": shapely.box(data_bbox[0], data_bbox[2], data_bbox[1], data_bbox[3]),
+                "geometry": shapely.box(
+                    data_bbox[0], data_bbox[2], data_bbox[1], data_bbox[3]
+                ),
             }
         except Exception as e:
-            logger.warning("Could not read metadata from %s: %s", os.path.basename(nc_fn), e)
+            logger.warning(
+                "Could not read metadata from %s: %s", os.path.basename(nc_fn), e
+            )
             return None
 
     @staticmethod
@@ -215,6 +272,7 @@ class IS2Database:
         This ensures that the same granule downloaded for different query regions or time
         spans produces distinct files rather than overwriting each other.
         """
+
         def _lon_tag(v):
             return f"{'W' if v < 0 else 'E'}{abs(float(v)):09.5f}"
 
@@ -223,10 +281,29 @@ class IS2Database:
 
         base = os.path.splitext(os.path.basename(h5_fn))[0]
         xmin, xmax, ymin, ymax, tmin, tmax = query_bbox
-        suffix = (f"_{_lon_tag(xmin)}_{_lon_tag(xmax)}"
-                  f"_{_lat_tag(ymin)}_{_lat_tag(ymax)}"
-                  f"_{int(tmin)}_{int(tmax)}")
+        suffix = (
+            f"_{_lon_tag(xmin)}_{_lon_tag(xmax)}"
+            f"_{_lat_tag(ymin)}_{_lat_tag(ymax)}"
+            f"_{int(tmin)}_{int(tmax)}"
+        )
         return base + suffix + ".nc"
+
+    # Matches the "_<W|E><xmin>_<W|E><xmax>_<S|N><ymin>_<S|N><ymax>_<tmin>_<tmax>.nc" suffix
+    # appended by _nc_filename(), so the source granule id can be recovered from any nc
+    # filename regardless of which query bbox/dates produced it.
+    _NC_SUFFIX_RE = re.compile(
+        r"_[EW]\d{3}\.\d{5}_[EW]\d{3}\.\d{5}_[NS]\d{2}\.\d{5}_[NS]\d{2}\.\d{5}_\d+_\d+\.nc$"
+    )
+
+    @classmethod
+    def _source_granule_from_filename(cls, filename: str) -> str:
+        """Recover the original NASA granule id from a database/nc filename.
+
+        Strips the bbox/date suffix appended by _nc_filename(), so that the same granule
+        downloaded under different query regions or dates is still recognized as the same
+        underlying source data (used to match records for --replace).
+        """
+        return cls._NC_SUFFIX_RE.sub("", filename)
 
     @staticmethod
     def _h5_along_track_m(h5_fn: str, beams) -> pandas.DataFrame:
@@ -244,35 +321,46 @@ class IS2Database:
         with h5py.File(h5_fn, "r") as f:
             for beam in beams:
                 try:
-                    delta_time    = f[f"{beam}/heights/delta_time"][...]
-                    lon           = f[f"{beam}/heights/lon_ph"][...]
-                    lat           = f[f"{beam}/heights/lat_ph"][...]
+                    delta_time = f[f"{beam}/heights/delta_time"][...]
+                    lon = f[f"{beam}/heights/lon_ph"][...]
+                    lat = f[f"{beam}/heights/lat_ph"][...]
                     dist_ph_along = f[f"{beam}/heights/dist_ph_along"][...]
-                    ph_index_beg  = f[f"{beam}/geolocation/ph_index_beg"][...]
-                    seg_length    = f[f"{beam}/geolocation/segment_length"][...]
+                    ph_index_beg = f[f"{beam}/geolocation/ph_index_beg"][...]
+                    seg_length = f[f"{beam}/geolocation/segment_length"][...]
                 except KeyError:
                     continue
 
                 # Cumulative distance at the start of each segment
-                seg_cumul_start = numpy.concatenate([[0.0], numpy.cumsum(seg_length[:-1])])
+                seg_cumul_start = numpy.concatenate(
+                    [[0.0], numpy.cumsum(seg_length[:-1])]
+                )
 
                 # Map each photon to its segment via ph_index_beg
                 n = len(delta_time)
                 seg_of_ph = numpy.clip(
                     numpy.searchsorted(ph_index_beg, numpy.arange(n), side="right") - 1,
-                    0, len(ph_index_beg) - 1,
+                    0,
+                    len(ph_index_beg) - 1,
                 )
 
-                dfs.append(pandas.DataFrame({
-                    "laser":         beam,
-                    "delta_time":    delta_time,
-                    "x":             lon,
-                    "y":             lat,
-                    "along_track_m": seg_cumul_start[seg_of_ph] + dist_ph_along,
-                }))
+                dfs.append(
+                    pandas.DataFrame(
+                        {
+                            "laser": beam,
+                            "delta_time": delta_time,
+                            "x": lon,
+                            "y": lat,
+                            "along_track_m": seg_cumul_start[seg_of_ph] + dist_ph_along,
+                        }
+                    )
+                )
 
-        return pandas.concat(dfs, ignore_index=True) if dfs else pandas.DataFrame(
-            columns=["laser", "delta_time", "x", "y", "along_track_m"]
+        return (
+            pandas.concat(dfs, ignore_index=True)
+            if dfs
+            else pandas.DataFrame(
+                columns=["laser", "delta_time", "x", "y", "along_track_m"]
+            )
         )
 
     @staticmethod
@@ -291,16 +379,18 @@ class IS2Database:
         """Map a validated vertical_datum value to its vertical EPSG code string."""
         return "EPSG:4979" if vertical_datum == "ellipsoid" else "EPSG:3855"
 
-    def _process_h5_to_nc(self,
-                           h5_fn: str,
-                           nc_fn: str,
-                           query_bbox: tuple,
-                           classes_to_keep: tuple = (1, 2, 3, 7, 40, 41),
-                           overwrite: bool = False,
-                           min_confidence_level: int = 1,
-                           granule_num: int | None = None,
-                           total_granules: int | None = None,
-                           use_external_masks: bool = True) -> dict | None:
+    def _process_h5_to_nc(
+        self,
+        h5_fn: str,
+        nc_fn: str,
+        query_bbox: tuple,
+        classes_to_keep: tuple = (1, 2, 3, 6, 7, 40, 41, 42),
+        overwrite: bool = False,
+        min_confidence_level: int = 1,
+        granule_num: int | None = None,
+        total_granules: int | None = None,
+        use_external_masks: bool = True,
+    ) -> dict | None:
         """Classify an ATL03 HDF5 file with globato and save the result as NetCDF.
 
         The output .nc file contains only the photon classes in classes_to_keep, plus
@@ -311,7 +401,9 @@ class IS2Database:
         if os.path.exists(nc_fn) and not overwrite:
             return self._read_nc_metadata(nc_fn)
 
-        vertical_datum = self._validate_vertical_datum(self.config.icesat2_vertical_datum)
+        vertical_datum = self._validate_vertical_datum(
+            self.config.icesat2_vertical_datum
+        )
         vertical_datum = self._vertical_datum_to_vertical_epsg(vertical_datum)
 
         classes_str = "/".join([str(int(c)) for c in classes_to_keep])
@@ -354,8 +446,16 @@ class IS2Database:
                 return None
 
         # Keep only the columns needed for validation; drop large/redundant ones.
-        keep_cols = ["x", "y", "z", "class_code", "bathy_confidence",
-                     "delta_time", "confidence", "laser"]
+        keep_cols = [
+            "x",
+            "y",
+            "z",
+            "class_code",
+            "bathy_confidence",
+            "delta_time",
+            "confidence",
+            "laser",
+        ]
         df = df[[c for c in keep_cols if c in df.columns]].copy()
 
         # Compute metadata for file attributes and the database record.
@@ -371,23 +471,26 @@ class IS2Database:
 
         cc = df["class_code"]
         metadata_attrs = {
-            "granule_id":               os.path.splitext(os.path.basename(nc_fn))[0],
-            "laser_name":               "all",
-            "query_bbox":               list(query_bbox),
-            "data_bbox":                [xmin, xmax, ymin, ymax, tmin, tmax],
-            "zbounds":                  [zmin, zmax],
-            "numphotons":               len(df),
-            "numphotons_unclassified":  int(numpy.count_nonzero(cc == -1)),
-            "numphotons_noise":         int(numpy.count_nonzero(cc == 0)),
-            "numphotons_ground":        int(numpy.count_nonzero(cc == 1)),
-            "numphotons_canopy":        int(numpy.count_nonzero(cc == 2)),
-            "numphotons_canopy_top":    int(numpy.count_nonzero(cc == 3)),
-            "numphotons_buildings":     int(numpy.count_nonzero(cc == 7)),
-            "numphotons_bathy_floor":   int(numpy.count_nonzero(cc == 40)),
+            "granule_id": os.path.splitext(os.path.basename(nc_fn))[0],
+            "source_granule": os.path.splitext(os.path.basename(h5_fn))[0],
+            "laser_name": "all",
+            "query_bbox": list(query_bbox),
+            "data_bbox": [xmin, xmax, ymin, ymax, tmin, tmax],
+            "zbounds": [zmin, zmax],
+            "numphotons": len(df),
+            "numphotons_unclassified": int(numpy.count_nonzero(cc == -1)),
+            "numphotons_noise": int(numpy.count_nonzero(cc == 0)),
+            "numphotons_ground": int(numpy.count_nonzero(cc == 1)),
+            "numphotons_canopy": int(numpy.count_nonzero(cc == 2)),
+            "numphotons_canopy_top": int(numpy.count_nonzero(cc == 3)),
+            "numphotons_ice_surface": int(numpy.count_nonzero(cc == 6)),
+            "numphotons_buildings": int(numpy.count_nonzero(cc == 7)),
+            "numphotons_bathy_floor": int(numpy.count_nonzero(cc == 40)),
             "numphotons_bathy_surface": int(numpy.count_nonzero(cc == 41)),
-            "downloaded_on":            int(datetime.datetime.now().strftime("%Y%m%d")),
-            "horizontal_datum":         "EPSG:4326",
-            "vertical_datum":           vertical_datum,
+            "numphotons_inland_water_surface": int(numpy.count_nonzero(cc == 42)),
+            "downloaded_on": int(datetime.datetime.now().strftime("%Y%m%d")),
+            "horizontal_datum": "EPSG:4326",
+            "vertical_datum": vertical_datum,
         }
 
         # Add per-photon cumulative along-track distance from h5 geolocation data.
@@ -402,15 +505,23 @@ class IS2Database:
         xr_ds = xarray.Dataset.from_dataframe(df)
         xr_ds.attrs = metadata_attrs
 
-        os.makedirs(os.path.dirname(nc_fn) if os.path.dirname(nc_fn) else ".", exist_ok=True)
+        os.makedirs(
+            os.path.dirname(nc_fn) if os.path.dirname(nc_fn) else ".", exist_ok=True
+        )
         xr_ds.to_netcdf(nc_fn)
-        progress = f"{granule_num}/{total_granules} " if granule_num is not None and total_granules is not None else ""
-        logger.info("%sSaved %s (%s photons, %s ground, %s bathy).",
-                    progress,
-                    os.path.basename(nc_fn),
-                    f"{metadata_attrs['numphotons']:,}",
-                    f"{metadata_attrs['numphotons_ground']:,}",
-                    f"{metadata_attrs['numphotons_bathy_floor']:,}")
+        progress = (
+            f"{granule_num}/{total_granules} "
+            if granule_num is not None and total_granules is not None
+            else ""
+        )
+        logger.info(
+            "%sSaved %s (%s photons, %s ground, %s bathy).",
+            progress,
+            os.path.basename(nc_fn),
+            f"{metadata_attrs['numphotons']:,}",
+            f"{metadata_attrs['numphotons_ground']:,}",
+            f"{metadata_attrs['numphotons_bathy_floor']:,}",
+        )
 
         db_record = dict(metadata_attrs)
         db_record["filename"] = os.path.basename(nc_fn)
@@ -421,15 +532,22 @@ class IS2Database:
     def _normalize_bbox_columns(gdf: geopandas.GeoDataFrame) -> geopandas.GeoDataFrame:
         """Parse bbox columns that GPKG round-trips as JSON strings back into lists of numbers."""
         import json
+
         for col in ("query_bbox", "data_bbox", "zbounds"):
-            if col in gdf.columns and len(gdf) > 0 and isinstance(gdf[col].iloc[0], str):
+            if (
+                col in gdf.columns
+                and len(gdf) > 0
+                and isinstance(gdf[col].iloc[0], str)
+            ):
                 gdf[col] = gdf[col].apply(json.loads)
         return gdf
 
-    def open_gdf(self,
-                 read_compressed: str | bool = "only_if_newer",
-                 force_reread: bool = False,
-                 verbose: bool = True) -> geopandas.GeoDataFrame | None:
+    def open_gdf(
+        self,
+        read_compressed: str | bool = "only_if_newer",
+        force_reread: bool = False,
+        verbose: bool = True,
+    ) -> geopandas.GeoDataFrame | None:
         """Get a GeoDataFrame from the database.
 
         Parameters
@@ -455,7 +573,8 @@ class IS2Database:
             read_compressed = (
                 os.path.exists(self.db_fname_compressed)
                 and os.path.exists(self.db_fname)
-                and os.path.getmtime(self.db_fname_compressed) > os.path.getmtime(self.db_fname)
+                and os.path.getmtime(self.db_fname_compressed)
+                > os.path.getmtime(self.db_fname)
             )
         elif read_compressed:
             read_compressed = os.path.exists(self.db_fname_compressed)
@@ -463,36 +582,47 @@ class IS2Database:
         if read_compressed:
             self.gdf = ivert.utils.pickle_blosc.read(self.db_fname_compressed)
             if verbose:
-                logger.info("Loaded %s with %d records.", os.path.basename(self.db_fname_compressed), len(self.gdf))
+                logger.info(
+                    "Loaded %s with %d records.",
+                    os.path.basename(self.db_fname_compressed),
+                    len(self.gdf),
+                )
         else:
             if not os.path.exists(self.db_fname):
                 return None
 
             self.gdf = self._normalize_bbox_columns(geopandas.read_file(self.db_fname))
             if verbose:
-                logger.info("Loaded %s with %d records.", os.path.basename(self.db_fname), len(self.gdf))
+                logger.info(
+                    "Loaded %s with %d records.",
+                    os.path.basename(self.db_fname),
+                    len(self.gdf),
+                )
 
         return self.gdf
 
-    def read_database_file(self,
-                           bbox: list | tuple | None = None,
-                           date_range: list | tuple | None = None):
+    def read_database_file(
+        self, bbox: list | tuple | None = None, date_range: list | tuple | None = None
+    ):
         """Read the master database into a GeoDataFrame.
 
         Subset list of granules by bounding box and date range of the data (not the query box).
 
         Return the subset of the database read off of disk."""
         if os.path.exists(self.db_fname):
-            gdf_subset = self._normalize_bbox_columns(geopandas.read_file(self.db_fname, bbox=bbox))
+            gdf_subset = self._normalize_bbox_columns(
+                geopandas.read_file(self.db_fname, bbox=bbox)
+            )
 
             if date_range is not None:
                 date_range = self.convert_date_range(date_range)
-                gdf_subset = gdf_subset[(gdf_subset["start_date_YYYYMMDD"] >= date_range[0])
-                                        & (gdf_subset["end_date_YYYYMMDD"] <= date_range[1])] # TODO: Look at this again
+                gdf_subset = gdf_subset[
+                    (gdf_subset["start_date_YYYYMMDD"] >= date_range[0])
+                    & (gdf_subset["end_date_YYYYMMDD"] <= date_range[1])
+                ]  # TODO: Look at this again
 
             self.last_gdf_date_range = date_range
             self.last_gdf_bbox = tuple(bbox)
-
 
             return gdf_subset
 
@@ -500,7 +630,9 @@ class IS2Database:
             return None
 
     @staticmethod
-    def omit_photons_from_exclusion_bbox(dataframe, bbox_to_exclude) -> pandas.DataFrame:
+    def omit_photons_from_exclusion_bbox(
+        dataframe, bbox_to_exclude
+    ) -> pandas.DataFrame:
         """Exclude any photons that fall within the particular bounding box."""
         x = dataframe["x"]
         y = dataframe["y"]
@@ -509,29 +641,36 @@ class IS2Database:
         if len(bbox_to_exclude) == 6:
             bbox_dt_min = _yyyymmdd_to_delta_time(bbox_to_exclude[4])
             bbox_dt_max = _yyyymmdd_to_delta_time(bbox_to_exclude[5])
-            df_sub = dataframe[(x < bbox_to_exclude[0]) |
-                               (x >= bbox_to_exclude[1]) |
-                               (y < bbox_to_exclude[2]) |
-                               (y >= bbox_to_exclude[3]) |
-                               (dt < bbox_dt_min) |
-                               (dt >= bbox_dt_max) ]
+            df_sub = dataframe[
+                (x < bbox_to_exclude[0])
+                | (x >= bbox_to_exclude[1])
+                | (y < bbox_to_exclude[2])
+                | (y >= bbox_to_exclude[3])
+                | (dt < bbox_dt_min)
+                | (dt >= bbox_dt_max)
+            ]
 
         elif len(bbox_to_exclude) == 4:
-            df_sub = dataframe[(x < bbox_to_exclude[0]) |
-                               (x >= bbox_to_exclude[1]) |
-                               (y < bbox_to_exclude[2]) |
-                               (y >= bbox_to_exclude[3]) ]
+            df_sub = dataframe[
+                (x < bbox_to_exclude[0])
+                | (x >= bbox_to_exclude[1])
+                | (y < bbox_to_exclude[2])
+                | (y >= bbox_to_exclude[3])
+            ]
 
         else:
-            raise ValueError("Bounding boxes must be either 4 values or 6 values, in format (xmin, xmax, ymin, ymax, [tmin, tmax]).")
+            raise ValueError(
+                "Bounding boxes must be either 4 values or 6 values, in format (xmin, xmax, ymin, ymax, [tmin, tmax])."
+            )
 
         return df_sub
 
     @staticmethod
-    def read_granule(granule_fn: str,
-                     subset_bbox: list | tuple | None = None,
-                     photon_classes: list | tuple | None = None) \
-            -> pandas.DataFrame:
+    def read_granule(
+        granule_fn: str,
+        subset_bbox: list | tuple | None = None,
+        photon_classes: list | tuple | None = None,
+    ) -> pandas.DataFrame:
         """Read classified photons from a NetCDF granule file.
 
         Parameters
@@ -558,10 +697,16 @@ class IS2Database:
         df = df[df["class_code"].isin(photon_classes)]
 
         if subset_bbox is not None:
-            assert len(subset_bbox) == 6, "subset_bbox must have 6 values (xmin, xmax, ymin, ymax, tmin, tmax)."
+            assert len(subset_bbox) == 6, (
+                "subset_bbox must have 6 values (xmin, xmax, ymin, ymax, tmin, tmax)."
+            )
             x, y = df["x"], df["y"]
-            df = df[(x >= subset_bbox[0]) & (x < subset_bbox[1]) &
-                    (y >= subset_bbox[2]) & (y < subset_bbox[3])]
+            df = df[
+                (x >= subset_bbox[0])
+                & (x < subset_bbox[1])
+                & (y >= subset_bbox[2])
+                & (y < subset_bbox[3])
+            ]
 
             if "delta_time" in df.columns:
                 dt_min = _yyyymmdd_to_delta_time(subset_bbox[4])
@@ -570,25 +715,23 @@ class IS2Database:
 
         return df
 
-
     @staticmethod
     def is_iterable(obj) -> bool:
         try:
-            some_iterator = iter(obj)
+            iter(obj)
             return True
         except TypeError:
             return False
 
-
-    def query_photons(self,
-                      bbox: list | tuple | None = None,
-                      photon_classes: list | tuple | None = (1, 6, 40),
-                      min_bathy_confidence = 0.75,
-                      min_confidence_level: int = 1,
-                      omit_bboxes = [],
-                      # download_new_data: bool = False,
-                      ) \
-            -> pandas.DataFrame | None:
+    def query_photons(
+        self,
+        bbox: list | tuple | None = None,
+        photon_classes: list | tuple | None = (1, 6, 40),
+        min_bathy_confidence=0.75,
+        min_confidence_level: int = 1,
+        omit_bboxes=[],
+        # download_new_data: bool = False,
+    ) -> pandas.DataFrame | None:
         """Query the database for photons in a given bounding box and date range.
 
         Parameters
@@ -612,25 +755,34 @@ class IS2Database:
             If no photons are found, return None.
         """
 
-        assert len(bbox) == 6, "bbox must be a list or tuple of length 6 (xmin, ymin, xmax, ymax, tmin, tmax)."
+        assert len(bbox) == 6, (
+            "bbox must be a list or tuple of length 6 (xmin, ymin, xmax, ymax, tmin, tmax)."
+        )
 
         gdf_subset = self.query_granules(bbox)
 
         logger.info("Reading %d granules overlapping %r.", len(gdf_subset), bbox)
 
         # print(gdf_subset)
-        fnames = gdf_subset["filename"].apply(lambda x: os.path.join(self.granules_dir, x))
-        logger.info("%d granules exist with %s ground photons and %s bathy_floor photons.",
-                    numpy.count_nonzero(fnames.apply(os.path.exists)),
-                    f"{gdf_subset['numphotons_ground'].sum():,}",
-                    f"{gdf_subset['numphotons_bathy_floor'].sum():,}")
-
+        fnames = gdf_subset["filename"].apply(
+            lambda x: os.path.join(self.granules_dir, x)
+        )
+        logger.info(
+            "%d granules exist with %s ground photons and %s bathy_floor photons.",
+            numpy.count_nonzero(fnames.apply(os.path.exists)),
+            f"{gdf_subset['numphotons_ground'].sum():,}",
+            f"{gdf_subset['numphotons_bathy_floor'].sum():,}",
+        )
 
         granule_dfs = []
         for idx, granule_line in gdf_subset.iterrows():
             fpath = os.path.join(self.granules_dir, granule_line["filename"])
             # print(os.path.basename(fpath))
-            granule_dfs.append(self.read_granule(fpath, subset_bbox=bbox, photon_classes=photon_classes))
+            granule_dfs.append(
+                self.read_granule(
+                    fpath, subset_bbox=bbox, photon_classes=photon_classes
+                )
+            )
             # print()
 
         if len(granule_dfs) == 0:
@@ -639,8 +791,13 @@ class IS2Database:
         photons_df = pandas.concat(granule_dfs, ignore_index=True)
 
         if min_bathy_confidence > 0.0:
-            photons_df = photons_df[(photons_df['class_code'] != 40) |
-                                    ((photons_df['class_code'] == 40) & (photons_df['bathy_confidence'] >= min_bathy_confidence))]
+            photons_df = photons_df[
+                (photons_df["class_code"] != 40)
+                | (
+                    (photons_df["class_code"] == 40)
+                    & (photons_df["bathy_confidence"] >= min_bathy_confidence)
+                )
+            ]
 
         if min_confidence_level > 1 and "confidence" in photons_df.columns:
             photons_df = photons_df[photons_df["confidence"] >= min_confidence_level]
@@ -649,7 +806,9 @@ class IS2Database:
             omit_bboxes = []
 
         # If we're given a single bounding box of exclusions as a 4- or 6-tuple of numbers (not iterables), put it in a 1-length list.
-        if len(omit_bboxes) in (4,6) and not numpy.any([self.is_iterable(num) for num in omit_bboxes]):
+        if len(omit_bboxes) in (4, 6) and not numpy.any(
+            [self.is_iterable(num) for num in omit_bboxes]
+        ):
             omit_bboxes = [omit_bboxes]
 
         if len(omit_bboxes) >= 1:
@@ -657,11 +816,13 @@ class IS2Database:
                 photons_df = self.omit_photons_from_exclusion_bbox(photons_df, omit_bb)
 
         if len(photons_df) > 0:
-            logger.info("Trimmed granules from %s to %s photons (%s ground, %s bathy).",
-                        f"{gdf_subset['numphotons'].sum():,}",
-                        f"{len(photons_df):,}",
-                        f"{numpy.count_nonzero(photons_df['class_code'] == 1):,}",
-                        f"{numpy.count_nonzero(photons_df['class_code'] == 40):,}")
+            logger.info(
+                "Trimmed granules from %s to %s photons (%s ground, %s bathy).",
+                f"{gdf_subset['numphotons'].sum():,}",
+                f"{len(photons_df):,}",
+                f"{numpy.count_nonzero(photons_df['class_code'] == 1):,}",
+                f"{numpy.count_nonzero(photons_df['class_code'] == 40):,}",
+            )
         else:
             logger.info("No photons in bbox.")
 
@@ -669,19 +830,22 @@ class IS2Database:
         # If we simply copy the dataframe upon returning it will be cleaner, without pointing to larger datasets and masks.
         return photons_df.copy()
 
-
-    def convert_date_range(self,
-                           date_range: list | tuple | None) -> list | tuple | None:
+    def convert_date_range(
+        self, date_range: list | tuple | None
+    ) -> list | tuple | None:
         """Convert date range to the format required by the database."""
         if date_range is None:
             return None
         elif len(date_range) == 2:
-            return self.convert_date_to_yyyymmdd(date_range[0]), self.convert_date_to_yyyymmdd(date_range[1])
+            return self.convert_date_to_yyyymmdd(
+                date_range[0]
+            ), self.convert_date_to_yyyymmdd(date_range[1])
         else:
             raise ValueError("Date range must be a list or tuple of length 2.")
 
-
-    def convert_date_to_yyyymmdd(self, date: int | str | datetime.datetime | datetime.date) -> int:
+    def convert_date_to_yyyymmdd(
+        self, date: int | str | datetime.datetime | datetime.date
+    ) -> int:
         """Convert date to the YYYYMMDD integer format required by the database."""
         if isinstance(date, int):
             # If it's an integer, make sure it's 8 digits and then return as-is.
@@ -699,12 +863,11 @@ class IS2Database:
         elif isinstance(date, datetime.datetime) or isinstance(date, datetime.date):
             return int(date.strftime("%Y%m%d"))
         else:
-            raise ValueError("Date must be an int, str, datetime.datetime, or datetime.date.")
+            raise ValueError(
+                "Date must be an int, str, datetime.datetime, or datetime.date."
+            )
 
-
-    def query_granules(self,
-                       bbox: list | tuple) \
-            -> pandas.DataFrame | None:
+    def query_granules(self, bbox: list | tuple) -> pandas.DataFrame | None:
         """Return a sub-dataframe of granules in the database that possibly intersect the bounding box, using data bounding boxes."""
         gdf = self.open_gdf()
         if gdf is None or len(gdf) == 0:
@@ -714,13 +877,21 @@ class IS2Database:
         # to make it a non-inclusive limit.
         # query_bbox = tuple(bbox[0:5]) + (self.increment_yyyymmdd_by_n(bbox[5], 1),)
 
-        bbox = (float(bbox[0]), float(bbox[1]), float(bbox[2]), float(bbox[3]), int(bbox[4]), int(bbox[5]))
+        bbox = (
+            float(bbox[0]),
+            float(bbox[1]),
+            float(bbox[2]),
+            float(bbox[3]),
+            int(bbox[4]),
+            int(bbox[5]),
+        )
 
         # Add 1 to each
         int_mask = gdf["data_bbox"].apply(
-            lambda b: ivert.utils.cuboid_funcs.cuboids_intersect(b,
-                                                           bbox,
-                                                           bbox_order="axis"))
+            lambda b: ivert.utils.cuboid_funcs.cuboids_intersect(
+                b, bbox, bbox_order="axis"
+            )
+        )
 
         # Return the subset of the dataframe of granules whose data bounding-box intersects the query bounding box.
         # return gdf[intersect_func(data_bboxes)]
@@ -741,28 +912,35 @@ class IS2Database:
                 vd_vals = gdf["vertical_datum"].dropna()
                 vd_vals = vd_vals[vd_vals != ""]
                 if len(hd_vals) > 0 and len(vd_vals) > 0:
-                    hd = str(hd_vals.iloc[0])       # e.g. "EPSG:4326"
-                    vd = str(vd_vals.iloc[0])        # e.g. "EPSG:3855" or "EPSG:4979"
-                    vd_num = vd.split(":")[-1]       # strip "EPSG:" prefix
-                    return f"{hd}+{vd_num}"          # e.g. "EPSG:4326+3855"
+                    hd = str(hd_vals.iloc[0])  # e.g. "EPSG:4326"
+                    vd = str(vd_vals.iloc[0])  # e.g. "EPSG:3855" or "EPSG:4979"
+                    vd_num = vd.split(":")[-1]  # strip "EPSG:" prefix
+                    return f"{hd}+{vd_num}"  # e.g. "EPSG:4326+3855"
         return "EPSG:4326+4979"
 
-    def download_new_granules(self,
-                              bbox: list | tuple,
-                              classes_to_keep=(1, 2, 3, 7, 40, 41),
-                              split_big_bboxes: bool = True,
-                              tile_size_deg=2.0,
-                              max_tile_scale_factor=1.5,
-                              min_bathy_confidence=0.01,
-                              min_confidence_level: int = 1,
-                              cache_subdir: str | None = None):
+    def download_new_granules(
+        self,
+        bbox: list | tuple,
+        classes_to_keep=(1, 2, 3, 6, 7, 40, 41, 42),
+        split_big_bboxes: bool = True,
+        tile_size_deg=2.0,
+        max_tile_scale_factor=1.5,
+        min_bathy_confidence=0.01,
+        min_confidence_level: int = 1,
+        cache_subdir: str | None = None,
+        replace: bool = False,
+    ):
         """Download ICESat-2 ATL03 granules from NASA using fetchez and register them in the database.
 
         Downloads raw HDF5 files into granules_dir; classification is deferred to read time via globato.
-        Only downloads granules covering bboxes not already in the database.
+        Only downloads granules covering bboxes not already in the database, unless 'replace' is True,
+        in which case the full requested bbox is (re-)downloaded and any existing granules it overlaps
+        are replaced with the newly-downloaded data.
         """
         # Validate the configured water surface and derive the target vertical datum.
-        vertical_datum_cfg = self._validate_vertical_datum(self.config.icesat2_vertical_datum)
+        vertical_datum_cfg = self._validate_vertical_datum(
+            self.config.icesat2_vertical_datum
+        )
         target_vd = self._vertical_datum_to_vertical_epsg(vertical_datum_cfg)
 
         # Reject the download if existing records use a different datum.
@@ -775,7 +953,9 @@ class IS2Database:
                     existing_vd = str(existing_vd_vals.iloc[0])
                     existing_hd = "EPSG:4326"
                     if "horizontal_datum" in existing_gdf_check.columns:
-                        existing_hd_vals = existing_gdf_check["horizontal_datum"].dropna()
+                        existing_hd_vals = existing_gdf_check[
+                            "horizontal_datum"
+                        ].dropna()
                         existing_hd_vals = existing_hd_vals[existing_hd_vals != ""]
                         if len(existing_hd_vals) > 0:
                             existing_hd = str(existing_hd_vals.iloc[0])
@@ -788,37 +968,58 @@ class IS2Database:
                             "must share the same datum. Change 'icesat2_vertical_datum' in "
                             "your user config to match the existing database, or create a "
                             "new database.",
-                            existing_hd, existing_vd, target_vd, vertical_datum_cfg,
+                            existing_hd,
+                            existing_vd,
+                            target_vd,
+                            vertical_datum_cfg,
                         )
                         return
 
-        bboxes = self.filter_query_bbox(bbox)
-
-        if len(bboxes) == 0:
-            logger.info("All required granules already exist in the database. Nothing new to download.")
-            return
-
-        if not (len(bboxes) == 1 and tuple(bboxes[0]) == tuple(bbox)):
+        if replace:
+            bboxes = [tuple(bbox)]
             logger.info(
-                "Existing database coverage partially overlaps the requested region. "
-                "Downloading only the missing sub-region(s) (%d area(s) to fill).",
-                len(bboxes),
+                "--replace enabled: re-downloading the full requested region and "
+                "overwriting any overlapping existing granules."
             )
+        else:
+            bboxes = self.filter_query_bbox(bbox)
+
+            if len(bboxes) == 0:
+                logger.info(
+                    "All required granules already exist in the database. Nothing new to download."
+                )
+                return
+
+            if not (len(bboxes) == 1 and tuple(bboxes[0]) == tuple(bbox)):
+                logger.info(
+                    "Existing database coverage partially overlaps the requested region. "
+                    "Downloading only the missing sub-region(s) (%d area(s) to fill).",
+                    len(bboxes),
+                )
 
         if split_big_bboxes:
             bboxes_split = []
             for bb in bboxes:
-                bboxes_split.extend(split_bbox_into_parts(bb,
-                                                          tile_size_deg=tile_size_deg,
-                                                          max_tile_scale_factor=max_tile_scale_factor))
+                bboxes_split.extend(
+                    split_bbox_into_parts(
+                        bb,
+                        tile_size_deg=tile_size_deg,
+                        max_tile_scale_factor=max_tile_scale_factor,
+                    )
+                )
             bboxes = bboxes_split
 
         actual_bbox = (
-            min(bb[0] for bb in bboxes), max(bb[1] for bb in bboxes),
-            min(bb[2] for bb in bboxes), max(bb[3] for bb in bboxes),
-            int(min(bb[4] for bb in bboxes)), int(max(bb[5] for bb in bboxes)),
+            min(bb[0] for bb in bboxes),
+            max(bb[1] for bb in bboxes),
+            min(bb[2] for bb in bboxes),
+            max(bb[3] for bb in bboxes),
+            int(min(bb[4] for bb in bboxes)),
+            int(max(bb[5] for bb in bboxes)),
         )
-        logger.info("Downloading granules over %s in %d parts.", actual_bbox, len(bboxes))
+        logger.info(
+            "Downloading granules over %s in %d parts.", actual_bbox, len(bboxes)
+        )
 
         os.makedirs(self.granules_dir, exist_ok=True)
 
@@ -827,26 +1028,42 @@ class IS2Database:
             logger.info("Part %d of %d: %s", i + 1, len(bboxes), sbbox)
             logger.info("=" * 85)
 
-            cache_dir = (os.path.join(self.icesat2_download_dir, cache_subdir)
-                         if cache_subdir is not None else self.icesat2_download_dir)
+            cache_dir = (
+                os.path.join(self.icesat2_download_dir, cache_subdir)
+                if cache_subdir is not None
+                else self.icesat2_download_dir
+            )
             os.makedirs(cache_dir, exist_ok=True)
 
             # fetchez region is "xmin/xmax/ymin/ymax"
             region_str = f"{sbbox[0]}/{sbbox[1]}/{sbbox[2]}/{sbbox[3]}"
-            time_start = datetime.datetime.strptime(str(int(sbbox[4])), "%Y%m%d").strftime("%Y-%m-%dT00:00:00")
-            time_end = datetime.datetime.strptime(str(int(sbbox[5])), "%Y%m%d").strftime("%Y-%m-%dT00:00:00")
+            time_start = datetime.datetime.strptime(
+                str(int(sbbox[4])), "%Y%m%d"
+            ).strftime("%Y-%m-%dT00:00:00")
+            time_end = datetime.datetime.strptime(
+                str(int(sbbox[5])), "%Y%m%d"
+            ).strftime("%Y-%m-%dT00:00:00")
 
-            logger.info("Fetching ATL03 granules: region=%s  %s -> %s", region_str, time_start, time_end)
+            logger.info(
+                "Fetching ATL03 granules: region=%s  %s -> %s",
+                region_str,
+                time_start,
+                time_end,
+            )
             src_region = fetchez.spatial.parse_region(region_str)[0]
-            mod = _FetchezIceSat2(src_region=src_region,
-                                  outdir=cache_dir,
-                                  subset=True,
-                                  time_start=time_start,
-                                  time_end=time_end)
+            mod = _FetchezIceSat2(
+                src_region=src_region,
+                outdir=cache_dir,
+                subset=True,
+                time_start=time_start,
+                time_end=time_end,
+            )
 
             # Check for a cached Harmony job for this bbox before submitting.
             requests_csv = ICESat2RequestsCSV()
-            cached = requests_csv.find_matching_request("ATL03", sbbox, only_unexpired=True)
+            cached = requests_csv.find_matching_request(
+                "ATL03", sbbox, only_unexpired=True
+            )
             if cached:
                 # Ping Harmony to verify the cached job completed without errors.
                 # Jobs with "complete_with_errors", "failed", or "canceled" status
@@ -854,25 +1071,36 @@ class IS2Database:
                 _ERROR_STATES = {"complete_with_errors", "failed", "canceled"}
                 cached_job_id = cached["jobID"]
                 current_status = mod.harmony_ping_for_status(cached_job_id)
-                current_state = current_status.get("status", "") if current_status else ""
+                current_state = (
+                    current_status.get("status", "") if current_status else ""
+                )
                 if current_state in _ERROR_STATES:
                     logger.warning(
                         "Cached Harmony job %s has status '%s'; submitting a new job.",
-                        cached_job_id, current_state,
+                        cached_job_id,
+                        current_state,
                     )
                     cached = None
                 else:
                     mod.subset_job_id = cached_job_id
                     n_granules = cached.get("numInputGranules", "?")
-                    logger.info("Re-using cached Harmony job (%s ATL03 granules): "
-                                "https://harmony.earthdata.nasa.gov/jobs/%s", n_granules, mod.subset_job_id)
+                    logger.info(
+                        "Re-using cached Harmony job (%s ATL03 granules): "
+                        "https://harmony.earthdata.nasa.gov/jobs/%s",
+                        n_granules,
+                        mod.subset_job_id,
+                    )
             if not cached:
                 harmony_status = mod.harmony_make_request()
                 if harmony_status and "jobID" in harmony_status:
                     mod.subset_job_id = harmony_status["jobID"]
                     n_granules = harmony_status.get("numInputGranules", "?")
-                    logger.info("Harmony job submitted (%s ATL03 granules): "
-                                "https://harmony.earthdata.nasa.gov/jobs/%s", n_granules, mod.subset_job_id)
+                    logger.info(
+                        "Harmony job submitted (%s ATL03 granules): "
+                        "https://harmony.earthdata.nasa.gov/jobs/%s",
+                        n_granules,
+                        mod.subset_job_id,
+                    )
                     requests_csv.add_record("ATL03", sbbox, harmony_status)
 
             mod.run()
@@ -881,83 +1109,130 @@ class IS2Database:
             if mod.subset_job_id:
                 final_status = mod.harmony_ping_for_status(mod.subset_job_id)
                 if final_status:
-                    requests_csv.update_record("ATL03", sbbox, final_status,
-                                               fail_quietly=True)
+                    requests_csv.update_record(
+                        "ATL03", sbbox, final_status, fail_quietly=True
+                    )
 
             results = fetchez.core.run_fetchez([mod])
             if not results:
-                logger.warning("Harmony request returned no results for bbox %s. Skipping for now. "
-                               "This may be because zero files were returned or Harmony is temporarily down. "
-                               "You may re-run the command later if you feel this was in error.", sbbox)
+                logger.warning(
+                    "Harmony request returned no results for bbox %s. Skipping for now. "
+                    "This may be because zero files were returned or Harmony is temporarily down. "
+                    "You may re-run the command later if you feel this was in error.",
+                    sbbox,
+                )
                 continue
-            h5_files = sorted(os.path.abspath(entry["dst_fn"])
-                              for _, entry in results
-                              if entry.get("status") == 0
-                              and entry.get("dst_fn")
-                              and os.path.exists(entry["dst_fn"]))
+            h5_files = sorted(
+                os.path.abspath(entry["dst_fn"])
+                for _, entry in results
+                if entry.get("status") == 0
+                and entry.get("dst_fn")
+                and os.path.exists(entry["dst_fn"])
+            )
 
             if not h5_files:
                 logger.info("No granules downloaded for this bbox.")
                 continue
 
-            logger.info("Downloaded %d ATL03 granule(s). Classifying and saving as NetCDF...", len(h5_files))
+            logger.info(
+                "Downloaded %d ATL03 granule(s). Classifying and saving as NetCDF...",
+                len(h5_files),
+            )
 
-            # Pre-fetch GBA building footprints once for the tile so the on-disk cache
-            # is populated before any per-granule globato.read() call. Without this,
-            # each granule independently hits the GBA server, causing rapid-fire 429s
-            # when the server is under load and the cache file never gets written.
-            tile_region = [sbbox[0], sbbox[1], sbbox[2], sbbox[3]]
             use_external_masks = True
-            try:
-                gba_files = fetchez.get("gba", region=tile_region, outdir=self.icesat2_download_dir)
-                if gba_files:
-                    logger.info("GBA building footprints cached for tile %s.", tile_region)
-                else:
-                    logger.warning("GBA pre-fetch returned no data for tile %s; "
-                                   "building-footprint refinement will be skipped.", tile_region)
-                    use_external_masks = False
-            except Exception as e:
-                logger.warning("GBA pre-fetch failed for tile %s (%s); "
-                               "building-footprint refinement will be skipped.", tile_region, e)
-                use_external_masks = False
 
             existing_gdf = self.open_gdf(read_compressed=False, verbose=False)
-            existing_filenames = set(existing_gdf["filename"].values) if existing_gdf is not None else set()
+            existing_filenames = (
+                set(existing_gdf["filename"].values)
+                if existing_gdf is not None
+                else set()
+            )
 
             new_records = []
             files_to_process = []
             for h5_src in h5_files:
                 nc_basename = self._nc_filename(h5_src, sbbox)
                 nc_dest = os.path.join(self.granules_dir, nc_basename)
-                if nc_basename in existing_filenames:
+                if nc_basename in existing_filenames and not replace:
                     logger.info("Skipping %s (already in database).", nc_basename)
                 else:
                     files_to_process.append((h5_src, nc_dest))
 
             for granule_num, (h5_src, nc_dest) in enumerate(files_to_process, start=1):
-                meta = self._process_h5_to_nc(h5_src, nc_dest,
-                                              query_bbox=sbbox,
-                                              classes_to_keep=classes_to_keep,
-                                              min_confidence_level=min_confidence_level,
-                                              granule_num=granule_num,
-                                              total_granules=len(files_to_process),
-                                              use_external_masks=use_external_masks)
+                meta = self._process_h5_to_nc(
+                    h5_src,
+                    nc_dest,
+                    query_bbox=sbbox,
+                    classes_to_keep=classes_to_keep,
+                    min_confidence_level=min_confidence_level,
+                    granule_num=granule_num,
+                    total_granules=len(files_to_process),
+                    use_external_masks=use_external_masks,
+                )
                 if meta is not None:
                     new_records.append(meta)
                 else:
-                    logger.info("%d/%d No valid classified photons in %s.",
-                                granule_num, len(files_to_process), os.path.basename(nc_dest))
+                    logger.info(
+                        "%d/%d No valid classified photons in %s.",
+                        granule_num,
+                        len(files_to_process),
+                        os.path.basename(nc_dest),
+                    )
 
             if not new_records:
                 continue
 
-            new_gdf = geopandas.GeoDataFrame(new_records, crs=self.crs, geometry="geometry")
+            new_gdf = geopandas.GeoDataFrame(
+                new_records, crs=self.crs, geometry="geometry"
+            )
             if existing_gdf is None or len(existing_gdf) == 0:
                 self.gdf = new_gdf
             else:
+                if replace:
+                    # Match on the underlying NASA granule id (source_granule), not the full
+                    # nc filename: the nc filename embeds the query bbox/dates, which can
+                    # differ between the original download and this --replace re-download,
+                    # so a filename-only comparison would fail to find the old record to drop.
+                    new_source_granules = set(new_gdf["source_granule"].values)
+                    if "source_granule" in existing_gdf.columns:
+                        existing_source_granules = existing_gdf[
+                            "source_granule"
+                        ].fillna(
+                            existing_gdf["filename"].apply(
+                                self._source_granule_from_filename
+                            )
+                        )
+                    else:
+                        existing_source_granules = existing_gdf["filename"].apply(
+                            self._source_granule_from_filename
+                        )
+                    same_granule = existing_source_granules.isin(new_source_granules)
+                    # Only replace records whose query bbox (lat/lon + time) overlaps the
+                    # region/dates just (re-)downloaded (sbbox). Records for the same source
+                    # granule but a non-overlapping query bbox are legitimately distinct data
+                    # (e.g. a different date range or region) and must not be dropped, since
+                    # doing so would discard original data rather than de-duplicate it.
+                    bbox_overlaps = existing_gdf["query_bbox"].apply(
+                        lambda qb: ivert.utils.cuboid_funcs.cuboids_intersect(
+                            qb, sbbox, bbox_order="axis"
+                        )
+                    )
+                    is_replaced = same_granule & bbox_overlaps
+                    n_replaced = int(is_replaced.sum())
+                    if n_replaced:
+                        logger.info(
+                            "Replacing %d existing record(s) with newly-downloaded data.",
+                            n_replaced,
+                        )
+                        for old_fname in existing_gdf.loc[is_replaced, "filename"]:
+                            old_fpath = os.path.join(self.granules_dir, old_fname)
+                            if os.path.exists(old_fpath):
+                                os.remove(old_fpath)
+                        existing_gdf = existing_gdf[~is_replaced]
                 self.gdf = geopandas.GeoDataFrame(
                     pandas.concat([existing_gdf, new_gdf], ignore_index=True),
-                    crs=self.crs, geometry="geometry",
+                    crs=self.crs,
+                    geometry="geometry",
                 )
 
             logger.info("Created %d new record(s).", len(new_records))
@@ -973,7 +1248,11 @@ class IS2Database:
                 root_logger.setLevel(_prev_level)
 
             if os.path.exists(self.db_fname):
-                logger.info("Updated %s with %d total records.", os.path.basename(self.db_fname), len(self.gdf))
+                logger.info(
+                    "Updated %s with %d total records.",
+                    os.path.basename(self.db_fname),
+                    len(self.gdf),
+                )
             else:
                 if os.path.exists(self.db_fname_compressed):
                     os.remove(self.db_fname_compressed)
@@ -984,15 +1263,15 @@ class IS2Database:
             if len(self.gdf) > 0:
                 ivert.utils.pickle_blosc.write(self.gdf, self.db_fname_compressed)
                 if os.path.exists(self.db_fname_compressed):
-                    logger.info("Updated compressed %s with %d total records.",
-                                os.path.basename(self.db_fname_compressed), len(self.gdf))
+                    logger.info(
+                        "Updated compressed %s with %d total records.",
+                        os.path.basename(self.db_fname_compressed),
+                        len(self.gdf),
+                    )
 
-
-    def bounds(self,
-               axis: str,
-               data_or_query: str = "data") -> tuple | None:
+    def bounds(self, axis: str, data_or_query: str = "data") -> tuple | None:
         """Return the min, max bounds of each entry in the database, on the axis requested ('x', 'y', or 't').
-        
+
         Parameters
         ----------
         axis : str
@@ -1021,7 +1300,9 @@ class IS2Database:
         elif data_or_query == "query":
             bboxes = gdf["query_bbox"]
         else:
-            raise ValueError("Invalid data_or_query parameter. Must be one of 'data' or 'query'.")
+            raise ValueError(
+                "Invalid data_or_query parameter. Must be one of 'data' or 'query'."
+            )
 
         axis = axis.lower().strip()
         if axis == "x":
@@ -1038,14 +1319,13 @@ class IS2Database:
 
         return mins, maxs
 
-
-    def unique_bboxes(self,
-                      gdf: geopandas.GeoDataFrame | None = None,
-                      data_or_query: str = "query") -> list | None:
+    def unique_bboxes(
+        self, gdf: geopandas.GeoDataFrame | None = None, data_or_query: str = "query"
+    ) -> list | None:
         """Return a numpy array of unique query bounding boxes in the database.
 
         This is useful to see what query bounding-boxes have already been populated in the database.
-        
+
         Parameters
         ----------
         data_or_query : str, optional
@@ -1075,7 +1355,9 @@ class IS2Database:
         elif data_or_query == "query":
             field = "query_bbox"
         else:
-            raise ValueError("Invalid data_or_query parameter. Must be one of 'data' or 'query'.")
+            raise ValueError(
+                "Invalid data_or_query parameter. Must be one of 'data' or 'query'."
+            )
 
         # Create a tuple from each bbox, make a set of those (unique values), turn back into a list and a numpy array
         bboxes = sorted(list(set([tuple(x) for x in gdf[field]])))
@@ -1086,12 +1368,14 @@ class IS2Database:
         # Return it as a list of bbox tuples.
         return bboxes
 
-    def delete_cache(self,
-                     delete_everything: bool = False,
-                     delete_cmr: bool = True,
-                     delete_already_processed_txt: bool = True,
-                     delete_cudem_cache: bool = True,
-                     cache_subdir: str | None = None) -> None:
+    def delete_cache(
+        self,
+        delete_everything: bool = False,
+        delete_cmr: bool = True,
+        delete_already_processed_txt: bool = True,
+        delete_cudem_cache: bool = True,
+        cache_subdir: str | None = None,
+    ) -> None:
         """Delete the icesat-2 data downloads and clears the cache directory."""
         # If we only want to get rid of previous ICESat-2 downloads, clearing the CMR sub-directory will do that.
         if cache_subdir is None:
@@ -1104,19 +1388,21 @@ class IS2Database:
                 shutil.rmtree(fname)
 
         else:
-
             if delete_cmr:
                 if os.path.exists(os.path.join(cache_dir, "cmr")):
                     shutil.rmtree(os.path.join(cache_dir, "cmr"))
                 if os.path.exists(os.path.join(cache_dir, ".cudem_cache", "cmr")):
                     shutil.rmtree(os.path.join(cache_dir, ".cudem_cache", "cmr"))
 
-            if delete_already_processed_txt and os.path.exists(os.path.join(cache_dir, "already_processed.txt")):
-                    os.remove(os.path.join(cache_dir, "already_processed.txt"))
+            if delete_already_processed_txt and os.path.exists(
+                os.path.join(cache_dir, "already_processed.txt")
+            ):
+                os.remove(os.path.join(cache_dir, "already_processed.txt"))
 
-            if delete_cudem_cache and os.path.exists(os.path.join(cache_dir, ".cudem_cache")):
+            if delete_cudem_cache and os.path.exists(
+                os.path.join(cache_dir, ".cudem_cache")
+            ):
                 shutil.rmtree(os.path.join(cache_dir, ".cudem_cache"))
-
 
     @staticmethod
     def bbox_valid(bbox: list | tuple) -> bool:
@@ -1138,11 +1424,9 @@ class IS2Database:
         xmin, xmax, ymin, ymax, tmin, tmax = bbox
         return (xmin < xmax) and (ymin < ymax) and (tmin <= tmax)
 
-
-    def filter_query_bbox(self,
-                          query_bbox: list | tuple) -> list[tuple]:
+    def filter_query_bbox(self, query_bbox: list | tuple) -> list[tuple]:
         """Given an (x,y,t) ICESat-2 bounding box, remove existing regions and return bboxes for the rest of the data.
-        
+
         Parameters
         ----------
         query_bbox : list or tuple
@@ -1161,7 +1445,9 @@ class IS2Database:
             Returns an empty list if the entire query_bbox is already present in the database.
         """
         if not self.bbox_valid(query_bbox):
-            raise ValueError("query_bbox must be a non-zero-volume valid 6-tuple or 6-value bbox, with values in the correct order.")
+            raise ValueError(
+                "query_bbox must be a non-zero-volume valid 6-tuple or 6-value bbox, with values in the correct order."
+            )
 
         # First, get a list of the active unique query cuboids within the current database
         existing_bboxes = self.unique_bboxes(data_or_query="query")
@@ -1173,7 +1459,9 @@ class IS2Database:
         # e_bboxes = [tuple(bb[:5]) + (self.increment_yyyymmdd_by_n(bb[5], 1),) for bb in existing_bboxes]
 
         # Simplify by merging these bboxes together (could have been gathered on a number of queries).
-        e_bboxes = ivert.utils.cuboid_funcs.merge_cuboids(existing_bboxes, bbox_order="axis")
+        e_bboxes = ivert.utils.cuboid_funcs.merge_cuboids(
+            existing_bboxes, bbox_order="axis"
+        )
 
         # Now, increment the query_box tmax by 1 to make it non-inclusive as well (for cuboid subtraction)
         # query_bbox = tuple(query_bbox[:5]) + (self.increment_yyyymmdd_by_n(query_bbox[5], 1),)
@@ -1183,31 +1471,37 @@ class IS2Database:
         for e_bbox in e_bboxes:
             new_bboxes = []
             for q_bbox in query_bboxes:
-                new_bboxes.extend(ivert.utils.cuboid_funcs.subtract_cuboids(q_bbox, e_bbox, bbox_order="axis"))
+                new_bboxes.extend(
+                    ivert.utils.cuboid_funcs.subtract_cuboids(
+                        q_bbox, e_bbox, bbox_order="axis"
+                    )
+                )
 
             query_bboxes = new_bboxes
 
         # Do a quick merger on all the remaining bboxes to make sure they're simplified
-        query_bboxes = ivert.utils.cuboid_funcs.merge_cuboids(query_bboxes, bbox_order="axis")
+        query_bboxes = ivert.utils.cuboid_funcs.merge_cuboids(
+            query_bboxes, bbox_order="axis"
+        )
 
         # Now, decrement the tmax day by 1 to make the ranges inclusive again.
         # query_bboxes = [tuple(bb[:5]) + (self.increment_yyyymmdd_by_n(bb[5], -1),) for bb in query_bboxes]
 
         return query_bboxes
 
-
     @staticmethod
-    def increment_yyyymmdd_by_n(yyyymmdd: int | float | str,
-                                days: int) -> int:
+    def increment_yyyymmdd_by_n(yyyymmdd: int | float | str, days: int) -> int:
         """Increment a YYYYMMDD integer by N calendar days (positive or negative).."""
         ymd = int(yyyymmdd)
-        ymd_dt = datetime.datetime.strptime(str(ymd), "%Y%m%d") + datetime.timedelta(days=int(days))
+        ymd_dt = datetime.datetime.strptime(str(ymd), "%Y%m%d") + datetime.timedelta(
+            days=int(days)
+        )
         return int(ymd_dt.strftime("%Y%m%d"))
 
 
-def split_bbox_into_parts(bbox: list | tuple,
-                          tile_size_deg: float = 2.0,
-                          max_tile_scale_factor: float = 1.5) -> list | None:
+def split_bbox_into_parts(
+    bbox: list | tuple, tile_size_deg: float = 2.0, max_tile_scale_factor: float = 1.5
+) -> list | None:
     """Split a bounding box into parts of size approximately deg_size degrees.."""
     # if we included a 6-value bbox, save the last two and append them at the end.
     tmin, tmax = None, None
@@ -1241,11 +1535,29 @@ def split_bbox_into_parts(bbox: list | tuple,
     bin_ymaxs = binys[1:, 1:].flatten()
 
     if tmin is not None and tmax is not None:
-        bboxes = [(float(xbmin), float(xbmax), float(ybmin), float(ybmax), int(tmin), int(tmax)) for (xbmin, xbmax, ybmin, ybmax) in zip(bin_xmins, bin_xmaxs, bin_ymins, bin_ymaxs)]
+        bboxes = [
+            (
+                float(xbmin),
+                float(xbmax),
+                float(ybmin),
+                float(ybmax),
+                int(tmin),
+                int(tmax),
+            )
+            for (xbmin, xbmax, ybmin, ybmax) in zip(
+                bin_xmins, bin_xmaxs, bin_ymins, bin_ymaxs
+            )
+        ]
     else:
-        bboxes = [(float(xbmin), float(xbmax), float(ybmin), float(ybmax)) for (xbmin, xbmax, ybmin, ybmax) in zip(bin_xmins, bin_xmaxs, bin_ymins, bin_ymaxs)]
+        bboxes = [
+            (float(xbmin), float(xbmax), float(ybmin), float(ybmax))
+            for (xbmin, xbmax, ybmin, ybmax) in zip(
+                bin_xmins, bin_xmaxs, bin_ymins, bin_ymaxs
+            )
+        ]
 
     return bboxes
+
 
 def _cmd_list(args):
     """Implementation of the 'list' subcommand."""
@@ -1260,13 +1572,15 @@ def _cmd_list(args):
 
     rows = []
     for _, row in gdf.iterrows():
-        rows.append([
-            row["filename"],
-            row["numphotons"],
-            row["numphotons_ground"],
-            row["numphotons_bathy_floor"],
-            row["numphotons_bathy_surface"],
-        ])
+        rows.append(
+            [
+                row["filename"],
+                row["numphotons"],
+                row["numphotons_ground"],
+                row["numphotons_bathy_floor"],
+                row["numphotons_bathy_surface"],
+            ]
+        )
 
     headers = ["File", "Total", "Ground", "BathyFloor", "BathySurf"]
     print(tabulate_mod.tabulate(rows, headers=headers, tablefmt="simple", intfmt=","))
@@ -1285,10 +1599,15 @@ def _cmd_delete(args):
             print(f"Not found (skipping): {fpath}")
 
     if args.all:
-        nc_files = [os.path.join(db.granules_dir, fn)
-                    for fn in os.listdir(db.granules_dir)
-                    if os.path.splitext(fn)[-1].lower() == ".nc"] \
-                    if os.path.isdir(db.granules_dir) else []
+        nc_files = (
+            [
+                os.path.join(db.granules_dir, fn)
+                for fn in os.listdir(db.granules_dir)
+                if os.path.splitext(fn)[-1].lower() == ".nc"
+            ]
+            if os.path.isdir(db.granules_dir)
+            else []
+        )
         if nc_files:
             for fpath in sorted(nc_files):
                 os.remove(fpath)
@@ -1309,21 +1628,28 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(
         prog="icesat2_database_v2",
-        description="Manage the local ICESat-2 photon granule database.")
+        description="Manage the local ICESat-2 photon granule database.",
+    )
     sub = parser.add_subparsers(dest="command", metavar="COMMAND")
     sub.required = True
 
     list_p = sub.add_parser("list", help="List granules currently in the database.")
     list_p.set_defaults(func=_cmd_list)
 
-    delete_p = sub.add_parser("delete", help="Delete the .gpkg and .blosc database files.")
-    delete_p.add_argument("--all", action="store_true",
-                          help="Also delete all .nc granule data files.")
+    delete_p = sub.add_parser(
+        "delete", help="Delete the .gpkg and .blosc database files."
+    )
+    delete_p.add_argument(
+        "--all", action="store_true", help="Also delete all .nc granule data files."
+    )
     delete_p.set_defaults(func=_cmd_delete)
 
-    rebuild_p = sub.add_parser("rebuild", help="Rebuild the database from existing .nc granule files."
-                                               "Useful if the .nc files have been modified at all, and/or if you suspect"
-                                               " the overview information has become inaccurate.")
+    rebuild_p = sub.add_parser(
+        "rebuild",
+        help="Rebuild the database from existing .nc granule files."
+        "Useful if the .nc files have been modified at all, and/or if you suspect"
+        " the overview information has become inaccurate.",
+    )
     rebuild_p.set_defaults(func=_cmd_rebuild)
 
     parsed = parser.parse_args()
