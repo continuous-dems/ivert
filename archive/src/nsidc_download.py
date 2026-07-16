@@ -41,10 +41,12 @@
 from __future__ import print_function
 
 import base64
+
 # import getopt
 import itertools
 import json
 import math
+
 # import netrc
 import os
 import ssl
@@ -58,6 +60,7 @@ import dateutil.parser
 import datetime
 import re
 import shapely.geometry
+
 #
 # ####################################3
 # # Include the base /src/ directory of thie project, to add all the other modules.
@@ -66,6 +69,7 @@ import shapely.geometry
 # import utils.progress_bar as progress_bar
 # Use Config file to get the encrypted credentials.
 import utils.configfile as configfile
+
 my_config = configfile.Config()
 
 
@@ -75,7 +79,14 @@ try:
     from urllib.error import HTTPError, URLError
 except ImportError:
     from urlparse import urlparse
-    from urllib2 import urlopen, Request, HTTPError, URLError, build_opener, HTTPCookieProcessor
+    from urllib2 import (
+        urlopen,
+        Request,
+        HTTPError,
+        URLError,
+        build_opener,
+        HTTPCookieProcessor,
+    )
 
 # short_name = 'ATL03'
 # version = '005'
@@ -86,20 +97,24 @@ except ImportError:
 # filename_filter = ''
 # url_list = []
 
-CMR_URL = 'https://cmr.earthdata.nasa.gov'
+CMR_URL = "https://cmr.earthdata.nasa.gov"
 # URS_URL = 'https://urs.earthdata.nasa.gov'
 CMR_PAGE_SIZE = 2000
-CMR_FILE_URL = ('{0}/search/granules.json?provider=NSIDC_ECS'
-                '&sort_key[]=start_date&sort_key[]=producer_granule_id'
-                '&scroll=true&page_size={1}'.format(CMR_URL, CMR_PAGE_SIZE))
+CMR_FILE_URL = (
+    "{0}/search/granules.json?provider=NSIDC_ECS"
+    "&sort_key[]=start_date&sort_key[]=producer_granule_id"
+    "&scroll=true&page_size={1}".format(CMR_URL, CMR_PAGE_SIZE)
+)
 
 
 def put_polygon_string_in_correct_rotation(polygon_str, direction="clockwise"):
     """NSIDC only likes clockwise polygons. So, reverse it if it's counter-clockwise."""
     polygon_str = polygon_str.strip()
-    polygon_list = ast.literal_eval(("[" if (polygon_str[0] not in ("[","(")) else "") + \
-                                    polygon_str + \
-                                     ("]" if (polygon_str[-1] not in ("]",")")) else ""))
+    polygon_list = ast.literal_eval(
+        ("[" if (polygon_str[0] not in ("[", "(")) else "")
+        + polygon_str
+        + ("]" if (polygon_str[-1] not in ("]", ")")) else "")
+    )
     xs = polygon_list[::2]
     ys = polygon_list[1::2]
     sg_a = signed_area(xs, ys)
@@ -108,12 +123,14 @@ def put_polygon_string_in_correct_rotation(polygon_str, direction="clockwise"):
         # If the polygon is entirely on a line or a point, (has no area, or a zero-sum area) it will return zero.
         raise ValueError("Invalid zero-area polygon:", polygon_str)
 
-    is_clockwise = ( sg_a < 0 )
+    is_clockwise = sg_a < 0
 
-    direction_lower = direction.replace(" ","").replace("-","").lower()
+    direction_lower = direction.replace(" ", "").replace("-", "").lower()
     assert direction_lower in ("clockwise", "counterclockwise")
 
-    if (is_clockwise and direction_lower == "clockwise") or ((not is_clockwise) and direction_lower == "counterclockwise"):
+    if (is_clockwise and direction_lower == "clockwise") or (
+        (not is_clockwise) and direction_lower == "counterclockwise"
+    ):
         return polygon_str
     else:
         reverse_polygon = zip(reversed(xs), reversed(ys))
@@ -124,13 +141,16 @@ def put_polygon_string_in_correct_rotation(polygon_str, direction="clockwise"):
 
 def signed_area(xs, ys):
     """Return the signed area enclosed by a ring using the linear time
-     algorithm at http://www.cgafaq.info/wiki/Polygon_Area. A value >= 0
-     indicates a counter-clockwise oriented ring."""
-    return sum([xs[i]*(ys[(i+1)%len(xs)]-ys[i-1]) for i in range(1, len(xs))])/2.0
+    algorithm at http://www.cgafaq.info/wiki/Polygon_Area. A value >= 0
+    indicates a counter-clockwise oriented ring."""
+    return (
+        sum([xs[i] * (ys[(i + 1) % len(xs)] - ys[i - 1]) for i in range(1, len(xs))])
+        / 2.0
+    )
 
 
 def get_username():
-    username = ''
+    username = ""
 
     # For Python 2/3 compatibility:
     try:
@@ -138,14 +158,14 @@ def get_username():
     except NameError:
         do_input = input
 
-    username = do_input('NASA Earthdata username: ')
+    username = do_input("NASA Earthdata username: ")
     return username
 
 
 def get_password():
-    password = ''
+    password = ""
     while not password:
-        password = getpass('password: ')
+        password = getpass("password: ")
     return password
 
 
@@ -159,6 +179,7 @@ def get_username_and_pwd_from_creds():
 
     return uname, pwd
 
+
 # def get_token():
 #     token = ''
 #     while not token:
@@ -171,10 +192,10 @@ def get_login_credentials():
     credentials = None
     token = None
 
-#    username, password = get_username_and_pwd_from_creds()
+    #    username, password = get_username_and_pwd_from_creds()
     username, password = get_username(), get_password()
-    credentials = '{0}:{1}'.format(username, password)
-    credentials = base64.b64encode(credentials.encode('ascii')).decode('ascii')
+    credentials = "{0}:{1}".format(username, password)
+    credentials = base64.b64encode(credentials.encode("ascii")).decode("ascii")
 
     return credentials, token
 
@@ -186,41 +207,47 @@ def build_version_query_params(version):
         quit()
 
     version = str(int(version))  # Strip off any leading zeros
-    query_params = ''
+    query_params = ""
 
     while len(version) <= desired_pad_length:
         padded_version = version.zfill(desired_pad_length)
-        query_params += '&version={0}'.format(padded_version)
+        query_params += "&version={0}".format(padded_version)
         desired_pad_length -= 1
     return query_params
 
 
 def filter_add_wildcards(filter):
-    if not filter.startswith('*'):
-        filter = '*' + filter
-    if not filter.endswith('*'):
-        filter = filter + '*'
+    if not filter.startswith("*"):
+        filter = "*" + filter
+    if not filter.endswith("*"):
+        filter = filter + "*"
     return filter
 
 
 def build_filename_filter(filename_filter):
-    filters = filename_filter.split(',')
-    result = '&options[producer_granule_id][pattern]=true'
+    filters = filename_filter.split(",")
+    result = "&options[producer_granule_id][pattern]=true"
     for filter in filters:
-        result += '&producer_granule_id[]=' + filter_add_wildcards(filter)
+        result += "&producer_granule_id[]=" + filter_add_wildcards(filter)
     return result
 
 
-def build_cmr_query_url(short_name, version, time_start, time_end,
-                        bounding_box=None, polygon=None,
-                        filename_filter=None):
-    params = '&short_name={0}'.format(short_name)
+def build_cmr_query_url(
+    short_name,
+    version,
+    time_start,
+    time_end,
+    bounding_box=None,
+    polygon=None,
+    filename_filter=None,
+):
+    params = "&short_name={0}".format(short_name)
     params += build_version_query_params(version)
-    params += '&temporal[]={0},{1}'.format(time_start, time_end)
+    params += "&temporal[]={0},{1}".format(time_start, time_end)
     if polygon:
-        params += '&polygon={0}'.format(polygon)
+        params += "&polygon={0}".format(polygon)
     elif bounding_box:
-        params += '&bounding_box={0}'.format(bounding_box)
+        params += "&bounding_box={0}".format(bounding_box)
     if filename_filter:
         params += build_filename_filter(filename_filter)
     return CMR_FILE_URL + params
@@ -228,25 +255,25 @@ def build_cmr_query_url(short_name, version, time_start, time_end,
 
 def get_speed(time_elapsed, chunk_size):
     if time_elapsed <= 0:
-        return ''
+        return ""
     speed = chunk_size / time_elapsed
     if speed <= 0:
         speed = 1
-    size_name = ('', 'k', 'M', 'G', 'T', 'P', 'E', 'Z', 'Y')
+    size_name = ("", "k", "M", "G", "T", "P", "E", "Z", "Y")
     i = int(math.floor(math.log(speed, 1000)))
     p = math.pow(1000, i)
-    return '{0:.1f}{1}B/s'.format(speed / p, size_name[i])
+    return "{0:.1f}{1}B/s".format(speed / p, size_name[i])
 
 
-def output_progress(count, total, status='', bar_len=60):
+def output_progress(count, total, status="", bar_len=60):
     if total <= 0:
         return
     fraction = min(max(count / float(total), 0), 1)
     filled_len = int(round(bar_len * fraction))
     percents = int(round(100.0 * fraction))
-    bar = '=' * filled_len + ' ' * (bar_len - filled_len)
-    fmt = '  [{0}] {1:3d}%  {2}   '.format(bar, percents, status)
-    print('\b' * (len(fmt) + 4), end='')  # clears the line
+    bar = "=" * filled_len + " " * (bar_len - filled_len)
+    fmt = "  [{0}] {1:3d}%  {2}   ".format(bar, percents, status)
+    print("\b" * (len(fmt) + 4), end="")  # clears the line
     sys.stdout.write(fmt)
     sys.stdout.flush()
 
@@ -265,7 +292,7 @@ def get_login_response(url, credentials, token):
 
     req = Request(url)
     if token:
-        req.add_header('Authorization', 'Bearer {0}'.format(token))
+        req.add_header("Authorization", "Bearer {0}".format(token))
     elif credentials:
         try:
             response = opener.open(req)
@@ -275,25 +302,25 @@ def get_login_response(url, credentials, token):
             # No redirect - just try again with authorization.
             pass
         except Exception as e:
-            print('Error{0}: {1}'.format(type(e), str(e)))
+            print("Error{0}: {1}".format(type(e), str(e)))
             raise e
 
         req = Request(url)
-        req.add_header('Authorization', 'Basic {0}'.format(credentials))
+        req.add_header("Authorization", "Basic {0}".format(credentials))
 
     try:
         response = opener.open(req)
     except HTTPError as e:
-        err = 'HTTP error {0}, {1}'.format(e.code, e.reason)
-        if 'Unauthorized' in e.reason:
+        err = "HTTP error {0}, {1}".format(e.code, e.reason)
+        if "Unauthorized" in e.reason:
             if token:
-                err += ': Check your bearer token'
+                err += ": Check your bearer token"
             else:
-                err += ': Check your username and password'
+                err += ": Check your username and password"
         print(err)
         raise e
     except Exception as e:
-        print('Error{0}: {1}'.format(type(e), str(e)))
+        print("Error{0}: {1}".format(type(e), str(e)))
         raise e
 
     return response
@@ -306,20 +333,22 @@ def cmr_download(urls, download_dir=None, force=False, quiet=False):
 
     url_count = len(urls)
     if not quiet:
-        print('Downloading {0} files...'.format(url_count))
+        print("Downloading {0} files...".format(url_count))
     credentials = None
     token = None
 
     # Get the location of the local files to download.
     if download_dir is None:
-        local_filenames = [url.split('/')[-1] for url in urls]
+        local_filenames = [url.split("/")[-1] for url in urls]
     else:
-        local_filenames = [os.path.join(download_dir, url.split('/')[-1]) for url in urls]
+        local_filenames = [
+            os.path.join(download_dir, url.split("/")[-1]) for url in urls
+        ]
 
     for index, (url, filename) in enumerate(zip(urls, local_filenames), start=1):
         if not credentials and not token:
             p = urlparse(url)
-            if p.scheme == 'https':
+            if p.scheme == "https":
                 credentials, token = get_login_credentials()
 
         # filename = url.split('/')[-1]
@@ -327,16 +356,19 @@ def cmr_download(urls, download_dir=None, force=False, quiet=False):
         #     filename = os.path.join(download_dir, filename)
 
         if not quiet:
-            print('{0}/{1}: {2}'.format(str(index).zfill(len(str(url_count))),
-                                        url_count, url))
+            print(
+                "{0}/{1}: {2}".format(
+                    str(index).zfill(len(str(url_count))), url_count, url
+                )
+            )
 
         try:
             response = get_login_response(url, credentials, token)
-            length = int(response.headers['content-length'])
+            length = int(response.headers["content-length"])
             try:
                 if not force and length == os.path.getsize(filename):
                     if not quiet:
-                        print('  File exists, skipping')
+                        print("  File exists, skipping")
                     continue
             except OSError:
                 pass
@@ -344,7 +376,7 @@ def cmr_download(urls, download_dir=None, force=False, quiet=False):
             chunk_size = min(max(length, 1), 1024 * 1024)
             max_chunks = int(math.ceil(length / chunk_size))
             time_initial = time.time()
-            with open(filename, 'wb') as out_file:
+            with open(filename, "wb") as out_file:
                 for data in cmr_read_in_chunks(response, chunk_size=chunk_size):
                     out_file.write(data)
                     if not quiet:
@@ -357,10 +389,10 @@ def cmr_download(urls, download_dir=None, force=False, quiet=False):
         except HTTPError as e:
             print("local file:", filename)
             print("url:", url)
-            print('HTTP error {0}, {1}'.format(e.code, e.reason))
+            print("HTTP error {0}, {1}".format(e.code, e.reason))
             raise e
         except URLError as e:
-            print('URL error: {0}'.format(e.reason))
+            print("URL error: {0}".format(e.reason))
             raise e
         except IOError as e:
             print("local file:", filename)
@@ -379,59 +411,68 @@ def cmr_download(urls, download_dir=None, force=False, quiet=False):
             print("url:", url)
             raise e
 
+
 def cmr_filter_urls(search_results):
     """Select only the desired data files from CMR response."""
-    if 'feed' not in search_results or 'entry' not in search_results['feed']:
+    if "feed" not in search_results or "entry" not in search_results["feed"]:
         return []
 
-    entries = [e['links']
-               for e in search_results['feed']['entry']
-               if 'links' in e]
+    entries = [e["links"] for e in search_results["feed"]["entry"] if "links" in e]
     # Flatten "entries" to a simple list of links
     links = list(itertools.chain(*entries))
 
     urls = []
     unique_filenames = set()
     for link in links:
-        if 'href' not in link:
+        if "href" not in link:
             # Exclude links with nothing to download
             continue
-        if 'inherited' in link and link['inherited'] is True:
+        if "inherited" in link and link["inherited"] is True:
             # Why are we excluding these links?
             continue
-        if 'rel' in link and 'data#' not in link['rel']:
+        if "rel" in link and "data#" not in link["rel"]:
             # Exclude links which are not classified by CMR as "data" or "metadata"
             continue
 
-        if 'title' in link and 'opendap' in link['title'].lower():
+        if "title" in link and "opendap" in link["title"].lower():
             # Exclude OPeNDAP links--they are responsible for many duplicates
             # This is a hack; when the metadata is updated to properly identify
             # non-datapool links, we should be able to do this in a non-hack way
             continue
 
-        filename = link['href'].split('/')[-1]
+        filename = link["href"].split("/")[-1]
         if filename in unique_filenames:
             # Exclude links with duplicate filenames (they would overwrite)
             continue
         unique_filenames.add(filename)
 
-        urls.append(link['href'])
+        urls.append(link["href"])
 
     return urls
 
 
-def cmr_search(short_name, version, time_start, time_end,
-               bounding_box='', polygon='', filename_filter='', quiet=False):
+def cmr_search(
+    short_name,
+    version,
+    time_start,
+    time_end,
+    bounding_box="",
+    polygon="",
+    filename_filter="",
+    quiet=False,
+):
     """Perform a scrolling CMR query for files matching input criteria."""
-    cmr_query_url = build_cmr_query_url(short_name=short_name,
-                                        version=version,
-                                        time_start=time_start,
-                                        time_end=time_end,
-                                        bounding_box=bounding_box,
-                                        polygon=polygon,
-                                        filename_filter=filename_filter)
+    cmr_query_url = build_cmr_query_url(
+        short_name=short_name,
+        version=version,
+        time_start=time_start,
+        time_end=time_end,
+        bounding_box=bounding_box,
+        polygon=polygon,
+        filename_filter=filename_filter,
+    )
     if not quiet:
-        print('Querying for data:\n\t{0}\n'.format(cmr_query_url))
+        print("Querying for data:\n\t{0}\n".format(cmr_query_url))
 
     cmr_scroll_id = None
     ctx = ssl.create_default_context()
@@ -445,38 +486,39 @@ def cmr_search(short_name, version, time_start, time_end,
     while True:
         req = Request(cmr_query_url)
         if cmr_scroll_id:
-            req.add_header('cmr-scroll-id', cmr_scroll_id)
+            req.add_header("cmr-scroll-id", cmr_scroll_id)
         try:
             response = urlopen(req, context=ctx)
         except Exception as e:
             # This is kind of a weird way to code this up, but if we get an except
             # return it rather than raising it. _main() uses this to handle
             # the exception. I may change this later, but it works for now.
-            print('Error: ' + str(e))
+            print("Error: " + str(e))
             return e
         if not cmr_scroll_id:
             # Python 2 and 3 have different case for the http headers
             headers = {k.lower(): v for k, v in dict(response.info()).items()}
-            cmr_scroll_id = headers['cmr-scroll-id']
-            hits = int(headers['cmr-hits'])
+            cmr_scroll_id = headers["cmr-scroll-id"]
+            hits = int(headers["cmr-hits"])
             if not quiet:
                 if hits > 0:
-                    print('Found {0} matches.'.format(hits))
+                    print("Found {0} matches.".format(hits))
                 else:
-                    print('Found no matches.')
+                    print("Found no matches.")
         search_page = response.read()
-        search_page = json.loads(search_page.decode('utf-8'))
+        search_page = json.loads(search_page.decode("utf-8"))
         url_scroll_results = cmr_filter_urls(search_page)
         if not url_scroll_results:
             break
         if not quiet and hits > CMR_PAGE_SIZE:
-            print('.', end='')
+            print(".", end="")
             sys.stdout.flush()
         urls += url_scroll_results
 
     if not quiet and hits > CMR_PAGE_SIZE:
         print()
     return urls
+
 
 def get_region_as_bbox_or_polygon(region_text):
     """The region can be either a 4-value bounding box, or a polygon.
@@ -489,13 +531,17 @@ def get_region_as_bbox_or_polygon(region_text):
     else:
         region_obj = region_text
 
-    if (type(region_obj) in (list,tuple)) and (len(region_obj) == 4) and numpy.all([type(i) in (int,float) for i in region_obj]):
+    if (
+        (type(region_obj) in (list, tuple))
+        and (len(region_obj) == 4)
+        and numpy.all([type(i) in (int, float) for i in region_obj])
+    ):
         bounding_box = region_obj
         polygon = None
     else:
         # Flatten the polygon object
         if type(region_obj) == shapely.geometry.Polygon:
-            polygon = list( numpy.array(list(region_obj.exterior.coords)).flatten() )
+            polygon = list(numpy.array(list(region_obj.exterior.coords)).flatten())
         else:
             polygon = list(numpy.concatenate(region_obj).flatten())
         bounding_box = None
@@ -507,42 +553,79 @@ def get_region_as_bbox_or_polygon(region_text):
 
     return bounding_box, polygon
 
+
 def define_and_parse_args():
     parser = argparse.ArgumentParser(description="Tool for downloading NSIDC granules.")
-    parser.add_argument('-dataset_name', '-d', metavar="ATLXX", type=str, default="ATL03",
-                        help="Dataset short name. Currently accepts ATL03, ATL06, or ATL08. Default ATL03.")
-    parser.add_argument('-region', '-r', type=str, default='[-180,-90,180,90]',
-                        help="Search area. Can be [xmin,ymin,xmax,ymax], a list of (x,y) points in a polygon [[x1,y1],[x2,y2],...,[x1,y1]] in WGS84 (EPSG:4326) lat/lon coordinates.")
-    parser.add_argument('-local_dir', default=os.getcwd(),
-                        help="Local directory to download the data. Defaults to the process current-working-directory.")
-    parser.add_argument('-dates', default='2021-01-01,2021-12-31', type=str,
-                        help="A pair of dates (separated by a comma) in which to search: YYYY-MM-DD,YYYY-MM-DD")
-    parser.add_argument('-version', default='005', type=str,
-                        help="Version of the data.")
-    parser.add_argument('-fname_filter', default='', type=str,
-                        help="Filename filter by which to search for explicit file names. Can use open flags, such as 'ATL03_20200102*'.")
-    parser.add_argument('--force' , '-f', default=False, action="store_true",
-                        help="Force the download even if files already exist.")
-    parser.add_argument('--query_only', default=False, action="store_true",
-                        help="Only return (or print) a list of URLS. Do not download. Overrides -force.")
-    parser.add_argument('--quiet', '-q', default=False, action="store_true",
-                        help="Run in quiet mode.")
+    parser.add_argument(
+        "-dataset_name",
+        "-d",
+        metavar="ATLXX",
+        type=str,
+        default="ATL03",
+        help="Dataset short name. Currently accepts ATL03, ATL06, or ATL08. Default ATL03.",
+    )
+    parser.add_argument(
+        "-region",
+        "-r",
+        type=str,
+        default="[-180,-90,180,90]",
+        help="Search area. Can be [xmin,ymin,xmax,ymax], a list of (x,y) points in a polygon [[x1,y1],[x2,y2],...,[x1,y1]] in WGS84 (EPSG:4326) lat/lon coordinates.",
+    )
+    parser.add_argument(
+        "-local_dir",
+        default=os.getcwd(),
+        help="Local directory to download the data. Defaults to the process current-working-directory.",
+    )
+    parser.add_argument(
+        "-dates",
+        default="2021-01-01,2021-12-31",
+        type=str,
+        help="A pair of dates (separated by a comma) in which to search: YYYY-MM-DD,YYYY-MM-DD",
+    )
+    parser.add_argument(
+        "-version", default="005", type=str, help="Version of the data."
+    )
+    parser.add_argument(
+        "-fname_filter",
+        default="",
+        type=str,
+        help="Filename filter by which to search for explicit file names. Can use open flags, such as 'ATL03_20200102*'.",
+    )
+    parser.add_argument(
+        "--force",
+        "-f",
+        default=False,
+        action="store_true",
+        help="Force the download even if files already exist.",
+    )
+    parser.add_argument(
+        "--query_only",
+        default=False,
+        action="store_true",
+        help="Only return (or print) a list of URLS. Do not download. Overrides -force.",
+    )
+    parser.add_argument(
+        "--quiet", "-q", default=False, action="store_true", help="Run in quiet mode."
+    )
 
     return parser.parse_args()
 
-def download_granules(short_name="ATL03",
-                      region=[-180,-90,180,90],
-                      local_dir=os.getcwd(),
-                      dates=['2021-01-01','2021-12-31'],
-                      version='005',
-                      fname_filter='',
-                      force=False,
-                      query_only=False,
-                      fname_python_regex=r"\.h5\Z",
-                      use_wget='backup',
-                      download_only_matching_granules=True,
-                      skip_granules_if_photon_db_exists=True,
-                      quiet=False):
+
+def download_granules(
+    short_name="ATL03",
+    region=[-180, -90, 180, 90],
+    local_dir=os.getcwd(),
+    dates=["2021-01-01", "2021-12-31"],
+    version="005",
+    fname_filter="",
+    force=False,
+    query_only=False,
+    fname_python_regex=r"\.h5\Z",
+    use_wget="backup",
+    download_only_matching_granules=True,
+    skip_granules_if_photon_db_exists=True,
+    quiet=False,
+):
     """An API function for downloading without the command-line, from another
     python module.
     """
@@ -557,34 +640,38 @@ def download_granules(short_name="ATL03",
     # print(fname_python_regex)
     # print(download_only_matching_granules)
     # print(quiet)
-    local_files = _main(short_name = short_name,
-                        region = region,
-                        local_dir = local_dir,
-                        dates = dates,
-                        version = version,
-                        fname_filter = fname_filter,
-                        force = force,
-                        query_only = query_only,
-                        fname_python_regex = fname_python_regex,
-                        use_wget = use_wget,
-                        download_only_matching_granules=download_only_matching_granules,
-                        quiet = quiet)
+    local_files = _main(
+        short_name=short_name,
+        region=region,
+        local_dir=local_dir,
+        dates=dates,
+        version=version,
+        fname_filter=fname_filter,
+        force=force,
+        query_only=query_only,
+        fname_python_regex=fname_python_regex,
+        use_wget=use_wget,
+        download_only_matching_granules=download_only_matching_granules,
+        quiet=quiet,
+    )
     return local_files
 
 
-def _main(short_name=None,
-          region=None,
-          local_dir=None,
-          dates=None,
-          version=None,
-          fname_filter=None,
-          force=None,
-          query_only=None,
-          fname_python_regex=r"\.h5\Z",
-          use_wget='backup',
-          download_only_matching_granules=True,
-          skip_granules_if_photon_db_exists=True,
-          quiet=None):
+def _main(
+    short_name=None,
+    region=None,
+    local_dir=None,
+    dates=None,
+    version=None,
+    fname_filter=None,
+    force=None,
+    query_only=None,
+    fname_python_regex=r"\.h5\Z",
+    use_wget="backup",
+    download_only_matching_granules=True,
+    skip_granules_if_photon_db_exists=True,
+    quiet=None,
+):
     """'short_name' may be either a single ATLXX name ("ATL03", e.g.) or a list of ALTXX names (["ATL03", "ATL08"], e.g.).
 
     If short_name is more than one dataset (e.g. "ATL03" and "ATL08", for instance), and
@@ -603,16 +690,17 @@ def _main(short_name=None,
     """
     # If we ran this from the command-line, all these arg will be None, in which
     # case get them all from the argparse command-line arguments.
-    if short_name is None and \
-       region is None and \
-       local_dir is None and \
-       dates is None and \
-       version is None and \
-       fname_filter is None and \
-       force is None and \
-       query_only is None and \
-       quiet is None:
-
+    if (
+        short_name is None
+        and region is None
+        and local_dir is None
+        and dates is None
+        and version is None
+        and fname_filter is None
+        and force is None
+        and query_only is None
+        and quiet is None
+    ):
         args = define_and_parse_args()
 
         force = args.force
@@ -621,7 +709,7 @@ def _main(short_name=None,
         short_names = [args.dataset_name]
         bounding_box, polygon = get_region_as_bbox_or_polygon(args.region)
         local_dir = args.local_dir
-        time_start, time_end = args.dates.split(',')
+        time_start, time_end = args.dates.split(",")
         version = args.version
         fname_filter = args.fname_filter
         query_only = args.query_only
@@ -630,18 +718,18 @@ def _main(short_name=None,
         if type(short_name) == str:
             short_names = [short_name]
         else:
-            assert type(short_name) in (list,tuple)
+            assert type(short_name) in (list, tuple)
             short_names = short_name
         time_start, time_end = dates
         bounding_box, polygon = get_region_as_bbox_or_polygon(region)
         if version is None:
-            version = '005'
+            version = "005"
         elif type(version) == int:
             version = "{0:03d}".format(version)
 
     # Make sure "time_start" is in a pretty iso-format string.
     if type(time_start) in (datetime.datetime, datetime.date):
-        time_start_str = time_start.isoformat() + 'Z'
+        time_start_str = time_start.isoformat() + "Z"
     elif type(time_start) == str:
         time_start_str = dateutil.parser.parse(time_start).isoformat() + "Z"
 
@@ -650,11 +738,18 @@ def _main(short_name=None,
     # Make sure the dates are inclusive, going to the last second of the last day.
     if type(time_end) == datetime.date:
         time_end = datetime.datetime.combine(time_end, datetime.datetime.max.time())
-    elif ((time_end.hour == 0) and (time_end.minute == 0) and (time_end.second == 0) and (time_end.microsecond == 0)):
-        time_end = datetime.datetime.combine(time_end.date(), datetime.datetime.max.time())
+    elif (
+        (time_end.hour == 0)
+        and (time_end.minute == 0)
+        and (time_end.second == 0)
+        and (time_end.microsecond == 0)
+    ):
+        time_end = datetime.datetime.combine(
+            time_end.date(), datetime.datetime.max.time()
+        )
 
     # Make sure "time_end" is in a pretty iso-format string.
-    time_end_str = time_end.isoformat() + 'Z'
+    time_end_str = time_end.isoformat() + "Z"
 
     # Make sure the polygon is counter-clockwise.
     # I'm confused, NSIDC sometimes seems to break with a counter-clockwise polygon, other
@@ -672,9 +767,16 @@ def _main(short_name=None,
         tried_polygon_switch_already = False
         while try_again:
             try:
-                url_list = cmr_search(sname, version, time_start_str, time_end_str,
-                                      bounding_box=bounding_box, polygon=polygon,
-                                      filename_filter=fname_filter, quiet=quiet)
+                url_list = cmr_search(
+                    sname,
+                    version,
+                    time_start_str,
+                    time_end_str,
+                    bounding_box=bounding_box,
+                    polygon=polygon,
+                    filename_filter=fname_filter,
+                    quiet=quiet,
+                )
             except KeyboardInterrupt as e:
                 return e
 
@@ -687,16 +789,26 @@ def _main(short_name=None,
 
                 err_str = str(url_list).lower()
                 if err_str.find("too many requests") >= 0:
-                    print("HTTP Error 429: Too Many Requests. Waiting 1 minute and trying again.")
+                    print(
+                        "HTTP Error 429: Too Many Requests. Waiting 1 minute and trying again."
+                    )
                     wait_time_sec = 60
                     for i in range(wait_time_sec):
-                        print("\r  {0}:{1:02d}".format(int(wait_time_sec / 60), wait_time_sec % 60), end="")
+                        print(
+                            "\r  {0}:{1:02d}".format(
+                                int(wait_time_sec / 60), wait_time_sec % 60
+                            ),
+                            end="",
+                        )
                         time.sleep(1)
                         wait_time_sec -= 1
                     print("\r  0:00")
-                    try_again = True # This is redundant but just make sure.
+                    try_again = True  # This is redundant but just make sure.
 
-                elif err_str.find("name resolution") >= 0 or err_str.find("temporary") >= 0:
+                elif (
+                    err_str.find("name resolution") >= 0
+                    or err_str.find("temporary") >= 0
+                ):
                     print(str(url_list) + "; trying again...")
                     time.sleep(1)
                     try_again = True
@@ -704,7 +816,9 @@ def _main(short_name=None,
                 # Due to the weird polygon orientation bug that I haven't yet fully diagnosed, I'm just trying
                 # to fix it by going the other way if it doesn't work at first.
                 elif polygon is not None and not tried_polygon_switch_already:
-                    polygon = put_polygon_string_in_correct_rotation(polygon, direction="counterclockwise")
+                    polygon = put_polygon_string_in_correct_rotation(
+                        polygon, direction="counterclockwise"
+                    )
                     tried_polygon_switch_already = True
                     print(str(url_list) + "; swapping polygon and trying again...")
                     try_again = True
@@ -723,14 +837,22 @@ def _main(short_name=None,
         # Filter out ones that don't fit the python regex (this often gets rid of things like XML files that we may not need.)
         if fname_python_regex is not None:
             # fname_bases = [fn for fn in fname_bases if (re.search(fname_python_regex, fn) is not None)]
-            url_list = [url for url in url_list if (re.search(fname_python_regex, url.split("/")[-1]) is not None)]
+            url_list = [
+                url
+                for url in url_list
+                if (re.search(fname_python_regex, url.split("/")[-1]) is not None)
+            ]
 
         # assert len(fname_bases) == len(url_list)
 
         if not quiet:
-            print(len(url_list), sname, "granules found within bounding box & date range.")
+            print(
+                len(url_list), sname, "granules found within bounding box & date range."
+            )
 
-        urls_total.append(url_list) # urls_total is a list of lists, corresponding with each dataset short_name
+        urls_total.append(
+            url_list
+        )  # urls_total is a list of lists, corresponding with each dataset short_name
 
     if len(short_names) == 1:
         urls_total = urls_total[0]
@@ -746,7 +868,9 @@ def _main(short_name=None,
         #    Put these ATLXX names in a Python set() for each dataset.
         fname_sets = []
         for sname, url_list in zip(short_names, urls_total):
-            url_set = set([url.split("/")[-1].replace(sname, "[ATLXX]") for url in url_list])
+            url_set = set(
+                [url.split("/")[-1].replace(sname, "[ATLXX]") for url in url_list]
+            )
             fname_sets.append(url_set)
 
         # 2. Get the intersection of all the url sets. These will be matching names.
@@ -761,20 +885,37 @@ def _main(short_name=None,
         for sname, url_list in zip(short_names, urls_total):
             for fname in fname_master_set:
                 fname_with_sname = fname.replace("[ATLXX]", sname)
-                url_master_list.append([url for url in url_list if url.split("/")[-1].find(fname_with_sname) > -1][0])
+                url_master_list.append(
+                    [
+                        url
+                        for url in url_list
+                        if url.split("/")[-1].find(fname_with_sname) > -1
+                    ][0]
+                )
 
         urls_total = sorted(url_master_list)
 
         if not quiet:
-            print(len(fname_master_set), "common granules found between", ",".join(short_names), "for", len(urls_total), "granules total.")
+            print(
+                len(fname_master_set),
+                "common granules found between",
+                ",".join(short_names),
+                "for",
+                len(urls_total),
+                "granules total.",
+            )
 
         # In some weird cases, we're getting granules returned for both data sets, but
         # no "matching" granules between ATL03 and ATL08. If so, print out the granule names here, just for bug-searching sake.
-        if (not quiet) and len(urls_total) == 0 and numpy.all([len(url_list) > 0 for url_list in urls_total_original]):
+        if (
+            (not quiet)
+            and len(urls_total) == 0
+            and numpy.all([len(url_list) > 0 for url_list in urls_total_original])
+        ):
             print("List of granules:")
             for url_list in urls_total:
                 for url in sorted(url_list):
-                    print("\t",url.split("/")[-1])
+                    print("\t", url.split("/")[-1])
 
     else:
         # If there's more than one dataset short_name and we didn't specify download_only_matching_granules
@@ -799,16 +940,22 @@ def _main(short_name=None,
         return local_files
 
     if not quiet:
-        print("{0} of {1} granules already exist locally. Downloading {2} new granules from NSIDC.".format(numfiles_existing,
-                                                                                                     len(urls_to_download) + numfiles_existing,
-                                                                                                     len(urls_to_download)))
+        print(
+            "{0} of {1} granules already exist locally. Downloading {2} new granules from NSIDC.".format(
+                numfiles_existing,
+                len(urls_to_download) + numfiles_existing,
+                len(urls_to_download),
+            )
+        )
 
     if len(urls_to_download) == 0:
         return local_files
 
     # If we've already createed a _photon.h5 file of an ATL03 granule, do not download the ATL03 or ATL08 granule.
     if skip_granules_if_photon_db_exists:
-        local_atl03_files = [fn for fn in local_files if os.path.split(fn)[1].find("ATL03") > -1]
+        local_atl03_files = [
+            fn for fn in local_files if os.path.split(fn)[1].find("ATL03") > -1
+        ]
         urls_removed = 0
         for atl03 in local_atl03_files:
             db_file = os.path.splitext(atl03)[0] + "_photons.h5"
@@ -827,7 +974,12 @@ def _main(short_name=None,
                         urls_removed += 1
 
         if not quiet and urls_removed > 0:
-            print(urls_removed, "granules already have a _photons.h5 database present. Downloading", len(urls_to_download), "new granules.")
+            print(
+                urls_removed,
+                "granules already have a _photons.h5 database present. Downloading",
+                len(urls_to_download),
+                "new granules.",
+            )
 
     # Download the urls that need to be downloaded.
     if use_wget == True:
@@ -835,19 +987,23 @@ def _main(short_name=None,
         pass
     else:
         try:
-            cmr_download(urls_to_download, download_dir=local_dir, force=force, quiet=quiet)
+            cmr_download(
+                urls_to_download, download_dir=local_dir, force=force, quiet=quiet
+            )
         except Exception as e:
             return e
 
     return local_files
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     # Re-download a granule that's acting up, here.
-    download_granules(short_name=["ATL03","ATL08"],
-                      region = [-70, 58, 100, 60],
-                      fname_filter = "*20210127165305_05301003*",
-                      local_dir="/home/mmacferrin/Research/DATA/ETOPO/data/icesat2/granules/")
+    download_granules(
+        short_name=["ATL03", "ATL08"],
+        region=[-70, 58, 100, 60],
+        fname_filter="*20210127165305_05301003*",
+        local_dir="/home/mmacferrin/Research/DATA/ETOPO/data/icesat2/granules/",
+    )
 
     # Just testing how quickly NSIDC queries are.
     # time1 = time.time()

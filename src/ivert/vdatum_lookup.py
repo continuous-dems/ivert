@@ -86,6 +86,7 @@ _BUILTIN_DESCRIPTIONS: dict[int, str] = {
 # Optional: populate from transformez.definitions.Datums
 # ---------------------------------------------------------------------------
 
+
 def _build_tables_from_transformez():
     """Return (name_table, desc_table) built from transformez.Datums, or (None, None)."""
     try:
@@ -173,6 +174,7 @@ def _get_desc_table() -> dict[int, str]:
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
+
 
 def resolve_vdatum(name: str | int | None) -> str | None:
     """Translate a common vertical datum name to a formal ``'EPSG:NNNN'`` string.

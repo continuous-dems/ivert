@@ -5,9 +5,9 @@ Created on Wed Oct 14 16:32:25 2020
 
 @author: mmacferrin
 """
+
 import sys
 import os
-import psutil
 
 
 def get_terminal_width(default=120):
@@ -21,14 +21,16 @@ def get_terminal_width(default=120):
 
 
 # Print iterations progress
-def ProgressBar(iteration,
-                total,
-                prefix='',
-                suffix='',
-                decimals=1,
-                width=get_terminal_width(default=120),
-                fill='█',
-                print_end="\r"):
+def ProgressBar(
+    iteration,
+    total,
+    prefix="",
+    suffix="",
+    decimals=1,
+    width=get_terminal_width(default=120),
+    fill="█",
+    print_end="\r",
+):
     """
     Call in a loop to create terminal progress bar
     @params:
@@ -48,14 +50,15 @@ def ProgressBar(iteration,
     percent = ("{0:." + str(decimals) + "f}").format(100 * (iteration / float(total)))
     bar_length = width - (len(prefix) + 2 + 2 + len(percent) + 1 + len(suffix) + 2)
     filled_length = int(bar_length * iteration // total)
-    bar = fill * filled_length + '-' * (bar_length - filled_length)
-    outstr = f'{prefix} |{bar}| {percent}% {suffix}'
+    bar = fill * filled_length + "-" * (bar_length - filled_length)
+    outstr = f"{prefix} |{bar}| {percent}% {suffix}"
     print(outstr, end=print_end)
     # Print New Line on Complete
     if iteration == total:
         print()
 
     return outstr
+
 
 # Sample Usage
 # import time

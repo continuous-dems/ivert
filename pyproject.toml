@@ -44,6 +44,9 @@ dependencies = [
     "transformez",
 ]
 
+[tool.ruff]
+extend-exclude = ["archive"]
+
 [project.urls]
 Source = "https://github.com/ciresdem/IVERT"
 

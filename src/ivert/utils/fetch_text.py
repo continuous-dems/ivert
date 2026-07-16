@@ -4,8 +4,9 @@ import re
 import typing
 
 
-def fetch_email_address(text: str,
-                        fetch_all: bool = False) -> typing.Union[str, None, list[str]]:
+def fetch_email_address(
+    text: str, fetch_all: bool = False
+) -> typing.Union[str, None, list[str]]:
     """Get a valid email address from a string.
 
     Args:
@@ -22,8 +23,9 @@ def fetch_email_address(text: str,
     return _fetch_text(text, email_regex, fetch_all=fetch_all)
 
 
-def fetch_aws_bucketname(text: str,
-                         fetch_all: bool = False) -> typing.Union[str, None, list[str]]:
+def fetch_aws_bucketname(
+    text: str, fetch_all: bool = False
+) -> typing.Union[str, None, list[str]]:
     """Get an AWS bucket name from a string.
 
     Args:
@@ -38,12 +40,13 @@ def fetch_aws_bucketname(text: str,
     """
 
     # Bucket naming rules from https://docs.aws.amazon.com/AmazonS3/latest/userguide/bucketnamingrules.html
-    bucket_name_regex = r'^((?!xn--)(?!.*-s3alias$)[a-z0-9][a-z0-9-]{1,61}[a-z0-9])$'
+    bucket_name_regex = r"^((?!xn--)(?!.*-s3alias$)[a-z0-9][a-z0-9-]{1,61}[a-z0-9])$"
     return _fetch_text(text, bucket_name_regex, fetch_all=fetch_all)
 
 
-def fetch_access_key_id(text: str,
-                        fetch_all: bool = False) -> typing.Union[str, None, list[str]]:
+def fetch_access_key_id(
+    text: str, fetch_all: bool = False
+) -> typing.Union[str, None, list[str]]:
     """Get an AWS access key ID from a string.
 
     Args:
@@ -57,12 +60,13 @@ def fetch_access_key_id(text: str,
         list[str] if fetch_all is True. Could be an empty list if no AWS access key IDs are found.
     """
     # Access key ID rules from https://aws.amazon.com/blogs/security/a-safer-way-to-distribute-aws-credentials-to-ec2/
-    access_key_id_regex = re.compile(r'(?<![A-Z0-9])[A-Z0-9]{20}(?![A-Z0-9])')
+    access_key_id_regex = re.compile(r"(?<![A-Z0-9])[A-Z0-9]{20}(?![A-Z0-9])")
     return _fetch_text(text, access_key_id_regex, fetch_all=fetch_all)
 
 
-def fetch_secret_access_key(text: str,
-                            fetch_all: bool = False) -> typing.Union[str, None, list[str]]:
+def fetch_secret_access_key(
+    text: str, fetch_all: bool = False
+) -> typing.Union[str, None, list[str]]:
     """Get an AWS secret access key from a string.
 
     Args:
@@ -76,13 +80,15 @@ def fetch_secret_access_key(text: str,
         list[str] if fetch_all is True. Could be an empty list if no AWS access key IDs are found.
     """
     # Secret access key rules from https://aws.amazon.com/blogs/security/a-safer-way-to-distribute-aws-credentials-to-ec2/
-    secret_access_key_regex = re.compile(r'(?<![A-Za-z0-9/+=])[A-Za-z0-9/+=]{40}(?![A-Za-z0-9/+=])')
+    secret_access_key_regex = re.compile(
+        r"(?<![A-Za-z0-9/+=])[A-Za-z0-9/+=]{40}(?![A-Za-z0-9/+=])"
+    )
     return _fetch_text(text, secret_access_key_regex, fetch_all=fetch_all)
 
 
-def _fetch_text(text: str,
-                regex: str,
-                fetch_all: bool = False) -> typing.Union[str, None, list[str]]:
+def _fetch_text(
+    text: str, regex: str, fetch_all: bool = False
+) -> typing.Union[str, None, list[str]]:
     """Fetch text from a string. A generic function that the others use.
 
     Args:

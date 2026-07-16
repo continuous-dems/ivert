@@ -45,7 +45,9 @@ def is_another_manager_running() -> typing.Union[bool, psutil.Process]:
     processes = psutil.process_iter()
     for p in processes:
         try:
-            if ("python" in p.name() or "python3" in p.name()) and numpy.any([opt.endswith(os.path.basename(__file__)) for opt in p.cmdline()]):
+            if ("python" in p.name() or "python3" in p.name()) and numpy.any(
+                [opt.endswith(os.path.basename(__file__)) for opt in p.cmdline()]
+            ):
                 if p.pid != os.getpid():
                     return p
         except psutil.ZombieProcess:
@@ -61,12 +63,14 @@ class IvertJobManager:
 
     This will be initialized by the ivert_setup.sh script in the ivert_setup repository, using a supervisord process."""
 
-    def __init__(self,
-                 input_bucket_type: str = "trusted",
-                 time_interval_s: typing.Union[int, float, None] = None,
-                 job_id: typing.Union[int, None] = None,
-                 verbose: bool = False,
-                 verbose2: bool = False):
+    def __init__(
+        self,
+        input_bucket_type: str = "trusted",
+        time_interval_s: typing.Union[int, float, None] = None,
+        job_id: typing.Union[int, None] = None,
+        verbose: bool = False,
+        verbose2: bool = False,
+    ):
         """
         Initializes a new instance of the IvertJobManager class.
 
@@ -111,7 +115,10 @@ class IvertJobManager:
         """
         # Check to see if another instance of this script is already running
         if is_another_manager_running():
-            print("Another instance of server_job_manager.py is already running. Exiting.", flush=True)
+            print(
+                "Another instance of server_job_manager.py is already running. Exiting.",
+                flush=True,
+            )
             return
 
         # With the new egress solution the export bucket doesn't hold a copy of the database. Don't try to sync.
@@ -129,7 +136,9 @@ class IvertJobManager:
                 # If there are new jobs, start them in the background
                 for ini_name in new_ini_keys:
                     # Either look for any new jobs, or if specific_job_id is set, look for just that job.
-                    if (not self.specific_job_id) or (str(self.specific_job_id) in ini_name.split("/")[-1]):
+                    if (not self.specific_job_id) or (
+                        str(self.specific_job_id) in ini_name.split("/")[-1]
+                    ):
                         self.start_new_job(ini_name)
 
                 # Loop throug the list of running jobs and clean them up if they're finished.
@@ -142,15 +151,20 @@ class IvertJobManager:
             except KeyboardInterrupt:
                 raise
 
-            except Exception as e:
+            except Exception:
                 # If something crashes for any reason, sleep a bit and try again.
                 # TODO: Implement logging if errors pop up.
                 if self.verbose:
                     traceback_txt = traceback.format_exc()
                     print(traceback_txt, file=sys.stderr, flush=True)
 
-                    print("Continuing to iterate. Will try again in {} seconds.".format(self.time_interval_s),
-                          file=sys.stderr, flush=True)
+                    print(
+                        "Continuing to iterate. Will try again in {} seconds.".format(
+                            self.time_interval_s
+                        ),
+                        file=sys.stderr,
+                        flush=True,
+                    )
 
                 time.sleep(self.time_interval_s)
                 continue
@@ -166,13 +180,13 @@ class IvertJobManager:
         db_exists_local = False
         db_exists_s3 = False
 
-        if db.exists('local'):
+        if db.exists("local"):
             if not db.is_valid():
                 db.delete_database()
             else:
                 db_exists_local = True
 
-        if db.exists('s3'):
+        if db.exists("s3"):
             db_exists_s3 = True
 
         # If the database doesn't exist in either place, create it.
@@ -205,21 +219,23 @@ class IvertJobManager:
 
         return
 
-    def check_for_new_files(self,
-                            new_only: bool = True,
-                            skip_older_than_cutoff: bool = True) -> list[str]:
+    def check_for_new_files(
+        self, new_only: bool = True, skip_older_than_cutoff: bool = True
+    ) -> list[str]:
         """Return a list of new files in the trusted bucket that haven't yet been added to the database.
 
         Args:
             new_only (bool, optional): If False, don't filter, and just return all the files.
             skip_older_than_cutoff (bool, optional): If True, don't return any files that are older than the
             'jobs_since' cutoff in the database metadata.
-            """
+        """
         # 1. Get a list of all files in the trusted bucket.
         # 2. Filter out any files already in the database.
         # 3. Return the remaining file list.
         try:
-            files_in_bucket = self.s3m.listdir(self.input_prefix, bucket_type=self.input_bucket_type, recursive=True)
+            files_in_bucket = self.s3m.listdir(
+                self.input_prefix, bucket_type=self.input_bucket_type, recursive=True
+            )
         except FileNotFoundError:
             # If that directory didn't exist, this error will the thrown. If there's no files in the trusted bucket
             # under that input prefix, return an empty list.
@@ -236,9 +252,17 @@ class IvertJobManager:
         new_files = []
         for s3_key in files_in_bucket:
             fname = s3_key.split("/")[-1]
-            s3_params = self.jobs_db.get_params_from_s3_path(s3_key, bucket_type=self.input_bucket_type)
-            if (new_only and not self.jobs_db.file_exists(fname, s3_params['username'], s3_params['job_id'])) \
-                    and not (skip_older_than_cutoff and int(s3_params['job_id']) < cutoff_jnum):
+            s3_params = self.jobs_db.get_params_from_s3_path(
+                s3_key, bucket_type=self.input_bucket_type
+            )
+            if (
+                new_only
+                and not self.jobs_db.file_exists(
+                    fname, s3_params["username"], s3_params["job_id"]
+                )
+            ) and not (
+                skip_older_than_cutoff and int(s3_params["job_id"]) < cutoff_jnum
+            ):
                 new_files.append(s3_key)
 
         return new_files
@@ -252,13 +276,22 @@ class IvertJobManager:
         # When one of these is a .ini file, kick off an IvertJob object to handle it.
         # Add it to the list of running jobs.
         # If we're looking for a specific job, don't filter by new jobs only.
-        new_ini_files = [fn for fn in self.check_for_new_files(new_only=not bool(self.specific_job_id),
-                                                               skip_older_than_cutoff=not bool(self.specific_job_id))
-                         if fn.lower().endswith('.ini')]
+        new_ini_files = [
+            fn
+            for fn in self.check_for_new_files(
+                new_only=not bool(self.specific_job_id),
+                skip_older_than_cutoff=not bool(self.specific_job_id),
+            )
+            if fn.lower().endswith(".ini")
+        ]
 
         # If we're running this to only execute one specific job, then just do that here.
         if self.specific_job_id:
-            new_ini_files = [fn for fn in new_ini_files if (fn.split("/")[-1].find(str(self.specific_job_id)) > -1)]
+            new_ini_files = [
+                fn
+                for fn in new_ini_files
+                if (fn.split("/")[-1].find(str(self.specific_job_id)) > -1)
+            ]
 
         return new_ini_files
 
@@ -272,7 +305,9 @@ class IvertJobManager:
         # If not, grab the existing log file (if exists), append any stdout/stderr from the job, and export it.
         #   Also update the job status in the database.
         #   Then send a notification to the user that the job finished unsuccessfully.
-        for job, job_key in zip(self.running_jobs.copy(), self.running_jobs_keys.copy()):
+        for job, job_key in zip(
+            self.running_jobs.copy(), self.running_jobs_keys.copy()
+        ):
             is_alive = False
             try:
                 is_alive = job.is_alive()
@@ -301,7 +336,7 @@ class IvertJobManager:
                 self.clean_up_temp_files()
 
                 if self.verbose:
-                    job_name = job_key[job_key.rfind("/") + 1: job_key.rfind(".ini")]
+                    job_name = job_key[job_key.rfind("/") + 1 : job_key.rfind(".ini")]
                     print(f"Job {job_name} is finished.", flush=True)
 
                 # If the job stdout file exists, delete it.
@@ -322,14 +357,20 @@ class IvertJobManager:
             return
 
         clean_ivert_files.clean_old_jobs_dirs(self.ivert_config, verbose=self.verbose)
-        clean_ivert_files.clean_cudem_cache(self.ivert_config, True, verbose=self.verbose)
-        clean_ivert_files.delete_local_photon_tiles(self.ivert_config, verbose=self.verbose)
+        clean_ivert_files.clean_cudem_cache(
+            self.ivert_config, True, verbose=self.verbose
+        )
+        clean_ivert_files.delete_local_photon_tiles(
+            self.ivert_config, verbose=self.verbose
+        )
         clean_ivert_files.fix_database_of_orphaned_jobs()
 
     def job_stdout_file(self, ini_s3_key: str) -> str:
         """Return the location of the stdout file for the given job."""
-        return os.path.join(self.ivert_config.ivert_jobs_stdout_dir,
-                            os.path.splitext(ini_s3_key[ini_s3_key.rfind('/') + 1:])[0] + ".log")
+        return os.path.join(
+            self.ivert_config.ivert_jobs_stdout_dir,
+            os.path.splitext(ini_s3_key[ini_s3_key.rfind("/") + 1 :])[0] + ".log",
+        )
 
     def start_new_job(self, ini_s3_key: str):
         """Start a new job."""
@@ -344,7 +385,9 @@ class IvertJobManager:
         # Create a job record for the job in the database before starting the subprocess.
         # This will help ensure that new jobs don't get run twice, which was occasionally happening.
         # This is NOT starting the job, it's just initializing the job object.
-        job_obj_init = subproc(ini_s3_key, stdout_file=proc_stdout_file, auto_start=False, verbose=False)
+        job_obj_init = subproc(
+            ini_s3_key, stdout_file=proc_stdout_file, auto_start=False, verbose=False
+        )
         job_obj_init.create_local_job_folders()
         # 2. Download the job configuration file from the S3 bucket.
         job_obj_init.download_job_config_file()
@@ -358,17 +401,27 @@ class IvertJobManager:
 
         # Set up the parameters for the IvertJob subprocess.
         proc_args = (ini_s3_key, self.input_bucket_type)
-        proc_kwargs = {'auto_start': True, 'stdout_file': proc_stdout_file, 'verbose': self.verbose, 'update_pid': True}
+        proc_kwargs = {
+            "auto_start": True,
+            "stdout_file": proc_stdout_file,
+            "verbose": self.verbose,
+            "update_pid": True,
+        }
 
         if self.verbose:
-            print(f"Starting job {ini_s3_key[ini_s3_key.rfind('/') + 1: ini_s3_key.rfind('.')]}.", flush=True)
+            print(
+                f"Starting job {ini_s3_key[ini_s3_key.rfind('/') + 1 : ini_s3_key.rfind('.')]}.",
+                flush=True,
+            )
 
         # Start the job. Redirect the stdout and stderr to a file.
-        job = loggerproc.LoggerProc(target=subproc,
-                                    filename_out=proc_stdout_file,
-                                    args=proc_args,
-                                    kwargs=proc_kwargs,
-                                    output_to_terminal=self.verbose2)
+        job = loggerproc.LoggerProc(
+            target=subproc,
+            filename_out=proc_stdout_file,
+            args=proc_args,
+            kwargs=proc_kwargs,
+            output_to_terminal=self.verbose2,
+        )
 
         # Keep track of the job.
         self.running_jobs.append(job)
@@ -386,54 +439,77 @@ class IvertJobManager:
         Fetch the job details from the database."""
         # Get the job details
         # Recreate the IvertJob object, but don't execute it.
-        job_obj = IvertJob(job_key,
-                           self.input_bucket_type,
-                           stdout_file=self.job_stdout_file(job_key),
-                           auto_start=False,
-                           verbose=True)
+        job_obj = IvertJob(
+            job_key,
+            self.input_bucket_type,
+            stdout_file=self.job_stdout_file(job_key),
+            auto_start=False,
+            verbose=True,
+        )
 
         # Print the exit code if in verbose mode.
         if self.verbose:
-            print(f"Job {job_obj.username}_{job_obj.job_id} exited with code {exitcode}. Cleaning up.", flush=True)
+            print(
+                f"Job {job_obj.username}_{job_obj.job_id} exited with code {exitcode}. Cleaning up.",
+                flush=True,
+            )
 
         # Re-parse the .ini to get the info from it.
         job_obj.parse_job_config_ini()
 
-        job_obj.write_to_logfile(f"Job exited unexepctedly with exit code {exitcode}.", upload_to_s3=False)
+        job_obj.write_to_logfile(
+            f"Job exited unexepctedly with exit code {exitcode}.", upload_to_s3=False
+        )
         job_obj.write_to_logfile(
             "If no other traceback is shown in this logfile, it may have been a memory-termination.",
-            upload_to_s3=False)
+            upload_to_s3=False,
+        )
 
         job_obj.export_logfile_if_exists(overwrite=True, upload_db_to_s3=False)
         # job_obj.export_stdout_if_exists(upload_db_to_s3=False)
 
-        if job_obj.jobs_db.job_status(job_obj.username, job_obj.job_id) not in ("complete", "error", "killed"):
-            job_obj.jobs_db.update_job_status(job_obj.username, job_obj.job_id, 'error', upload_to_s3=False)
+        if job_obj.jobs_db.job_status(job_obj.username, job_obj.job_id) not in (
+            "complete",
+            "error",
+            "killed",
+        ):
+            job_obj.jobs_db.update_job_status(
+                job_obj.username, job_obj.job_id, "error", upload_to_s3=False
+            )
 
         # Loop through the job's files.
-        job_files_df = self.jobs_db.read_table_as_pandas_df('files', job_obj.username, job_obj.job_id)
+        job_files_df = self.jobs_db.read_table_as_pandas_df(
+            "files", job_obj.username, job_obj.job_id
+        )
 
         # Any files that haven't been entered or given a proper status yet, do so.
         for fn in job_obj.job_config_object.files:
-            if fn in job_files_df['filename'].values:
-                if (job_files_df[job_files_df['filename'] == fn]['status'].values[0] not in
-                        ("processed", "uploaded", "error", "quarantined", "unknown")):
-                    self.jobs_db.update_file_status(job_obj.username,
-                                                    job_obj.job_id,
-                                                    fn,
-                                                    status="error",
-                                                    upload_to_s3=False)
+            if fn in job_files_df["filename"].values:
+                if job_files_df[job_files_df["filename"] == fn]["status"].values[
+                    0
+                ] not in ("processed", "uploaded", "error", "quarantined", "unknown"):
+                    self.jobs_db.update_file_status(
+                        job_obj.username,
+                        job_obj.job_id,
+                        fn,
+                        status="error",
+                        upload_to_s3=False,
+                    )
             else:
-                self.jobs_db.create_new_file_record(fn,
-                                                    job_obj.job_id,
-                                                    job_obj.username,
-                                                    0,  # 0 == an imported file
-                                                    status="unknown",
-                                                    upload_to_s3=False)
+                self.jobs_db.create_new_file_record(
+                    fn,
+                    job_obj.job_id,
+                    job_obj.username,
+                    0,  # 0 == an imported file
+                    status="unknown",
+                    upload_to_s3=False,
+                )
 
         # If there aren't already 2 notifications in the database for this job (start and finish), push a notification
         # that the job has finished (even if unsuccessfully).
-        sns_table = self.jobs_db.read_table_as_pandas_df("messages", job_obj.username, job_obj.job_id)
+        sns_table = self.jobs_db.read_table_as_pandas_df(
+            "messages", job_obj.username, job_obj.job_id
+        )
         if len(sns_table) < 2:
             job_obj.push_sns_notification(start_or_finish="finish", upload_to_s3=False)
 
@@ -459,8 +535,14 @@ class IvertJobManager:
         ini_keys = self.check_for_new_jobs()
         for ini_fn in ini_keys:
             # Check whether a job already exists with this job's parameters.
-            params_dict = self.jobs_db.get_params_from_s3_path(ini_fn, bucket_type=self.input_bucket_type)
-            job_id, username, command = params_dict['job_id'], params_dict['username'], params_dict['command']
+            params_dict = self.jobs_db.get_params_from_s3_path(
+                ini_fn, bucket_type=self.input_bucket_type
+            )
+            job_id, username, command = (
+                params_dict["job_id"],
+                params_dict["username"],
+                params_dict["command"],
+            )
 
             if not self.jobs_db.job_exists(username, job_id):
                 job_obj = IvertJob(ini_fn, self.input_bucket_type, auto_start=False)
@@ -479,7 +561,9 @@ class IvertJobManager:
                 job_obj.create_new_job_entry()
 
                 # Create database entries for the job files. Don't actually download them.
-                job_obj.download_job_files(only_create_database_entries=True, upload_to_s3=False)
+                job_obj.download_job_files(
+                    only_create_database_entries=True, upload_to_s3=False
+                )
 
                 job_obj.update_job_status("unknown", upload_to_s3=False)
 
@@ -531,13 +615,15 @@ class IvertJob:
 
     The IvertJobManager class is always running and kicks off new IvertJob objects as needed."""
 
-    def __init__(self,
-                 job_config_s3_key: str,
-                 job_config_s3_bucket_type: str = "trusted",
-                 stdout_file: str = None,
-                 auto_start: bool = True,
-                 update_pid: bool = True,
-                 verbose: bool = False):
+    def __init__(
+        self,
+        job_config_s3_key: str,
+        job_config_s3_bucket_type: str = "trusted",
+        stdout_file: str = None,
+        auto_start: bool = True,
+        update_pid: bool = True,
+        verbose: bool = False,
+    ):
         """
         Initializes a new instance of the IvertJob class.
 
@@ -554,8 +640,9 @@ class IvertJob:
         self.job_config_s3_bucket_type = job_config_s3_bucket_type
 
         # Assign the job ID and username.
-        params_dict = self.jobs_db.get_params_from_s3_path(self.job_config_s3_key,
-                                                           bucket_type=self.job_config_s3_bucket_type)
+        params_dict = self.jobs_db.get_params_from_s3_path(
+            self.job_config_s3_key, bucket_type=self.job_config_s3_bucket_type
+        )
 
         self.job_id = params_dict["job_id"]
         self.username = params_dict["username"]
@@ -568,35 +655,52 @@ class IvertJob:
 
         # The directory where the job will be run and files stored. This will be populated and created in
         # start()-->create_local_job_folder()
-        self.job_dir = os.path.join(self.ivert_config.ivert_jobs_directory_local,
-                                    self.ivert_config.s3_ivert_job_subdirs_template
-                                                     .replace('[command]', self.command)
-                                                     .replace('[username]', self.username)
-                                                     .replace('[job_id]', self.job_id))
+        self.job_dir = os.path.join(
+            self.ivert_config.ivert_jobs_directory_local,
+            self.ivert_config.s3_ivert_job_subdirs_template.replace(
+                "[command]", self.command
+            )
+            .replace("[username]", self.username)
+            .replace("[job_id]", self.job_id),
+        )
 
-        self.job_config_local = os.path.join(self.job_dir, self.job_config_s3_key.split("/")[-1])
+        self.job_config_local = os.path.join(
+            self.job_dir, self.job_config_s3_key.split("/")[-1]
+        )
 
         self.job_config_object: typing.Union[utils.configfile.Config, None] = None
         self.output_dir = os.path.join(self.job_dir, "outputs")
         # Define the export prefix.
-        self.import_prefix = self.ivert_config.s3_import_trusted_prefix_base + \
-                             ("" if self.ivert_config.s3_import_trusted_prefix_base[-1] == "/" else "/") + \
-                             self.ivert_config.s3_ivert_job_subdirs_template \
-                                              .replace('[command]', self.command) \
-                                              .replace('[username]', self.username) \
-                                              .replace('[job_id]', self.job_id)
+        self.import_prefix = (
+            self.ivert_config.s3_import_trusted_prefix_base
+            + (
+                ""
+                if self.ivert_config.s3_import_trusted_prefix_base[-1] == "/"
+                else "/"
+            )
+            + self.ivert_config.s3_ivert_job_subdirs_template.replace(
+                "[command]", self.command
+            )
+            .replace("[username]", self.username)
+            .replace("[job_id]", self.job_id)
+        )
 
         if self.ivert_config.use_export_alt_bucket:
             export_prefix_base = self.ivert_config.s3_export_alt_prefix_base
         else:
             export_prefix_base = self.ivert_config.s3_export_server_prefix_base
 
-        self.export_prefix = export_prefix_base + \
-                             ("" if export_prefix_base[-1] == "/" else "/") + \
-                             (self.ivert_config.s3_ivert_job_subdirs_template
-                                  .replace('[command]', self.command)
-                                  .replace('[username]', self.username)
-                                  .replace('[job_id]', self.job_id))
+        self.export_prefix = (
+            export_prefix_base
+            + ("" if export_prefix_base[-1] == "/" else "/")
+            + (
+                self.ivert_config.s3_ivert_job_subdirs_template.replace(
+                    "[command]", self.command
+                )
+                .replace("[username]", self.username)
+                .replace("[job_id]", self.job_id)
+            )
+        )
 
         # The logfile to write output text and status messages.
         # self.logfile = os.path.join(self.output_dir,
@@ -615,7 +719,9 @@ class IvertJob:
         self.verbose = verbose
 
         # The threshold time to wait for files to arrive in the trusted bucket before erroring them out and moving along.
-        self.download_timeout_s = self.ivert_config.ivert_server_job_file_download_timeout_mins * 60
+        self.download_timeout_s = (
+            self.ivert_config.ivert_server_job_file_download_timeout_mins * 60
+        )
 
         # The configfile for the email templates. Left blank at first until needed.
         self.email_templates = None
@@ -653,15 +759,17 @@ class IvertJob:
 
                 # 7. Download all other job files.
                 # First, just create empty records of all the files (quickly done) to update the database.
-                self.download_job_files(only_create_database_entries=True,
-                                        upload_to_s3=20)
+                self.download_job_files(
+                    only_create_database_entries=True, upload_to_s3=20
+                )
 
                 # Then, actually go download them all.
                 # Unless it's an "import" job, in which case the downloading happens during the execute_job() stage.
                 if self.command != "import":
                     # If it's not an "import" job, we need to download all files.
-                    self.download_job_files(only_create_database_entries=False,
-                                            upload_to_s3=20)
+                    self.download_job_files(
+                        only_create_database_entries=False, upload_to_s3=20
+                    )
 
                 # -- Figure out how to monitor the status of the job as it goes along.
                 self.update_job_status("running", upload_to_s3=True)
@@ -674,7 +782,11 @@ class IvertJob:
                 # Exclude the logfile because we may still be writing to it if any of these files have errors.
                 self.upload_export_files(exclude_logfile=True, upload_to_s3=False)
 
-            if self.jobs_db.job_status(self.username, self.job_id) not in ("killed", "error", "complete"):
+            if self.jobs_db.job_status(self.username, self.job_id) not in (
+                "killed",
+                "error",
+                "complete",
+            ):
                 # 10. Mark the job as finished in the jobs database. If the job was already marked as
                 # an error or killed, keep it that way.
                 self.update_job_status("complete", upload_to_s3=False)
@@ -697,7 +809,7 @@ class IvertJob:
             # If needed, upload the jobs database to the s3
             self.jobs_db.upload_to_s3(only_if_newer=False)
 
-        except KeyboardInterrupt as e:
+        except KeyboardInterrupt:
             if self.verbose:
                 print("Caught keyboard interrupt. Terminating job.", flush=True)
             self.write_to_logfile(traceback.format_exc())
@@ -721,25 +833,31 @@ class IvertJob:
         if hasattr(self.job_config_object, "ivert_version"):
             client_version = self.job_config_object.ivert_version
         else:
-            self.write_to_logfile("The IVERT Client version you are using is no longer compatible with the IVERT "
-                                  f"Server (v{utils.version.__version__}). Please upgrade your IVERT Client by running "
-                                  "'ivert upgrade' or following instructions on the online IVERT install guide.")
+            self.write_to_logfile(
+                "The IVERT Client version you are using is no longer compatible with the IVERT "
+                f"Server (v{utils.version.__version__}). Please upgrade your IVERT Client by running "
+                "'ivert upgrade' or following instructions on the online IVERT install guide."
+            )
             self.update_job_status("error")
             return False
 
         if utils.version_check_server.is_compatible(client_version):
             return True
         else:
-            self.write_to_logfile(f"The IVERT Client version you are using (v{client_version}) is no longer compatible "
-                                  f"with the IVERT Server (v{utils.version.__version__}). Please upgrade your IVERT "
-                                  "Client by running the command 'ivert upgrade' or following the instructions on the IVERT install guide.")
+            self.write_to_logfile(
+                f"The IVERT Client version you are using (v{client_version}) is no longer compatible "
+                f"with the IVERT Server (v{utils.version.__version__}). Please upgrade your IVERT "
+                "Client by running the command 'ivert upgrade' or following the instructions on the IVERT install guide."
+            )
             self.update_job_status("error")
             return False
 
     def get_email_templates(self) -> utils.configfile.Config:
         """Get the email templates."""
         if not self.email_templates:
-            self.email_templates = utils.configfile.Config(self.ivert_config.ivert_email_templates)
+            self.email_templates = utils.configfile.Config(
+                self.ivert_config.ivert_email_templates
+            )
 
         return self.email_templates
 
@@ -750,7 +868,11 @@ class IvertJob:
         # Create the job directory if it doesn't exist.
         if not os.path.exists(self.job_dir):
             if self.verbose:
-                print("Creating job directory:", self.job_dir[self.job_dir.find(data_basedir):].lstrip("/"), flush=True)
+                print(
+                    "Creating job directory:",
+                    self.job_dir[self.job_dir.find(data_basedir) :].lstrip("/"),
+                    flush=True,
+                )
             os.makedirs(self.job_dir)
 
         # Create the output directory if it doesn't exist.
@@ -766,13 +888,19 @@ class IvertJob:
 
         parent_dir = os.path.dirname(self.job_dir)
         if self.verbose:
-            print("Deleting job directory:",
-                  self.job_dir[self.job_dir.find(self.ivert_config.ivert_jobs_directory_local):].lstrip("/"),
-                  flush=True)
+            print(
+                "Deleting job directory:",
+                self.job_dir[
+                    self.job_dir.find(self.ivert_config.ivert_jobs_directory_local) :
+                ].lstrip("/"),
+                flush=True,
+            )
 
         # Then peruse up the parent directories, deleting them *if* no other jobs are using that directory, there are no
         # other files present there, and it's not the top "jobs" directory that we obviously don't want to delete.
-        while os.path.normpath(parent_dir) != os.path.normpath(self.ivert_config.ivert_jobs_directory_local):
+        while os.path.normpath(parent_dir) != os.path.normpath(
+            self.ivert_config.ivert_jobs_directory_local
+        ):
             contents = os.listdir(parent_dir)
             if len(contents) > 0:
                 break
@@ -785,9 +913,15 @@ class IvertJob:
         """Download the job configuration file from the S3 bucket."""
         if not os.path.exists(self.job_config_local):
             if self.verbose:
-                print(f"Downloading {os.path.basename(self.job_config_local)}", flush=True)
+                print(
+                    f"Downloading {os.path.basename(self.job_config_local)}", flush=True
+                )
 
-            self.s3m.download(self.job_config_s3_key, self.job_config_local, bucket_type=self.job_config_s3_bucket_type)
+            self.s3m.download(
+                self.job_config_s3_key,
+                self.job_config_local,
+                bucket_type=self.job_config_s3_bucket_type,
+            )
 
     def parse_job_config_ini(self, dry_run_only: bool = False):
         """Parse the job configuration file, defining the IVERT job parameters."""
@@ -825,9 +959,13 @@ class IvertJob:
             return False
         if (not hasattr(jco, "job_name")) or not isinstance(jco.job_name, str):
             return False
-        if (not hasattr(jco, "job_upload_prefix")) or not isinstance(jco.job_upload_prefix, str):
+        if (not hasattr(jco, "job_upload_prefix")) or not isinstance(
+            jco.job_upload_prefix, str
+        ):
             return False
-        if (not hasattr(jco, "ivert_command")) or not isinstance(jco.ivert_command, str):
+        if (not hasattr(jco, "ivert_command")) or not isinstance(
+            jco.ivert_command, str
+        ):
             return False
         if (not hasattr(jco, "files")) or type(jco.files) not in (list, tuple):
             return False
@@ -846,30 +984,38 @@ class IvertJob:
 
         # If the job number already exists, then just update it here:
         if self.jobs_db.job_exists(self.username, self.job_id):
-            self.jobs_db.update_job_status(self.username,
-                                           self.job_id,
-                                           "started",
-                                           upload_to_s3=upload_to_s3,
-                                           new_pid=(self.pid if self.update_pid else None))
+            self.jobs_db.update_job_status(
+                self.username,
+                self.job_id,
+                "started",
+                upload_to_s3=upload_to_s3,
+                new_pid=(self.pid if self.update_pid else None),
+            )
         else:
-            self.jobs_db.create_new_job(self.job_config_object,
-                                        self.job_config_local,
-                                        self.logfile,
-                                        self.job_dir,
-                                        self.output_dir,
-                                        self.import_prefix,
-                                        self.export_prefix,
-                                        job_status="started",
-                                        upload_to_s3=upload_to_s3)
+            self.jobs_db.create_new_job(
+                self.job_config_object,
+                self.job_config_local,
+                self.logfile,
+                self.job_dir,
+                self.output_dir,
+                self.import_prefix,
+                self.export_prefix,
+                job_status="started",
+                upload_to_s3=upload_to_s3,
+            )
 
-        if not self.jobs_db.file_exists(self.job_config_local, self.username, self.job_id):
+        if not self.jobs_db.file_exists(
+            self.job_config_local, self.username, self.job_id
+        ):
             # Generate a new file record for the Config file of this job.
-            self.jobs_db.create_new_file_record(self.job_config_local,
-                                                self.job_id,
-                                                self.username,
-                                                import_or_export=0,
-                                                status="processed",
-                                                upload_to_s3=upload_to_s3)
+            self.jobs_db.create_new_file_record(
+                self.job_config_local,
+                self.job_id,
+                self.username,
+                import_or_export=0,
+                status="processed",
+                upload_to_s3=upload_to_s3,
+            )
 
         return
 
@@ -895,9 +1041,11 @@ class IvertJob:
         else:
             raise TypeError("upload_to_s3 must be a boolean or an integer.")
 
-    def download_job_files(self,
-                           only_create_database_entries: bool = False,
-                           upload_to_s3: typing.Union[bool, int] = True):
+    def download_job_files(
+        self,
+        only_create_database_entries: bool = False,
+        upload_to_s3: typing.Union[bool, int] = True,
+    ):
         """Download all other job files from the S3 bucket and add their entries to the jobs database."""
         # It may take some time for all the files to pass quarantine and be available in the trusted bucket.
         try:
@@ -911,20 +1059,32 @@ class IvertJob:
         time_start = time.time()
         time_since_last_download = time.time()
 
-        while len(files_to_download) > 0 and (time.time() - time_start) <= self.download_timeout_s:
+        while (
+            len(files_to_download) > 0
+            and (time.time() - time_start) <= self.download_timeout_s
+        ):
             for fname in files_to_download:
                 # files will each be in the same prefix as the Config file.
                 f_key = "/".join(self.job_config_s3_key.split("/")[:-1]) + "/" + fname
                 # Put in the same local folder as the configfile.
-                local_fname = os.path.join(os.path.dirname(self.job_config_local), fname)
+                local_fname = os.path.join(
+                    os.path.dirname(self.job_config_local), fname
+                )
 
                 if self.s3m.exists(f_key, bucket_type=self.job_config_s3_bucket_type):
                     # Download from the s3 bucket.
                     if not only_create_database_entries:
                         if self.verbose:
-                            print(f"Downloading {os.path.basename(local_fname)}", flush=True)
+                            print(
+                                f"Downloading {os.path.basename(local_fname)}",
+                                flush=True,
+                            )
 
-                        self.s3m.download(f_key, local_fname, bucket_type=self.job_config_s3_bucket_type)
+                        self.s3m.download(
+                            f_key,
+                            local_fname,
+                            bucket_type=self.job_config_s3_bucket_type,
+                        )
 
                     # Update our list of files to go.
                     files_to_download.remove(fname)
@@ -938,36 +1098,53 @@ class IvertJob:
                     else:
                         file_status = "error"
 
-                    if self.jobs_db.file_exists(local_fname, self.username, self.job_id):
-                        self.jobs_db.update_file_status(self.username, self.job_id, local_fname,
-                                                        status=file_status,
-                                                        upload_to_s3=self.should_we_upload(upload_to_s3,
-                                                                                           len(files_downloaded)))
+                    if self.jobs_db.file_exists(
+                        local_fname, self.username, self.job_id
+                    ):
+                        self.jobs_db.update_file_status(
+                            self.username,
+                            self.job_id,
+                            local_fname,
+                            status=file_status,
+                            upload_to_s3=self.should_we_upload(
+                                upload_to_s3, len(files_downloaded)
+                            ),
+                        )
 
                     else:
                         # Create a file record for it in the database.
-                        self.jobs_db.create_new_file_record(local_fname,
-                                                            self.job_id,
-                                                            self.username,
-                                                            import_or_export=0,
-                                                            status=file_status,
-                                                            fake_file_stats=
-                                                            True if only_create_database_entries else False,
-                                                            upload_to_s3=self.should_we_upload(upload_to_s3,
-                                                                                               len(files_downloaded)))
+                        self.jobs_db.create_new_file_record(
+                            local_fname,
+                            self.job_id,
+                            self.username,
+                            import_or_export=0,
+                            status=file_status,
+                            fake_file_stats=True
+                            if only_create_database_entries
+                            else False,
+                            upload_to_s3=self.should_we_upload(
+                                upload_to_s3, len(files_downloaded)
+                            ),
+                        )
 
                 elif quarantine_manager.is_quarantined(f_key):
                     if self.verbose:
-                        print(f"File {os.path.basename(local_fname)} is quarantined.", flush=True)
+                        print(
+                            f"File {os.path.basename(local_fname)} is quarantined.",
+                            flush=True,
+                        )
 
-                    self.jobs_db.create_new_file_record(local_fname,
-                                                        self.job_id,
-                                                        self.username,
-                                                        import_or_export=0,
-                                                        status="quarantined",
-                                                        upload_to_s3=self.should_we_upload(upload_to_s3,
-                                                                                           len(files_downloaded)),
-                                                        fake_file_stats=True)
+                    self.jobs_db.create_new_file_record(
+                        local_fname,
+                        self.job_id,
+                        self.username,
+                        import_or_export=0,
+                        status="quarantined",
+                        upload_to_s3=self.should_we_upload(
+                            upload_to_s3, len(files_downloaded)
+                        ),
+                        fake_file_stats=True,
+                    )
 
                     # # Put a message about the quarantine file in the logfile.
                     # self.write_to_logfile(f"File {os.path.basename(local_fname)} is quarantined.")
@@ -1000,19 +1177,27 @@ class IvertJob:
                 # files will each be in the same prefix as the Config file.
                 # f_key = self.job_config_s3_key.rsplit("/")[0] + "/" + fname
                 # Put in the same local folder as the configfile.
-                local_fname = os.path.join(os.path.dirname(self.job_config_local), fname)
+                local_fname = os.path.join(
+                    os.path.dirname(self.job_config_local), fname
+                )
 
                 if self.verbose:
-                    print(f"File {os.path.basename(local_fname)} failed to download.", flush=True)
+                    print(
+                        f"File {os.path.basename(local_fname)} failed to download.",
+                        flush=True,
+                    )
 
-                self.jobs_db.create_new_file_record(local_fname,
-                                                    self.job_id,
-                                                    self.username,
-                                                    import_or_export=0,
-                                                    status="timeout",
-                                                    upload_to_s3=self.should_we_upload(upload_to_s3,
-                                                                                       len(files_downloaded)),
-                                                    fake_file_stats=True)
+                self.jobs_db.create_new_file_record(
+                    local_fname,
+                    self.job_id,
+                    self.username,
+                    import_or_export=0,
+                    status="timeout",
+                    upload_to_s3=self.should_we_upload(
+                        upload_to_s3, len(files_downloaded)
+                    ),
+                    fake_file_stats=True,
+                )
 
                 files_to_download.remove(fname)
                 files_downloaded.append(fname)
@@ -1037,17 +1222,26 @@ class IvertJob:
         This notifies the IVERT user that the job has finished and that they can download the results.
         """
         # If we've flagged to not send notifications, do nothing.
-        if "sns_notifications" in self.job_config_object.cmd_args and \
-                not self.job_config_object.cmd_args["sns_notifications"]:
+        if (
+            "sns_notifications" in self.job_config_object.cmd_args
+            and not self.job_config_object.cmd_args["sns_notifications"]
+        ):
             return
 
         # Certain jobs, we don't want to send a notification.
         # For instance, "unsubscribe" commands send no notifications. "subscribe" only send a notification at
         # job completion.
-        if (self.command == "update") and \
-                ("sub_command" in self.job_config_object.cmd_args) and \
-                ((self.job_config_object.cmd_args["sub_command"] == "unsubscribe") or
-                 ((self.job_config_object.cmd_args["sub_command"] == "subscribe") and (start_or_finish == "start"))):
+        if (
+            (self.command == "update")
+            and ("sub_command" in self.job_config_object.cmd_args)
+            and (
+                (self.job_config_object.cmd_args["sub_command"] == "unsubscribe")
+                or (
+                    (self.job_config_object.cmd_args["sub_command"] == "subscribe")
+                    and (start_or_finish == "start")
+                )
+            )
+        ):
             return
 
         start_or_finish = start_or_finish.strip().lower()
@@ -1059,17 +1253,28 @@ class IvertJob:
             # Produce a job started notification
 
             email_templates = self.get_email_templates()
-            subject_line = email_templates.subject_job_submitted.format(self.username, self.job_id)
-            body = email_templates.email_job_submitted.format(self.username, self.job_id,
-                                                              self.convert_cmd_args_to_string())
+            subject_line = email_templates.subject_job_submitted.format(
+                self.username, self.job_id
+            )
+            body = email_templates.email_job_submitted.format(
+                self.username, self.job_id, self.convert_cmd_args_to_string()
+            )
 
             body += "\n" + email_templates.email_ending
 
             # Send the SNS notification
-            sns_response = sns.send_sns_message(subject_line, body, self.job_id, self.username)
+            sns_response = sns.send_sns_message(
+                subject_line, body, self.job_id, self.username
+            )
             # Log the SNS notification in the database.
-            self.jobs_db.create_new_sns_message(self.username, self.job_id, subject_line, sns_response,
-                                                update_vnum=True, upload_to_s3=upload_to_s3)
+            self.jobs_db.create_new_sns_message(
+                self.username,
+                self.job_id,
+                subject_line,
+                sns_response,
+                update_vnum=True,
+                upload_to_s3=upload_to_s3,
+            )
 
         elif start_or_finish == "finish":
             email_templates = self.get_email_templates()
@@ -1100,22 +1305,28 @@ class IvertJob:
                         num_outputs_unsuccessful += 1
 
             # Produce the email subject and message.
-            subject_line = email_templates.subject_job_finished.format(self.username, self.job_id, job_status)
+            subject_line = email_templates.subject_job_finished.format(
+                self.username, self.job_id, job_status
+            )
 
-            body = email_templates.email_job_finished_start.format(self.username, self.job_id, job_status)
+            body = email_templates.email_job_finished_start.format(
+                self.username, self.job_id, job_status
+            )
 
             ifiles_text = ""
             ofiles_text = ""
             if len(input_files) > 0:
                 # List the input files.
-                body += email_templates.email_job_finished_input_files_addendum.format(len(input_files),
-                                                                                       num_inputs_successful,
-                                                                                       num_inputs_unsuccessful)
+                body += email_templates.email_job_finished_input_files_addendum.format(
+                    len(input_files), num_inputs_successful, num_inputs_unsuccessful
+                )
 
                 for ifile in input_files:
-                    ifiles_text += email_templates.file_item.format(ifile["filename"],
-                                                                    sizeof.sizeof_fmt(ifile["size_bytes"]),
-                                                                    ifile["status"])
+                    ifiles_text += email_templates.file_item.format(
+                        ifile["filename"],
+                        sizeof.sizeof_fmt(ifile["size_bytes"]),
+                        ifile["status"],
+                    )
                     if len(ifiles_text) > 512:
                         ifiles_text += "[Other files omitted for brevity.]\n"
                         break
@@ -1123,16 +1334,17 @@ class IvertJob:
                 body += ifiles_text
 
             if len(output_files) > 0:
-
                 # List the output files.
-                body += email_templates.email_job_finished_output_files_addendum.format(len(output_files),
-                                                                                        num_outputs_successful,
-                                                                                        num_outputs_unsuccessful)
+                body += email_templates.email_job_finished_output_files_addendum.format(
+                    len(output_files), num_outputs_successful, num_outputs_unsuccessful
+                )
 
                 for ofile in output_files:
-                    ofiles_text += email_templates.file_item.format(ofile["filename"],
-                                                                    sizeof.sizeof_fmt(ofile["size_bytes"]),
-                                                                    ofile["status"])
+                    ofiles_text += email_templates.file_item.format(
+                        ofile["filename"],
+                        sizeof.sizeof_fmt(ofile["size_bytes"]),
+                        ofile["status"],
+                    )
 
                     if len(ofiles_text) > (512 if (len(ifiles_text) < 512) else 256):
                         ofiles_text += "[Other files omitted for brevity.]\n"
@@ -1140,21 +1352,35 @@ class IvertJob:
 
                 body += ofiles_text
 
-                body += email_templates.email_output_files_download_notification.format(self.username, self.job_id)
+                body += email_templates.email_output_files_download_notification.format(
+                    self.username, self.job_id
+                )
 
             if job_status != "complete":
-                body += email_templates.email_job_finished_unsuccessful_addendum.format(self.username, self.job_id)
+                body += email_templates.email_job_finished_unsuccessful_addendum.format(
+                    self.username, self.job_id
+                )
 
             body += "\n" + email_templates.email_ending
 
             # Send the email message.
-            sns_response = sns.send_sns_message(subject_line, body, self.job_id, self.username)
+            sns_response = sns.send_sns_message(
+                subject_line, body, self.job_id, self.username
+            )
             # Log the SNS notification in the database.
-            self.jobs_db.create_new_sns_message(self.username, self.job_id, subject_line, sns_response,
-                                                update_vnum=True, upload_to_s3=upload_to_s3)
+            self.jobs_db.create_new_sns_message(
+                self.username,
+                self.job_id,
+                subject_line,
+                sns_response,
+                update_vnum=True,
+                upload_to_s3=upload_to_s3,
+            )
 
         else:
-            raise ValueError(f"parameter 'start_or_finish' must be one of 'start', or 'finish'. '{start_or_finish}' not recoginzed.")
+            raise ValueError(
+                f"parameter 'start_or_finish' must be one of 'start', or 'finish'. '{start_or_finish}' not recoginzed."
+            )
 
         return
 
@@ -1173,12 +1399,21 @@ class IvertJob:
             command_str = command_str + " --files"
         fnames_str = ""
         for fname in self.job_config_object.files:
-            fnames_str = fnames_str + " " + (f'"{fname}"'
-                                             if (self.contains_whitespace(fname) or (len(fname) == 0))
-                                             else fname)
+            fnames_str = (
+                fnames_str
+                + " "
+                + (
+                    f'"{fname}"'
+                    if (self.contains_whitespace(fname) or (len(fname) == 0))
+                    else fname
+                )
+            )
 
         if len(fnames_str) > max_filenames_length_chars:
-            fnames_str = " " + f"[*{len(self.job_config_object.files)} files here. Abbreviated for brevity.*]"
+            fnames_str = (
+                " "
+                + f"[*{len(self.job_config_object.files)} files here. Abbreviated for brevity.*]"
+            )
 
         command_str += fnames_str
 
@@ -1227,12 +1462,11 @@ class IvertJob:
                 elif sub_command == "unsubscribe":
                     self.run_unsubscribe_command()
 
-
                 # RUN AN UPDATE COMMAND
                 else:
                     self.run_update_command()
 
-        except KeyboardInterrupt as e:
+        except KeyboardInterrupt:
             if self.verbose:
                 print("Caught keyboard interrupt. Terminating job.", flush=True)
 
@@ -1254,8 +1488,15 @@ class IvertJob:
             f = open(self.logfile, "a")
         else:
             # Create a database record of the log file.
-            self.jobs_db.create_new_file_record(self.logfile, self.job_id, self.username, import_or_export=1,
-                                                status="processing", upload_to_s3=upload_to_s3, fake_file_stats=True)
+            self.jobs_db.create_new_file_record(
+                self.logfile,
+                self.job_id,
+                self.username,
+                import_or_export=1,
+                status="processing",
+                upload_to_s3=upload_to_s3,
+                fake_file_stats=True,
+            )
             # Then create the file.
             f = open(self.logfile, "w")
 
@@ -1264,12 +1505,14 @@ class IvertJob:
 
         # Put a newline at the end of any given message, if it's not already there.
         # That way the next message will be on a new line.
-        if message[-1] != '\n':
-            f.write('\n')
+        if message[-1] != "\n":
+            f.write("\n")
 
         f.close()
 
-    def export_logfile_if_exists(self, overwrite: bool = False, upload_db_to_s3: bool = True):
+    def export_logfile_if_exists(
+        self, overwrite: bool = False, upload_db_to_s3: bool = True
+    ):
         """If we've written anyting to the job's logfile, export it upon completion of the job.
 
         Also add an entry to the jobs_database for this logfile export."""
@@ -1280,12 +1523,14 @@ class IvertJob:
         # Some may have still gotten in there from sub-processes that hadn't used the Logger class.
         logfile_text = open(self.logfile, "r").read()
         filtered_text = ut.unformat_and_delete_cr_lines(logfile_text)
-        with open(self.logfile, 'w') as f:
+        with open(self.logfile, "w") as f:
             f.write(filtered_text)
 
         # Upload the logfile to the export bucket.
         # This usess the exporter's upload_file_to_export_bucket method, which also updates the database.
-        self.upload_file_to_export_bucket(self.logfile, overwrite=overwrite, upload_to_s3=upload_db_to_s3)
+        self.upload_file_to_export_bucket(
+            self.logfile, overwrite=overwrite, upload_to_s3=upload_db_to_s3
+        )
 
     # def export_stdout_if_exists(self, upload_db_to_s3: bool = True):
     #     """If we've written anyting to the job's stdout file, export it upon completion of the job.
@@ -1301,19 +1546,25 @@ class IvertJob:
     #     self.upload_file_to_export_bucket(self.stdout_file,
     #                                       upload_to_s3=upload_db_to_s3)
 
-    def upload_file_to_export_bucket(self, fname: str, overwrite: bool = False, upload_to_s3: bool = True):
+    def upload_file_to_export_bucket(
+        self, fname: str, overwrite: bool = False, upload_to_s3: bool = True
+    ):
         """When exporting a file, upload it here and update the file's status in the database.
 
         If the file doesn't yet exist in the databse, add an entry to the jobs_database for this exported file."""
-        self.exporter.upload_file_to_export_bucket(self.job_id,
-                                                   fname,
-                                                   self.username,
-                                                   overwrite=overwrite,
-                                                   upload_to_s3=upload_to_s3)
+        self.exporter.upload_file_to_export_bucket(
+            self.job_id,
+            fname,
+            self.username,
+            overwrite=overwrite,
+            upload_to_s3=upload_to_s3,
+        )
 
         return
 
-    def upload_export_files(self, exclude_logfile: bool = True, upload_to_s3: bool = True):
+    def upload_export_files(
+        self, exclude_logfile: bool = True, upload_to_s3: bool = True
+    ):
         """Upload any files that are set to the exported to the export bucket."""
         # Get a list of all the job files associated with this job.
         job_files_df = self.collect_job_files_df()
@@ -1339,8 +1590,14 @@ class IvertJob:
             if exclude_logfile and (f_basename == job_logfile):
                 continue
 
-            f_path = os.path.join(self.ivert_config.ivert_jobs_directory_local, job_output_path, f_basename)
-            f_path_other = os.path.join(self.ivert_config.ivert_jobs_directory_local, job_local_path, f_basename)
+            f_path = os.path.join(
+                self.ivert_config.ivert_jobs_directory_local,
+                job_output_path,
+                f_basename,
+            )
+            f_path_other = os.path.join(
+                self.ivert_config.ivert_jobs_directory_local, job_local_path, f_basename
+            )
 
             if os.path.exists(f_path):
                 # Upload the file.
@@ -1355,7 +1612,9 @@ class IvertJob:
                 continue
             else:
                 # Otherwise, change the status to 'error'. Something's wrong if we can't find the file.
-                self.jobs_db.update_file_status(self.username, self.job_id, f_basename, "error", upload_to_s3=False)
+                self.jobs_db.update_file_status(
+                    self.username, self.job_id, f_basename, "error", upload_to_s3=False
+                )
                 # Also put a message in the logfile.
                 self.write_to_logfile("Error: File not found: " + f_path)
 
@@ -1366,14 +1625,24 @@ class IvertJob:
 
     def update_job_status(self, status, upload_to_s3=True):
         "Update the job status in the database."
-        self.jobs_db.update_job_status(self.username, self.job_id, status,
-                                       increment_vnum=True, upload_to_s3=upload_to_s3)
+        self.jobs_db.update_job_status(
+            self.username,
+            self.job_id,
+            status,
+            increment_vnum=True,
+            upload_to_s3=upload_to_s3,
+        )
 
     def update_file_status(self, filename, status, upload_to_s3=True):
         """Update the file status in the database."""
-        self.jobs_db.update_file_status(self.username, self.job_id,
-                                        os.path.basename(filename), status,
-                                        increment_vnum=True, upload_to_s3=upload_to_s3)
+        self.jobs_db.update_file_status(
+            self.username,
+            self.job_id,
+            os.path.basename(filename),
+            status,
+            increment_vnum=True,
+            upload_to_s3=upload_to_s3,
+        )
 
     def run_subscribe_command(self):
         "Run a 'subscribe' command to subscribe a user to an SNS notification service."
@@ -1383,19 +1652,19 @@ class IvertJob:
         assert "all" in cmd_args
 
         filter_string = None if cmd_args["all"] else self.username
-        sns_arn = sns.subscribe(cmd_args["email"],
-                                filter_string)
+        sns_arn = sns.subscribe(cmd_args["email"], filter_string)
 
         # Add this arn to the database. If it's already in there, update it.
         topic_arn = self.ivert_config.sns_topic_arn
-        self.jobs_db.create_or_update_sns_subscription(self.username,
-                                                       cmd_args["email"],
-                                                       topic_arn,
-                                                       sns_arn,
-                                                       filter_string,
-                                                       increment_vnum=False,
-                                                       upload_to_s3=False
-                                                       )
+        self.jobs_db.create_or_update_sns_subscription(
+            self.username,
+            cmd_args["email"],
+            topic_arn,
+            sns_arn,
+            filter_string,
+            increment_vnum=False,
+            upload_to_s3=False,
+        )
         return
 
     def run_unsubscribe_command(self):
@@ -1408,7 +1677,9 @@ class IvertJob:
         sns_arn = self.jobs_db.get_sns_arn(cmd_args["email"])
         sns.unsubscribe(sns_arn)
 
-        self.jobs_db.remove_sns_subscription(cmd_args["email"], update_vnum=False, upload_to_s3=False)
+        self.jobs_db.remove_sns_subscription(
+            cmd_args["email"], update_vnum=False, upload_to_s3=False
+        )
         return
 
     def run_test_command(self):
@@ -1421,12 +1692,17 @@ class IvertJob:
 
             if os.path.exists(f_path):
                 # If the file exists locally, mark it as 'processed'.
-                self.jobs_db.update_file_status(self.username, self.job_id, fname, "processed", upload_to_s3=False)
+                self.jobs_db.update_file_status(
+                    self.username, self.job_id, fname, "processed", upload_to_s3=False
+                )
             else:
                 # If we can't find the file and its status is not some type of error, mark it as 'error'.
-                if self.jobs_db.file_exists(fname, self.username, self.job_id, return_row=True)["status"] not in \
-                        ("error", "timeout", "quarantined", "unknown"):
-                    self.jobs_db.update_file_status(self.username, self.job_id, fname, "error", upload_to_s3=False)
+                if self.jobs_db.file_exists(
+                    fname, self.username, self.job_id, return_row=True
+                )["status"] not in ("error", "timeout", "quarantined", "unknown"):
+                    self.jobs_db.update_file_status(
+                        self.username, self.job_id, fname, "error", upload_to_s3=False
+                    )
 
         # Write a message to the logfile, which will be exported. This tests the output functionality as well.
         self.write_to_logfile(
@@ -1473,12 +1749,16 @@ class IvertJob:
         if files_to_transfer:
             self.write_to_logfile(
                 f"Importing {len(files_to_transfer)} files to "
-                f"s3://{self.s3m.get_bucketname(bucket_type='database')}/{dest_prefix}.")
+                f"s3://{self.s3m.get_bucketname(bucket_type='database')}/{dest_prefix}."
+            )
 
-        while files_to_transfer and ((time.time() - time_started) < self.download_timeout_s):
+        while files_to_transfer and (
+            (time.time() - time_started) < self.download_timeout_s
+        ):
             for fname in files_to_transfer.copy():
-
-                fkey_src = str(os.path.join(os.path.dirname(self.job_config_s3_key), fname))
+                fkey_src = str(
+                    os.path.join(os.path.dirname(self.job_config_s3_key), fname)
+                )
                 fname_local = str(os.path.join(self.output_dir, fname))
                 fkey_dst = str(os.path.join(dest_prefix, fname))
 
@@ -1495,45 +1775,56 @@ class IvertJob:
                         #                   fail_quietly=False)
 
                         # Download the file from the trusted bucket.
-                        self.s3m.download(fkey_src,
-                                          fname_local,
-                                          bucket_type="trusted",
-                                          delete_original=False,
-                                          recursive=False,
-                                          fail_quietly=False)
+                        self.s3m.download(
+                            fkey_src,
+                            fname_local,
+                            bucket_type="trusted",
+                            delete_original=False,
+                            recursive=False,
+                            fail_quietly=False,
+                        )
 
                         # If the file doesn't exist locally, then something happened during the download. Skip and try again.
                         if not os.path.exists(fname_local):
                             continue
 
                         # Upload the file to the database bucket, overwriting it if it exists, and deleting the local copy.
-                        self.s3m.upload(fname_local,
-                                        fkey_dst,
-                                        bucket_type="database",
-                                        delete_original=True,
-                                        recursive=False,
-                                        fail_quietly=False,
-                                        include_md5=True)
+                        self.s3m.upload(
+                            fname_local,
+                            fkey_dst,
+                            bucket_type="database",
+                            delete_original=True,
+                            recursive=False,
+                            fail_quietly=False,
+                            include_md5=True,
+                        )
 
                     else:
                         continue
 
-                except Exception as e:
+                except Exception:
                     self.write_to_logfile(traceback.format_exc())
 
                 # Make sure the file uploaded successfully.
                 if self.s3m.exists(fkey_dst, bucket_type="database"):
-
                     if self.verbose:
                         print(fname, "transferred to", dest_prefix, flush=True)
 
                     fsize = self.s3m.size(fkey_dst, bucket_type="database")
 
-                    self.write_to_logfile(f"{fname}: imported {sizeof.sizeof_fmt(fsize)}")
+                    self.write_to_logfile(
+                        f"{fname}: imported {sizeof.sizeof_fmt(fsize)}"
+                    )
 
                     # If the file exists locally, mark it as 'processed'.
-                    self.jobs_db.update_file_status(self.username, self.job_id, fname, "processed",
-                                                    new_size=fsize, upload_to_s3=True)
+                    self.jobs_db.update_file_status(
+                        self.username,
+                        self.job_id,
+                        fname,
+                        "processed",
+                        new_size=fsize,
+                        upload_to_s3=True,
+                    )
 
                     bytes_copied += fsize
 
@@ -1542,12 +1833,13 @@ class IvertJob:
                         print("Error with file", fname, flush=True)
 
                     # If we can't find the file and its status is not some type of error, mark it as 'error'.
-                    self.jobs_db.update_file_status(self.username,
-                                                    self.job_id, fname,
-                                                    "error",
-                                                    upload_to_s3=False)
+                    self.jobs_db.update_file_status(
+                        self.username, self.job_id, fname, "error", upload_to_s3=False
+                    )
 
-                    self.write_to_logfile(f"{fname}: Error, did not import successfully.")
+                    self.write_to_logfile(
+                        f"{fname}: Error, did not import successfully."
+                    )
 
                 files_to_transfer.remove(fname)
                 numfiles_processed += 1
@@ -1558,16 +1850,23 @@ class IvertJob:
         if len(files_to_transfer) > 0:
             # If we still have files to transfer, mark them as 'timeout'.
             for fname in files_to_transfer:
-                self.jobs_db.update_file_status(self.username, self.job_id, fname, "timeout", upload_to_s3=False)
-                self.write_to_logfile(f"{fname}: Timed out after {self.download_timeout_s} seconds, did not import.")
+                self.jobs_db.update_file_status(
+                    self.username, self.job_id, fname, "timeout", upload_to_s3=False
+                )
+                self.write_to_logfile(
+                    f"{fname}: Timed out after {self.download_timeout_s} seconds, did not import."
+                )
 
         # Get the total size of the files from this job. Write it to the logfile.
         self.write_to_logfile(
             f"Imported {numfiles_processed} of {len(jco.files)} files totaling {sizeof.sizeof_fmt(bytes_copied)} to "
-            f"directory {dest_prefix}.")
+            f"directory {dest_prefix}."
+        )
         if len(files_to_transfer) > 0:
-            self.write_to_logfile(f"{len(files_to_transfer)} files timed out after {self.download_timeout_s} seconds "
-                                  "and were not imported.")
+            self.write_to_logfile(
+                f"{len(files_to_transfer)} files timed out after {self.download_timeout_s} seconds "
+                "and were not imported."
+            )
 
         return
 
@@ -1587,30 +1886,78 @@ def define_and_parse_arguments() -> argparse.Namespace:
     Returns:
         An argparse.Namespace object containing the parsed arguments.
     """
-    parser = argparse.ArgumentParser(description="Ivert Job Manager... for detecting, running, and managing IVERT jobs "
-                                                 "on an EC2 instance.")
-    parser.add_argument("-t", "--time_interval_s", type=int, dest="time_interval_s", default=5,
-                        help="The time interval in seconds between checking for new IVERT jobs. Default: 5 seconds "
-                             "(for CLI testing purposes).")
-    parser.add_argument("-b", "--bucket", type=str, dest="bucket", default="trusted",
-                        help="The S3 bucket type to search for incoming job files. Default: 'trusted'. "
-                             "Run 'python s3.py list_buckets' to see all available bucket types.")
-    parser.add_argument("-j", "--job_id", type=int, dest="job_id", default=-1,
-                        help="Run processing on a single job with this ID. For testing purposes only. "
-                             "Ignores the '-t' option.")
-    parser.add_argument("-p", "--populate", action="store_true", default=False,
-                        help="Quietly enter all new jobs into the database without running anything. "
-                             "Useful if we've reset the database.")
-    parser.add_argument("-r", "--reset_database", dest="reset_database", action="store_true",
-                        default=False,
-                        help="Reset and then quietly populate the jobs database. Useful to rebuild if we've reset "
-                             "the database schema.")
-    parser.add_argument("-v", "--verbose", dest="verbose", action="store_true", default=False,
-                        help="Print verbose output while running.")
-    parser.add_argument("-v2", "--verbose2", dest="verbose2", action="store_true", default=False,
-                        help="Print verbose output including subprocesses to stdout. Only use when debugging.")
-    parser.add_argument("-k", "--kill", dest="kill", action="store_true", default=False,
-                        help="Kill an existing instance of the ivert_job_manager.py process.")
+    parser = argparse.ArgumentParser(
+        description="Ivert Job Manager... for detecting, running, and managing IVERT jobs "
+        "on an EC2 instance."
+    )
+    parser.add_argument(
+        "-t",
+        "--time_interval_s",
+        type=int,
+        dest="time_interval_s",
+        default=5,
+        help="The time interval in seconds between checking for new IVERT jobs. Default: 5 seconds "
+        "(for CLI testing purposes).",
+    )
+    parser.add_argument(
+        "-b",
+        "--bucket",
+        type=str,
+        dest="bucket",
+        default="trusted",
+        help="The S3 bucket type to search for incoming job files. Default: 'trusted'. "
+        "Run 'python s3.py list_buckets' to see all available bucket types.",
+    )
+    parser.add_argument(
+        "-j",
+        "--job_id",
+        type=int,
+        dest="job_id",
+        default=-1,
+        help="Run processing on a single job with this ID. For testing purposes only. "
+        "Ignores the '-t' option.",
+    )
+    parser.add_argument(
+        "-p",
+        "--populate",
+        action="store_true",
+        default=False,
+        help="Quietly enter all new jobs into the database without running anything. "
+        "Useful if we've reset the database.",
+    )
+    parser.add_argument(
+        "-r",
+        "--reset_database",
+        dest="reset_database",
+        action="store_true",
+        default=False,
+        help="Reset and then quietly populate the jobs database. Useful to rebuild if we've reset "
+        "the database schema.",
+    )
+    parser.add_argument(
+        "-v",
+        "--verbose",
+        dest="verbose",
+        action="store_true",
+        default=False,
+        help="Print verbose output while running.",
+    )
+    parser.add_argument(
+        "-v2",
+        "--verbose2",
+        dest="verbose2",
+        action="store_true",
+        default=False,
+        help="Print verbose output including subprocesses to stdout. Only use when debugging.",
+    )
+    parser.add_argument(
+        "-k",
+        "--kill",
+        dest="kill",
+        action="store_true",
+        default=False,
+        help="Kill an existing instance of the ivert_job_manager.py process.",
+    )
 
     return parser.parse_args()
 
@@ -1625,16 +1972,20 @@ if __name__ == "__main__":
 
     # If we're populating the database, then do that and exit.
     elif args.populate:
-        JM = IvertJobManager(input_bucket_type=args.bucket,
-                             time_interval_s=args.time_interval_s,
-                             job_id=None if args.job_id == -1 else args.job_id)
+        JM = IvertJobManager(
+            input_bucket_type=args.bucket,
+            time_interval_s=args.time_interval_s,
+            job_id=None if args.job_id == -1 else args.job_id,
+        )
         JM.quietly_populate_database()
         sys.exit(0)
 
     elif args.reset_database:
-        JM = IvertJobManager(input_bucket_type=args.bucket,
-                             time_interval_s=args.time_interval_s,
-                             job_id=None if args.job_id == -1 else args.job_id)
+        JM = IvertJobManager(
+            input_bucket_type=args.bucket,
+            time_interval_s=args.time_interval_s,
+            job_id=None if args.job_id == -1 else args.job_id,
+        )
 
         database = JM.jobs_db
         database.download_from_s3(only_if_newer=False)
@@ -1652,17 +2003,20 @@ if __name__ == "__main__":
         other_manager = is_another_manager_running()
         if other_manager:
             print(
-                f"Process {other_manager.pid}: '{' '.join(other_manager.cmdline())}' is already running.")
+                f"Process {other_manager.pid}: '{' '.join(other_manager.cmdline())}' is already running."
+            )
             exit(0)
 
         # Set up multiprocessing. 'spawn' is the slowest but the most reliable. Otherwise, file handlers are fucking us up.
         # This is primarily used by "validate" commands.
-        mp.set_start_method('spawn')
+        mp.set_start_method("spawn")
 
         # Start the job manager
-        JM = IvertJobManager(input_bucket_type=args.bucket,
-                             time_interval_s=args.time_interval_s,
-                             job_id=None if args.job_id == -1 else args.job_id,
-                             verbose=args.verbose,
-                             verbose2=args.verbose2)
+        JM = IvertJobManager(
+            input_bucket_type=args.bucket,
+            time_interval_s=args.time_interval_s,
+            job_id=None if args.job_id == -1 else args.job_id,
+            verbose=args.verbose,
+            verbose2=args.verbose2,
+        )
         JM.start()

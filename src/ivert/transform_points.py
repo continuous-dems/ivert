@@ -60,16 +60,26 @@ def transform_points(
     dst_horz, dst_vert_epsg = _decompose_crs(dst_crs)
 
     # Horizontal reprojection
-    if src_horz is not None and dst_horz is not None and not src_horz.is_exact_same(dst_horz):
+    if (
+        src_horz is not None
+        and dst_horz is not None
+        and not src_horz.is_exact_same(dst_horz)
+    ):
         xformer = pyproj.Transformer.from_crs(src_horz, dst_horz, always_xy=True)
         trans_x, trans_y = xformer.transform(x, y)
     else:
         trans_x, trans_y = x.copy(), y.copy()
 
     # Vertical datum shift
-    if src_vert_epsg is not None and dst_vert_epsg is not None and src_vert_epsg != dst_vert_epsg:
+    if (
+        src_vert_epsg is not None
+        and dst_vert_epsg is not None
+        and src_vert_epsg != dst_vert_epsg
+    ):
         trans_z = _apply_vertical_transform(
-            x, y, z,
+            x,
+            y,
+            z,
             src_vert_epsg=str(src_vert_epsg),
             dst_vert_epsg=str(dst_vert_epsg),
             src_region=src_region,
@@ -114,8 +124,12 @@ def _apply_vertical_transform(
     if src_region is None:
         region_bounds = [float(x.min()), float(x.max()), float(y.min()), float(y.max())]
     else:
-        region_bounds = [float(src_region[0]), float(src_region[1]),
-                         float(src_region[2]), float(src_region[3])]
+        region_bounds = [
+            float(src_region[0]),
+            float(src_region[1]),
+            float(src_region[2]),
+            float(src_region[3]),
+        ]
 
     _cache = cache_dir or os.path.join(os.getcwd(), "transformez_cache")
     os.makedirs(_cache, exist_ok=True)

@@ -1,10 +1,9 @@
-
 import re
 
-from pandas.core.array_algos.replace import compare_or_regex_search
 
 # 7-bit C1 ANSI sequences
-ansi_escape = re.compile(r'''
+ansi_escape = re.compile(
+    r"""
     \x1B  # ESC
     (?:   # 7-bit C1 Fe (except CSI)
         [@-Z\\-_]
@@ -14,11 +13,13 @@ ansi_escape = re.compile(r'''
         [ -/]*  # Intermediate bytes
         [@-~]   # Final byte
     )
-''', re.VERBOSE)
+""",
+    re.VERBOSE,
+)
 
 # Matches any lines that end in a carriage return.
 # Unless they're immediately follwed by a newline character, at which point that'll be displayed to the screen.
-cr_line_regex = re.compile(r'(((?<=[\n\r]).*?\r)|(^.*?\r))(?!\n)')
+cr_line_regex = re.compile(r"(((?<=[\n\r]).*?\r)|(^.*?\r))(?!\n)")
 
 
 def unformat(text: str) -> str:
@@ -33,7 +34,6 @@ def delete_cr_lines(text: str) -> str:
     return cr_line_regex.sub("", text).replace("\r", "")
 
 
-def unformat_and_delete_cr_lines (text: str) -> str:
+def unformat_and_delete_cr_lines(text: str) -> str:
     """Remove ANSI escape codes and carriage returns and the lines preceding them from text."""
     return delete_cr_lines(unformat(text))
-

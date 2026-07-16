@@ -26,7 +26,9 @@ class PersistentIvertServer:
                     self.subproc = existing_proc
                     self.sub_pid = existing_proc.pid
                     if self.verbose:
-                        print(f"Another instance of server_job_manager.py (pid {self.sub_pid}) is already running. Will keep it going.")
+                        print(
+                            f"Another instance of server_job_manager.py (pid {self.sub_pid}) is already running. Will keep it going."
+                        )
                     continue
 
                 else:
@@ -36,22 +38,31 @@ class PersistentIvertServer:
                         iv_args.append("-v")
                         print(" ".join(iv_args))
 
-                    self.subproc = subprocess.Popen(iv_args, cwd=os.path.dirname(__file__))
+                    self.subproc = subprocess.Popen(
+                        iv_args, cwd=os.path.dirname(__file__)
+                    )
                     self.sub_pid = self.subproc.pid
 
             # Handle if the process goes down.
-            if (isinstance(self.subproc, psutil.Process) and self.subproc.is_running()) \
-                    or (isinstance(self.subproc, subprocess.Popen) and self.subproc.poll() is None):
-
+            if (
+                isinstance(self.subproc, psutil.Process) and self.subproc.is_running()
+            ) or (
+                isinstance(self.subproc, subprocess.Popen)
+                and self.subproc.poll() is None
+            ):
                 if self.sub_pid != self.subproc.pid:
                     if self.verbose:
-                        print(f"Subprocess {self.sub_pid} has apparently restarted. Reassigning sub_pid.")
+                        print(
+                            f"Subprocess {self.sub_pid} has apparently restarted. Reassigning sub_pid."
+                        )
 
                     self.sub_pid = self.subproc.pid
 
             else:
                 if self.verbose:
-                    print(f"Subprocess {self.sub_pid} terminated. Restarting server_job_manager.py.")
+                    print(
+                        f"Subprocess {self.sub_pid} terminated. Restarting server_job_manager.py."
+                    )
                 self.subproc = None
 
             # Wait 5 seconds before checking again.
@@ -65,8 +76,14 @@ class PersistentIvertServer:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("-v", "--verbose", dest="verbose", action="store_true", default=False,
-                        help="Print verbose output")
+    parser.add_argument(
+        "-v",
+        "--verbose",
+        dest="verbose",
+        action="store_true",
+        default=False,
+        help="Print verbose output",
+    )
     args = parser.parse_args()
 
     # If for whatever reason the .run() process breaks, just restart it and keep doing that forever.
@@ -79,4 +96,3 @@ if __name__ == "__main__":
 
         except:
             pass
-

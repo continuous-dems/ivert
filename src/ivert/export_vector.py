@@ -37,22 +37,22 @@ import pandas as pd
 # Constants
 # ---------------------------------------------------------------------------
 CLASS_NAMES = {
-     0: "noise",
-     1: "ground",
-     2: "canopy",
-     3: "canopy_top",
-     6: "ice_surface",
-     7: "building",
+    0: "noise",
+    1: "ground",
+    2: "canopy",
+    3: "canopy_top",
+    6: "ice_surface",
+    7: "building",
     40: "bathy_floor",
     41: "bathy_surface",
     42: "inland_water_surface",
 }
 
 SUPPORTED_FORMATS = {
-    "gpkg": ("GPKG",  ".gpkg"),
-    "shp":  ("ESRI Shapefile", ".shp"),
-    "csv":  (None,    ".csv"),
-    "xyz":  (None,    ".xyz"),
+    "gpkg": ("GPKG", ".gpkg"),
+    "shp": ("ESRI Shapefile", ".shp"),
+    "csv": (None, ".csv"),
+    "xyz": (None, ".xyz"),
 }
 
 WGS84_EPSG = 4326
@@ -61,8 +61,7 @@ WGS84_EPSG = 4326
 # ---------------------------------------------------------------------------
 # Core conversion
 # ---------------------------------------------------------------------------
-def nc_to_geodataframe(nc_path: str,
-                       classes: list = None) -> geopandas.GeoDataFrame:
+def nc_to_geodataframe(nc_path: str, classes: list = None) -> geopandas.GeoDataFrame:
     """Read a single .nc granule file and return a GeoDataFrame.
 
     Parameters
@@ -73,13 +72,14 @@ def nc_to_geodataframe(nc_path: str,
         If given, keep only photons whose class_code is in this list.
     """
     with netCDF4.Dataset(nc_path) as ds:
+
         def _arr(name):
             v = ds.variables[name][:]
             return v.data if hasattr(v, "data") else np.array(v)
 
-        x          = _arr("x")
-        y          = _arr("y")
-        z          = _arr("z").astype(float)
+        x = _arr("x")
+        y = _arr("y")
+        z = _arr("z").astype(float)
         class_code = _arr("class_code").astype(int)
         confidence = _arr("confidence").astype(int)
         delta_time = _arr("delta_time")
@@ -89,19 +89,24 @@ def nc_to_geodataframe(nc_path: str,
             bathy_conf = _arr("bathy_confidence").astype(float)
 
         # Pull granule-level metadata from global attributes
-        granule_id = getattr(ds, "granule_id", os.path.splitext(os.path.basename(nc_path))[0])
+        granule_id = getattr(
+            ds, "granule_id", os.path.splitext(os.path.basename(nc_path))[0]
+        )
 
-    df = pd.DataFrame({
-        "x":            x,
-        "y":            y,
-        "z":            z,
-        "class_code":   class_code,
-        "class_name":   pd.array([CLASS_NAMES.get(c, f"class_{c}") for c in class_code],
-                                 dtype="string"),
-        "confidence":   confidence,
-        "delta_time":   delta_time,
-        "granule_id":   granule_id,
-    })
+    df = pd.DataFrame(
+        {
+            "x": x,
+            "y": y,
+            "z": z,
+            "class_code": class_code,
+            "class_name": pd.array(
+                [CLASS_NAMES.get(c, f"class_{c}") for c in class_code], dtype="string"
+            ),
+            "confidence": confidence,
+            "delta_time": delta_time,
+            "granule_id": granule_id,
+        }
+    )
     if bathy_conf is not None:
         df["bathy_confidence"] = bathy_conf
 
@@ -116,12 +121,15 @@ def nc_to_geodataframe(nc_path: str,
     return gdf
 
 
-def write_vector(gdf: geopandas.GeoDataFrame, outpath: str, fmt_key: str,
-                 overwrite: bool = False):
+def write_vector(
+    gdf: geopandas.GeoDataFrame, outpath: str, fmt_key: str, overwrite: bool = False
+):
     """Write a GeoDataFrame to the requested vector format."""
     if os.path.exists(outpath):
         if not overwrite:
-            print(f"  Skipping existing {os.path.basename(outpath)} (use -w to overwrite).")
+            print(
+                f"  Skipping existing {os.path.basename(outpath)} (use -w to overwrite)."
+            )
             return
         os.remove(outpath)
 
@@ -169,33 +177,49 @@ def define_and_parse_args() -> argparse.Namespace:
         epilog=__doc__,
     )
     parser.add_argument(
-        "inputs", nargs="+",
+        "inputs",
+        nargs="+",
         help=".nc file(s) or director(y/ies) containing .nc files.",
     )
     parser.add_argument(
-        "-of", "--output_format", dest="output_format", default="gpkg",
+        "-of",
+        "--output_format",
+        dest="output_format",
+        default="gpkg",
         choices=list(SUPPORTED_FORMATS.keys()),
         help="Output format. Default: gpkg",
     )
     parser.add_argument(
-        "-d", "--output_dir", dest="output_dir", default=None,
+        "-d",
+        "--output_dir",
+        dest="output_dir",
+        default=None,
         help="Output directory. Default: same directory as each input file.",
     )
     parser.add_argument(
-        "-o", "--output", dest="output", default=None,
+        "-o",
+        "--output",
+        dest="output",
+        default=None,
         help="Explicit output filename (only valid with --merge or a single input).",
     )
     parser.add_argument(
-        "--merge", action="store_true", default=False,
+        "--merge",
+        action="store_true",
+        default=False,
         help="Merge all input granules into a single output file.",
     )
     parser.add_argument(
-        "--classes", default=None,
+        "--classes",
+        default=None,
         help="Comma-separated class codes to include (e.g. '1,40,41'). "
-             "Default: all classes.",
+        "Default: all classes.",
     )
     parser.add_argument(
-        "-w", "--overwrite", action="store_true", default=False,
+        "-w",
+        "--overwrite",
+        action="store_true",
+        default=False,
         help="Overwrite existing output files.",
     )
     return parser.parse_args()
@@ -205,7 +229,7 @@ def main():
     args = define_and_parse_args()
 
     fmt_key = args.output_format.lower().lstrip(".")
-    _, ext   = SUPPORTED_FORMATS[fmt_key]
+    _, ext = SUPPORTED_FORMATS[fmt_key]
 
     classes = None
     if args.classes:

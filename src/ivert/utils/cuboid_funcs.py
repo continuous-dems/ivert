@@ -125,6 +125,7 @@
 #
 #     return cuboids
 
+
 def subtract_cuboids(a, b, tol=1e-10, bbox_order="point"):
     """
     Subtract cuboid `b` from cuboid `a`, returning the list of non-overlapping cuboids
@@ -162,7 +163,9 @@ def subtract_cuboids(a, b, tol=1e-10, bbox_order="point"):
         ax1, ax2, ay1, ay2, az1, az2 = tuple(a)
         bx1, bx2, by1, by2, bz1, bz2 = tuple(b)
     else:
-        raise ValueError(f"Invalid bbox_order parameter: {bbox_order}. Only 'axis' or 'point' are allowed.")
+        raise ValueError(
+            f"Invalid bbox_order parameter: {bbox_order}. Only 'axis' or 'point' are allowed."
+        )
 
     # Make sure in each case that the points are in the correct order (that x2 is not less than x1, etc)
     if (ax1 > ax2) or (ay1 > ay2) or (az1 > az2):
@@ -214,7 +217,7 @@ def subtract_cuboids(a, b, tol=1e-10, bbox_order="point"):
 
     # Filter degenerate (zero-volume) pieces
     clean = []
-    for (x1, y1, z1, x2, y2, z2) in result:
+    for x1, y1, z1, x2, y2, z2 in result:
         if (x2 - x1 > tol) and (y2 - y1 > tol) and (z2 - z1 > tol):
             clean.append((x1, y1, z1, x2, y2, z2))
 
@@ -223,6 +226,7 @@ def subtract_cuboids(a, b, tol=1e-10, bbox_order="point"):
         clean = [(x1, x2, y1, y2, z1, z2) for (x1, y1, z1, x2, y2, z2) in clean]
 
     return clean
+
 
 def merge_cuboids(cuboids, tol=1e-10, bbox_order="point"):
     """
@@ -240,7 +244,7 @@ def merge_cuboids(cuboids, tol=1e-10, bbox_order="point"):
         If 'point' or 'xyzxyz', the coordinates are assumed to be in (x1, y1, z1, x2, y2, z2) format, defining the first point (0:3) and second point (3:6)
         if 'axis' or 'xxyyzz', the coordinates are asummed to be in (x1, x2, y1, y2, z1, z2) format, defining the coords in the x (0:2), y (2:4), and z (4:6) directions.
         Raise ValueError if bbox_order is not 'point' or 'axis'.
-        
+
     Raises
     ------
     ValueError: If some other order besides "point" or "axis" is given.
@@ -264,7 +268,9 @@ def merge_cuboids(cuboids, tol=1e-10, bbox_order="point"):
         # Switch all the cuboids from axis order to point order for processing
         cuboids = [(x1, y1, z1, x2, y2, z2) for (x1, x2, y1, y2, z1, z2) in cuboids]
     elif bbox_order != "point":
-        raise ValueError(f"Invalid bbox_order: {bbox_order}. Must be 'point', 'axis', 'xyzxyz', or 'xxyyzz'.")
+        raise ValueError(
+            f"Invalid bbox_order: {bbox_order}. Must be 'point', 'axis', 'xyzxyz', or 'xxyyzz'."
+        )
 
     def can_merge(a, b):
         """Return merged cuboid if a and b are mergeable, else None."""
@@ -278,28 +284,55 @@ def merge_cuboids(cuboids, tol=1e-10, bbox_order="point"):
 
         # Must be aligned exactly in 2 axes, and touching or overlapping in the third
         # Case 1: merge along X
-        if abs(ay1 - by1) < tol and abs(ay2 - by2) < tol \
-           and abs(az1 - bz1) < tol and abs(az2 - bz2) < tol:
+        if (
+            abs(ay1 - by1) < tol
+            and abs(ay2 - by2) < tol
+            and abs(az1 - bz1) < tol
+            and abs(az2 - bz2) < tol
+        ):
             if abs(ax2 - bx1) < tol or abs(bx2 - ax1) < tol or overlap_x:
                 return (min(ax1, bx1), ay1, az1, max(ax2, bx2), ay2, az2)
 
         # Case 2: merge along Y
-        if abs(ax1 - bx1) < tol and abs(ax2 - bx2) < tol \
-           and abs(az1 - bz1) < tol and abs(az2 - bz2) < tol:
+        if (
+            abs(ax1 - bx1) < tol
+            and abs(ax2 - bx2) < tol
+            and abs(az1 - bz1) < tol
+            and abs(az2 - bz2) < tol
+        ):
             if abs(ay2 - by1) < tol or abs(by2 - ay1) < tol or overlap_y:
                 return (ax1, min(ay1, by1), az1, ax2, max(ay2, by2), az2)
 
         # Case 3: merge along Z
-        if abs(ax1 - bx1) < tol and abs(ax2 - bx2) < tol \
-           and abs(ay1 - by1) < tol and abs(ay2 - by2) < tol:
+        if (
+            abs(ax1 - bx1) < tol
+            and abs(ax2 - bx2) < tol
+            and abs(ay1 - by1) < tol
+            and abs(ay2 - by2) < tol
+        ):
             if abs(az2 - bz1) < tol or abs(bz2 - az1) < tol or overlap_z:
                 return (ax1, ay1, min(az1, bz1), ax2, ay2, max(az2, bz2))
 
         # Case 4: One completely supercedes the other, even if edges don't align.
-        if (ax1 <= bx1 and ax2 >= bx2 and ay1 <= by1 and ay2 >= by2 and az1 <= bz1 and az2 >= bz2) \
-            or (bx1 <= ax1 and bx2 >= ax2 and by1 <= ay1 and by2 >= ay2 and bz1 <= az1 and bz2 >= az2):
+        if (
+            ax1 <= bx1
+            and ax2 >= bx2
+            and ay1 <= by1
+            and ay2 >= by2
+            and az1 <= bz1
+            and az2 >= bz2
+        ) or (
+            bx1 <= ax1
+            and bx2 >= ax2
+            and by1 <= ay1
+            and by2 >= ay2
+            and bz1 <= az1
+            and bz2 >= az2
+        ):
             # Return the polygon with the greatest volume.
-            return max(a, b, key=lambda c: (c[3] - c[0])*(c[4] - c[1])*(c[5] - c[2]))
+            return max(
+                a, b, key=lambda c: (c[3] - c[0]) * (c[4] - c[1]) * (c[5] - c[2])
+            )
 
         return None
 
@@ -344,6 +377,7 @@ def merge_cuboids(cuboids, tol=1e-10, bbox_order="point"):
 
     return result
 
+
 def cuboids_intersect(c1, c2, tol=1e-10, bbox_order="point"):
     """
     Return True if two 3D cuboids intersect by a positive volume (not just touch).
@@ -378,7 +412,9 @@ def cuboids_intersect(c1, c2, tol=1e-10, bbox_order="point"):
         x1_min, x1_max, y1_min, y1_max, z1_min, z1_max = tuple(c1)
         x2_min, x2_max, y2_min, y2_max, z2_min, z2_max = tuple(c2)
     else:
-        raise ValueError(f"Invalid bbox_order: {bbox_order}. Must be 'point' or 'axis'.")
+        raise ValueError(
+            f"Invalid bbox_order: {bbox_order}. Must be 'point' or 'axis'."
+        )
 
     # Overlap along each axis (strict inequalities for positive volume)
     overlap_x = (x1_min < x2_max - tol) and (x1_max > x2_min + tol)
@@ -386,6 +422,7 @@ def cuboids_intersect(c1, c2, tol=1e-10, bbox_order="point"):
     overlap_z = (z1_min < z2_max - tol) and (z1_max > z2_min + tol)
 
     return overlap_x and overlap_y and overlap_z
+
 
 #################################################################################
 ## Tests
@@ -547,7 +584,6 @@ def cuboids_intersect(c1, c2, tol=1e-10, bbox_order="point"):
 #     print("A", A)
 #     print("B", B)
 #     print("A-B", subtract_cuboids(A, B))
-
 
 
 if __name__ == "__main__":

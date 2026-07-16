@@ -1,6 +1,3 @@
-import os
-import sys
-
 try:
     from ivert._version import __version__
 except ImportError:

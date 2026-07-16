@@ -1,42 +1,32 @@
 #!/usr/bin/env python
 """client.py -- The front-facing interfact to IVERT code for cloud computing."""
+
 import argparse
 import sys
 
-if vars(sys.modules[__name__])['__package__'] == 'ivert':
+if vars(sys.modules[__name__])["__package__"] == "ivert":
     # When this is built a setup.py package, it names the modules 'ivert' and 'ivert_utils'. This reflects that.
     # See setup.py for details about that.
     import ivert.client_user_setup as client_user_setup
-    import ivert.client_subscriptions as client_subscriptions
-    import ivert.client_job_download as client_job_download
-    import ivert.client_job_test as client_job_test
-    import ivert.client_job_status as client_job_status
     import ivert.client_job_validate as client_job_validate
-    import ivert.client_job_import as client_job_import
     import ivert.client_upgrade as client_upgrade
-    import ivert_utils.query_yes_no as yes_no
     import ivert_utils.version as version
-    import ivert_utils.version_check_client as version_check_client
 else:
     # If running as a script, import this way.
     import client_user_setup
-    import client_subscriptions
-    import client_job_download
-    import client_job_import
-    import client_job_status
     import client_job_validate
-    import client_job_update
-    import client_job_test
     import client_upgrade
-    import utils.query_yes_no as yes_no
     import utils.version as version
-    import utils.version_check_client as version_check_client
 
 
 def define_and_parse_args(return_parser: bool = False):
-    parser = argparse.ArgumentParser(description="The ICESat-2 Validation of Elevations Reporting Tool (IVERT)."
-                                     "\nRun 'ivert <command> --help' for more info about any specific command.")
-    parser.add_argument("-v", "--version", action="version", version=f"ivert {version.__version__}")
+    parser = argparse.ArgumentParser(
+        description="The ICESat-2 Validation of Elevations Reporting Tool (IVERT)."
+        "\nRun 'ivert <command> --help' for more info about any specific command."
+    )
+    parser.add_argument(
+        "-v", "--version", action="version", version=f"ivert {version.__version__}"
+    )
 
     # The first argument in the command. The other sub-parsers depend upon which command was used here.
     subparsers = parser.add_subparsers(dest="command", required=False)
@@ -49,47 +39,80 @@ def define_and_parse_args(return_parser: bool = False):
     # NOTE: The script client_job_test.py creates an identical copy of this argument list to send off a test job.
     # If any of these options are changed, go change the equivalent lines in that script as well to match the same
     # field names.
-    parser_validate = subparsers.add_parser("validate", help=validate_help_msg, description=validate_help_msg)
-    parser_validate.add_argument("files_or_directory", type=str, nargs="+",
-                                 help="Enter a file, list of files, or a directory. "
-                                      "May use bash-style wildcards such as 'dirname/ncei*.tif'. If a directory is "
-                                      "given, all *.tif files in that directory (non-recursive) will be sent for "
-                                      "validation.")
-    parser_validate.add_argument("-V", "--vdatum", type=str, default="NONE_PROVIDED",
-                                 help="DEM vertical datum by EPSG number or short-name. (Default: 'NONE_PROVIDED')"
-                                      " If no vertical datum is provided, it will attempt to pull it from the DEM"
-                                      " metadata header. If unable to find it there and no vdatum is provided, an"
-                                      " error statement will print and IVERT will exit."
-                                      " Type 'vdatums --list-epsg' to see a list of available options. "
-                                      "(Note: Not all names are fully supported yet, we'll get there. "
-                                      "Unless you're using a common datum, probably best to stick with the numbers,"
-                                      " written as EPSG:NNNN.)")
+    parser_validate = subparsers.add_parser(
+        "validate", help=validate_help_msg, description=validate_help_msg
+    )
+    parser_validate.add_argument(
+        "files_or_directory",
+        type=str,
+        nargs="+",
+        help="Enter a file, list of files, or a directory. "
+        "May use bash-style wildcards such as 'dirname/ncei*.tif'. If a directory is "
+        "given, all *.tif files in that directory (non-recursive) will be sent for "
+        "validation.",
+    )
+    parser_validate.add_argument(
+        "-V",
+        "--vdatum",
+        type=str,
+        default="NONE_PROVIDED",
+        help="DEM vertical datum by EPSG number or short-name. (Default: 'NONE_PROVIDED')"
+        " If no vertical datum is provided, it will attempt to pull it from the DEM"
+        " metadata header. If unable to find it there and no vdatum is provided, an"
+        " error statement will print and IVERT will exit."
+        " Type 'vdatums --list-epsg' to see a list of available options. "
+        "(Note: Not all names are fully supported yet, we'll get there. "
+        "Unless you're using a common datum, probably best to stick with the numbers,"
+        " written as EPSG:NNNN.)",
+    )
     # Output vertical datum has been deprecated, defaults to 'egm2008'. This will be removed entirely once we translate
     # the ICESat-2 points into the vertical datum of the DEM.
     # parser_validate.add_argument("-ovd", "--output_vdatum", dest="output_vdatum", type=str, default="egm2008",
     #                              help="Output DEM vertical datum. Only 'egm2008' and 'wgs84' available (the datumes that ICESat-2 uses). (Default: 'egm2008')")
-    parser_validate.add_argument("-n", "--name", "--region_name", dest="region_name", type=str,
-                                 default="DEMs",
-                                 help="The name of the region being validated. Will appear in the validation summary "
-                                      "plot if more than one file is being validated. (Default: 'DEMs')")
+    parser_validate.add_argument(
+        "-n",
+        "--name",
+        "--region_name",
+        dest="region_name",
+        type=str,
+        default="DEMs",
+        help="The name of the region being validated. Will appear in the validation summary "
+        "plot if more than one file is being validated. (Default: 'DEMs')",
+    )
     # TODO: Add an option to specify the output data type, both for the validation results database, and the photon
     #   database. .h5 isn't great for most folks.
-    parser_validate.add_argument("-ph", "--include_photons", dest="include_photons", default=False,
-                                 action="store_true",
-                                 help="In additional to returning .h5 and .tif files of ICESat-2 cell results, also "
-                                      "return a point database of individual ICESat-2 photons used to validate "
-                                      "each DEM. Use if you want to 'see the photons'. Default: False")
+    parser_validate.add_argument(
+        "-ph",
+        "--include_photons",
+        dest="include_photons",
+        default=False,
+        action="store_true",
+        help="In additional to returning .h5 and .tif files of ICESat-2 cell results, also "
+        "return a point database of individual ICESat-2 photons used to validate "
+        "each DEM. Use if you want to 'see the photons'. Default: False",
+    )
     # TODO: Add an option to specify the number of sub-divisions it divides pixels into to measure coverage.
-    parser_validate.add_argument("-mc", "--measure_coverage", dest="measure_coverage",
-                                 default=False, action="store_true",
-                                 help="Measure the relative 'coverage' of each grid-cell as a field in the h5 results. "
-                                      "(Measures how many of the 15x15 (225 total) sub-regions within each grid cell "
-                                      "contain ICESat-2 photons, allowing to post-process filter only higher-coverage "
-                                      "grid cells in course-resolution DEMs where sampling bias might be an issue."
-                                      "This is typically only used for lower-resolution DEMs. Default: False")
-    parser_validate.add_argument("-bn", "--band_num", dest="band_num", type=int, default=1,
-                                 help="The raster band number to validate in each DEM, if using multi-band datasets."
-                                      "1-indexed (1 is the first band, not 0). Other bands are ignored. (Default: 1)")
+    parser_validate.add_argument(
+        "-mc",
+        "--measure_coverage",
+        dest="measure_coverage",
+        default=False,
+        action="store_true",
+        help="Measure the relative 'coverage' of each grid-cell as a field in the h5 results. "
+        "(Measures how many of the 15x15 (225 total) sub-regions within each grid cell "
+        "contain ICESat-2 photons, allowing to post-process filter only higher-coverage "
+        "grid cells in course-resolution DEMs where sampling bias might be an issue."
+        "This is typically only used for lower-resolution DEMs. Default: False",
+    )
+    parser_validate.add_argument(
+        "-bn",
+        "--band_num",
+        dest="band_num",
+        type=int,
+        default=1,
+        help="The raster band number to validate in each DEM, if using multi-band datasets."
+        "1-indexed (1 is the first band, not 0). Other bands are ignored. (Default: 1)",
+    )
     # parser_validate.add_argument("-co", "--coastlines_only", dest="coastlines_only", default=False,
     #                              action="store_true",
     #                              help="Return only the coastline masks. Skip the rest of the validation."
@@ -111,15 +134,21 @@ def define_and_parse_args(return_parser: bool = False):
     #                                   "with grid cells larger than typical buildings (~20-ish m). Must be followed by "
     #                                   "'True', 'False', 'Yes', 'No', or any abbreviation thereof (case-insensitive). "
     #                                   "(Default: False)")
-    parser_validate.add_argument("-sd", "--outlier_sd_threshold", dest="outlier_sd_threshold", type=float,
-                                 default=2.5,
-                                 help="The standard deviation threshold for outlier detection. Any errors "
-                                      "outside this threshold of the mean-of-errors will be removed as noise. "
-                                      "-1 (or any negative number) will disable outlier filtering. Don't use 0 here, "
-                                      "that'd filter everything out. (Default: 2.5 s.d.)")
+    parser_validate.add_argument(
+        "-sd",
+        "--outlier_sd_threshold",
+        dest="outlier_sd_threshold",
+        type=float,
+        default=2.5,
+        help="The standard deviation threshold for outlier detection. Any errors "
+        "outside this threshold of the mean-of-errors will be removed as noise. "
+        "-1 (or any negative number) will disable outlier filtering. Don't use 0 here, "
+        "that'd filter everything out. (Default: 2.5 s.d.)",
+    )
 
-    parser_validate.add_argument("-B", "--buildings", default=False, action="store_true",
-                                 help="")
+    parser_validate.add_argument(
+        "-B", "--buildings", default=False, action="store_true", help=""
+    )
 
     # parser_validate.add_argument("-w", "--wait", dest="wait", default=False, action="store_true",
     #                              help="Wait to exit until the results are finished and downloaded. If False, just "
@@ -139,55 +168,84 @@ def define_and_parse_args(return_parser: bool = False):
     # Create the "build" subparser
     ###############################################################
     build_help_msg = "Build your IVERT database from ICESat-2 photons."
-    parser_build = subparsers.add_parser("build", help=build_help_msg, description=build_help_msg)
+    parser_build = subparsers.add_parser(
+        "build", help=build_help_msg, description=build_help_msg
+    )
 
     # TODO: Make sure that a negative number here is caught and wrapped in quotes before use.
-    parser_build.add_argument("bbox",
-                              help="A 4-value bounding box in W/E/S/N format, forward-slash separated. "
-                                   "Or, this can be one or more DEM file names. The collective extent of "
-                                   "the DEMs will be gathered to define the bounding box of ICESat-2 photons to be gathered. "
-                                   "If you prefer to use the W/S/E/N convention (LL-UR), use the --wsen option below. "
-                                   "By default these will be in WGS84 lat/lon coordinates, unless another "
-                                   "projection is specified by the -P parameter."
-                              )
+    parser_build.add_argument(
+        "bbox",
+        help="A 4-value bounding box in W/E/S/N format, forward-slash separated. "
+        "Or, this can be one or more DEM file names. The collective extent of "
+        "the DEMs will be gathered to define the bounding box of ICESat-2 photons to be gathered. "
+        "If you prefer to use the W/S/E/N convention (LL-UR), use the --wsen option below. "
+        "By default these will be in WGS84 lat/lon coordinates, unless another "
+        "projection is specified by the -P parameter.",
+    )
 
-    parser_build.add_argument("-DS", "--date_start", target="date_start", default="One year and a week ago at midnight.",
-                              help="The date to start the search for ICESat-2 photons. Must be before the end date. "
-                                   "Can be any date format readable by python's dateparser library, including YYYY.MM.DD, "
-                                   "MM/DD/YYYY, or a text string that defines the date (such as 'one year ago')."
-                              )
+    parser_build.add_argument(
+        "-DS",
+        "--date_start",
+        target="date_start",
+        default="One year and a week ago at midnight.",
+        help="The date to start the search for ICESat-2 photons. Must be before the end date. "
+        "Can be any date format readable by python's dateparser library, including YYYY.MM.DD, "
+        "MM/DD/YYYY, or a text string that defines the date (such as 'one year ago').",
+    )
 
-    parser_build.add_argument("-DE", "--date_end", target="date_end", default="One week ago at midnight.",
-                              help="The date to end the search for ICESat-2 photons. Must be after the start date. "
-                                   "Can be any date format readable by python's dateparser library, including YYYY.MM.DD, "
-                                   "MM/DD/YYYY, or a text string that defines the date (such as 'one year ago'). "
-                                   "By default, IVERT collects data for a full year from one year + one week ago, "
-                                   "until one week ago. The one-week buffer allows for any release delays in "
-                                   "ICESat-2 data (including derived products such as ATL08, -24, and -09) to be "
-                                   "fully processed and available at NASA."
-                              )
+    parser_build.add_argument(
+        "-DE",
+        "--date_end",
+        target="date_end",
+        default="One week ago at midnight.",
+        help="The date to end the search for ICESat-2 photons. Must be after the start date. "
+        "Can be any date format readable by python's dateparser library, including YYYY.MM.DD, "
+        "MM/DD/YYYY, or a text string that defines the date (such as 'one year ago'). "
+        "By default, IVERT collects data for a full year from one year + one week ago, "
+        "until one week ago. The one-week buffer allows for any release delays in "
+        "ICESat-2 data (including derived products such as ATL08, -24, and -09) to be "
+        "fully processed and available at NASA.",
+    )
 
-    parser_build.add_argument("-P", "--bbox_projection", target="projection", default="EPSG:4326",
-                              help="The horizontal projection that the bounding box parameter is defined in. "
-                                   "Defaults to EPSG:4326 (WGS 84 lat-lon coordinates)."
-                              )
+    parser_build.add_argument(
+        "-P",
+        "--bbox_projection",
+        target="projection",
+        default="EPSG:4326",
+        help="The horizontal projection that the bounding box parameter is defined in. "
+        "Defaults to EPSG:4326 (WGS 84 lat-lon coordinates).",
+    )
 
-    parser_build.add_argument("-wsen", "--west_south_east_north", target="wsen", default=False, action="store_true",
-                              help="The bounding box is defined at lower-left-upper-right order (west, south, east, north) "
-                                   "rather than Xmin, Xmax, Ymin, Ymax order (west, east, south, north). (Default: False)"
-                              )
+    parser_build.add_argument(
+        "-wsen",
+        "--west_south_east_north",
+        target="wsen",
+        default=False,
+        action="store_true",
+        help="The bounding box is defined at lower-left-upper-right order (west, south, east, north) "
+        "rather than Xmin, Xmax, Ymin, Ymax order (west, east, south, north). (Default: False)",
+    )
 
-    parser_build.add_argument("-R", "--replace", target="replace", default=False, action="store_true",
-                              help="If the bounding box overlaps other ICESat-2 data already downloaded (in space "
-                                   "and time), remove the previous data in overlapping areas, and replace it with "
-                                   "the newly downloaded data. This is useful if previous data may have been "
-                                   "corrupted or mis-classified. Default: Keep the old ICESat-2 data in place, "
-                                   "and only find new data in areas that have not yet been downloaded."
-                              )
+    parser_build.add_argument(
+        "-R",
+        "--replace",
+        target="replace",
+        default=False,
+        action="store_true",
+        help="If the bounding box overlaps other ICESat-2 data already downloaded (in space "
+        "and time), remove the previous data in overlapping areas, and replace it with "
+        "the newly downloaded data. This is useful if previous data may have been "
+        "corrupted or mis-classified. Default: Keep the old ICESat-2 data in place, "
+        "and only find new data in areas that have not yet been downloaded.",
+    )
 
     # TODO: Make sure that a negative number here is caught and handled before tossing an exception.
-    parser_build.add_argument("-C", "--classes", target="classes", default="1/6/7/9/40/41/42",
-                              help="""The ICESat-2 data classes to classify and download, separated by '/' (no spaces).
+    parser_build.add_argument(
+        "-C",
+        "--classes",
+        target="classes",
+        default="1/6/7/9/40/41/42",
+        help="""The ICESat-2 data classes to classify and download, separated by '/' (no spaces).
     Classes:
     -1 - no classification (ATL08)
     0 - noise / atmosphere (ATL08)
@@ -197,22 +255,24 @@ def define_and_parse_args(return_parser: bool = False):
     40 - bathymetry floor surface (CShelph, ATL24)
     41 - bathymetry water surface (OSM coastline, ATL24)
     42 - lake water surface (OSM lakes)
-    6 - ice surface (ATL06) 
-        (unused for now, just planning ahead for possible future 
+    6 - ice surface (ATL06)
+        (unused for now, just planning ahead for possible future
         ATL06 integration)
     7 - built structure (Global Buildings Atlas LoD1)
     8 - "urban" (WSF, if used)
-    9 - inland water surface"""
-                              )
+    9 - inland water surface""",
+    )
 
     # Comment: v0.6 is (temporarily) removing the "setup" IVERT command because it's going to offline-only mode. Revisit this
     # code when going back to a (partial or fully) online setup.
     ###############################################################
     # Create the "setup" subparser
     ###############################################################
-    setup_help_msg = ("Change user settings and local data directories on the local machine."
-                      "Typically used before using for the first time.")
-                      # "Run once before using IVERT on a new machine, or when updating the credentials file.")
+    setup_help_msg = (
+        "Change user settings and local data directories on the local machine."
+        "Typically used before using for the first time."
+    )
+    # "Run once before using IVERT on a new machine, or when updating the credentials file.")
     # # Use the parent parser from client_user_setup.py to define the arguments for the subparser
     # subparsers.add_parser("setup",
     #                       parents=[client_user_setup.define_and_parse_args(just_return_parser=True,
@@ -358,7 +418,9 @@ def define_and_parse_args(return_parser: bool = False):
     # Create the "upgrade" subparser
     ###############################################################
     upgrade_help_msg = "Upgrade the IVERT client to the lasest version."
-    parser_upgrade = subparsers.add_parser("upgrade", help=upgrade_help_msg, description=upgrade_help_msg)
+    parser_upgrade = subparsers.add_parser(
+        "upgrade", help=upgrade_help_msg, description=upgrade_help_msg
+    )
     # The "upgrade" command has no sub-arguments. It's just a simple "upgrade to the latest version" functionality.
 
     # Not implemented yet.
@@ -460,7 +522,9 @@ def ivert_client_cli():
     # Raise an error if the command doesn't exist.
     else:
         if args.command:
-            raise NotImplementedError(f"Command '{args.command}' does not exist in IVERT or is not implemented.")
+            raise NotImplementedError(
+                f"Command '{args.command}' does not exist in IVERT or is not implemented."
+            )
         else:
             define_and_parse_args(return_parser=True).print_help()
 

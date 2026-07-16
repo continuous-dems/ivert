@@ -23,10 +23,10 @@ import pyarrow
 # It doesn't affect my code and will be resolved in future releases of pandas.
 # For now, just suppress the warning.
 import warnings
+
 warnings.filterwarnings("ignore", message=".*pandas.Int64Index is deprecated*")
 #####################################
 
-import classify_icesat2_photons
 # import nsidc_download
 import s3
 import utils.configfile
@@ -55,7 +55,7 @@ class ICESat2_Database:
         self.tiles_directory = self.ivert_config.icesat2_photon_tiles_directory
         self.granules_directory = self.ivert_config.icesat2_granules_directory
 
-        self.gdf = None # The actual geodataframe object.
+        self.gdf = None  # The actual geodataframe object.
         self.tile_resolution_deg = 0.25
         self.crs = pyproj.CRS.from_epsg(4326)
         self.s3_manager = None
@@ -63,12 +63,18 @@ class ICESat2_Database:
     def get_gdf(self, verbose=True):
         """Return self.gdf if exists, otherwise read self.gpkg_name, save it to self.gdf and return."""
         if self.gdf is None:
-            if not os.path.exists(self.gpkg_fname) and not os.path.exists(self.gpkg_fname_compressed):
+            if not os.path.exists(self.gpkg_fname) and not os.path.exists(
+                self.gpkg_fname_compressed
+            ):
                 if self.ivert_config.is_aws:
                     s3_manager = self.get_s3_manager()
                     s3_geopackage = self.ivert_config.s3_photon_geopackage_key
-                    s3_geopackage_compressed = os.path.splitext(s3_geopackage)[0] + ".blosc2"
-                    if s3_manager.exists(s3_geopackage_compressed, bucket_type="database"):
+                    s3_geopackage_compressed = (
+                        os.path.splitext(s3_geopackage)[0] + ".blosc2"
+                    )
+                    if s3_manager.exists(
+                        s3_geopackage_compressed, bucket_type="database"
+                    ):
                         is_compressed = True
                         s3_file_to_fetch = s3_geopackage_compressed
 
@@ -76,26 +82,37 @@ class ICESat2_Database:
                         is_compressed = False
                         s3_file_to_fetch = s3_geopackage
                     else:
-                        raise FileNotFoundError(os.path.basename(self.gpkg_fname) + " not found on disk nor in S3 bucket '{0}'".format(s3.get_bucketname()))
+                        raise FileNotFoundError(
+                            os.path.basename(self.gpkg_fname)
+                            + " not found on disk nor in S3 bucket '{0}'".format(
+                                s3.get_bucketname()
+                            )
+                        )
 
                     # If the local directory doesn't exist, create it.
                     # This may happen when on a brand-new S3 instance.
                     if not os.path.exists(os.path.dirname(self.gpkg_fname)):
                         os.makedirs(os.path.dirname(self.gpkg_fname))
 
-                    s3_manager.download(s3_file_to_fetch,
-                                        self.gpkg_fname_compressed if is_compressed else self.gpkg_fname,
-                                        delete_original=False,
-                                        fail_quietly=not verbose)
+                    s3_manager.download(
+                        s3_file_to_fetch,
+                        self.gpkg_fname_compressed
+                        if is_compressed
+                        else self.gpkg_fname,
+                        delete_original=False,
+                        fail_quietly=not verbose,
+                    )
 
             if os.path.exists(self.gpkg_fname_compressed):
                 print("Reading", os.path.basename(self.gpkg_fname_compressed))
                 self.gdf = utils.pickle_blosc.read(self.gpkg_fname_compressed)
             elif os.path.exists(self.gpkg_fname):
                 print("Reading", os.path.basename(self.gpkg_fname))
-                self.gdf = geopandas.read_file(self.gpkg_fname, mode='r')
+                self.gdf = geopandas.read_file(self.gpkg_fname, mode="r")
             else:
-                raise FileNotFoundError("Could not located photon_tile_geopackage to read IVERT GeoDataFrame.")
+                raise FileNotFoundError(
+                    "Could not located photon_tile_geopackage to read IVERT GeoDataFrame."
+                )
 
         return self.gdf
 
@@ -257,23 +274,25 @@ class ICESat2_Database:
     #     # print(filename, bbox)
     #     return bbox
 
-    def add_datetime_fields_to_geopackage(self,
-                                          start_date: str = "2021-01-01",
-                                          end_date: str = "2021-12-31",
-                                          default_version_num: int = 5,
-                                          verbose: bool = True):
+    def add_datetime_fields_to_geopackage(
+        self,
+        start_date: str = "2021-01-01",
+        end_date: str = "2021-12-31",
+        default_version_num: int = 5,
+        verbose: bool = True,
+    ):
         """Add start_date and end_date fields to every entry in the geopackage. Also ATL03 version number.
 
         This allows us to add more data to the database later and search by date and/or ICESat-2 version.
         The first version of the database was built entirely from 2021 calendar year data and used ICESat-2 ATL03 v5.
         """
         gdf = self.get_gdf()
-        gdf["start_date_YYYYMMDD"] = int(start_date.replace("-", "")
-                                         .replace("/", "")
-                                         .replace(".", ""))
-        gdf["end_date_YYYYMMDD"] = int(end_date.replace("-", "")
-                                       .replace("/", "")
-                                       .replace(".", ""))
+        gdf["start_date_YYYYMMDD"] = int(
+            start_date.replace("-", "").replace("/", "").replace(".", "")
+        )
+        gdf["end_date_YYYYMMDD"] = int(
+            end_date.replace("-", "").replace("/", "").replace(".", "")
+        )
         gdf["atl03_version"] = default_version_num
 
         self.gdf = gdf
@@ -284,7 +303,9 @@ class ICESat2_Database:
         self.save_geopackage(gdf=gdf, use_tempfile=True, compress=True, verbose=verbose)
         if verbose:
             print("Writing", os.path.basename(self.gpkg_fname))
-        self.save_geopackage(gdf=gdf, use_tempfile=True, compress=False, verbose=verbose)
+        self.save_geopackage(
+            gdf=gdf, use_tempfile=True, compress=False, verbose=verbose
+        )
 
         if verbose:
             print("Uploading", os.path.basename(self.gpkg_fname), "to s3 bucket.")
@@ -298,30 +319,39 @@ class ICESat2_Database:
 
         If not in an AWS instance, do nothing."""
         if self.ivert_config.is_aws:
-            self.get_s3_manager().upload(self.gpkg_fname,
-                                         self.ivert_config.s3_photon_geopackage_key,
-                                         bucket_type="database",
-                                         delete_original=False,
-                                         fail_quietly=False,
-                                         recursive=False,
-                                         include_md5=True,
-                                         other_metadata=None)
+            self.get_s3_manager().upload(
+                self.gpkg_fname,
+                self.ivert_config.s3_photon_geopackage_key,
+                bucket_type="database",
+                delete_original=False,
+                fail_quietly=False,
+                recursive=False,
+                include_md5=True,
+                other_metadata=None,
+            )
         return
 
-    def fill_in_missing_tile_entries(self, delete_csvs = True, save_to_disk = True, verbose = True):
+    def fill_in_missing_tile_entries(
+        self, delete_csvs=True, save_to_disk=True, verbose=True
+    ):
         """Sometimes a photon_tile gets created and the _summary.csv file got deleted,
         but the database update wasn't saved. Loop through the existing photon tiles, fill
         in any missing entries in the database, and save it back out."""
         # First, let's ingest the CSV summary files in the directory.
         gdf = self.get_gdf(verbose=verbose)
-        self.update_gpkg_with_csvfiles(gdf = gdf,
-                                       use_tempfile = True,
-                                       delete_when_finished = delete_csvs,
-                                       save_to_disk = save_to_disk,
-                                       verbose=verbose)
+        self.update_gpkg_with_csvfiles(
+            gdf=gdf,
+            use_tempfile=True,
+            delete_when_finished=delete_csvs,
+            save_to_disk=save_to_disk,
+            verbose=verbose,
+        )
 
-        existing_tiles = [os.path.join(self.tiles_directory, fn) for fn in os.listdir(self.tiles_directory) if \
-                          (re.search(r"\Aphoton_tile_[\w\.]+\.h5\Z", fn) != None)]
+        existing_tiles = [
+            os.path.join(self.tiles_directory, fn)
+            for fn in os.listdir(self.tiles_directory)
+            if (re.search(r"\Aphoton_tile_[\w\.]+\.h5\Z", fn) != None)
+        ]
         num_filled_in = 0
         for tilename in existing_tiles:
             tile_record = gdf.loc[gdf.filename == tilename]
@@ -332,7 +362,7 @@ class ICESat2_Database:
             # Otherwise, let's get the data from the tile ane enter it.
             idx = tile_record.index.tolist()[0]
             try:
-                tile_df = pandas.read_hdf(tilename, mode='r')
+                tile_df = pandas.read_hdf(tilename, mode="r")
             except KeyboardInterrupt as e:
                 raise e
             except Exception:
@@ -344,10 +374,14 @@ class ICESat2_Database:
 
                 continue
 
-            gdf.loc[idx, 'numphotons']        = len(tile_df)
-            gdf.loc[idx, 'numphotons_canopy'] = numpy.count_nonzero(tile_df["class_code"].between(2,3,inclusive="both"))
-            gdf.loc[idx, 'numphotons_ground'] = numpy.count_nonzero(tile_df["class_code"] == 1)
-            gdf.loc[idx, 'is_populated']      = True
+            gdf.loc[idx, "numphotons"] = len(tile_df)
+            gdf.loc[idx, "numphotons_canopy"] = numpy.count_nonzero(
+                tile_df["class_code"].between(2, 3, inclusive="both")
+            )
+            gdf.loc[idx, "numphotons_ground"] = numpy.count_nonzero(
+                tile_df["class_code"] == 1
+            )
+            gdf.loc[idx, "is_populated"] = True
             num_filled_in += 1
 
         if num_filled_in > 0:
@@ -356,28 +390,38 @@ class ICESat2_Database:
             # Only re-save this to disk if we've actually updated anything. Otherwise,
             # it would be finished after the previous update_gpkg_with_csvfiles() call.
             if save_to_disk:
-                self.save_geopackage(gdf=gdf, use_tempfile=True, also_delete_redundant_csvs=False, verbose=verbose)
+                self.save_geopackage(
+                    gdf=gdf,
+                    use_tempfile=True,
+                    also_delete_redundant_csvs=False,
+                    verbose=verbose,
+                )
 
-        if not gdf is self.gdf:
+        if gdf is not self.gdf:
             self.gdf = gdf
 
         return gdf
 
-    def save_geopackage(self, gdf=None,
-                              use_tempfile = False,
-                              compress = False,
-                              # also_delete_redundant_csvs=False,
-                              verbose=True):
+    def save_geopackage(
+        self,
+        gdf=None,
+        use_tempfile=False,
+        compress=False,
+        # also_delete_redundant_csvs=False,
+        verbose=True,
+    ):
         """After writing or altering data in the geo-dataframe, save it back out to disk.
 
         If gdf is None, use whatever object is in self.gdf.
         """
         if gdf is None:
             if self.gdf is None:
-                raise ValueError("No geodataframe object available to ICESat2_Database.save_gpkg().")
+                raise ValueError(
+                    "No geodataframe object available to ICESat2_Database.save_gpkg()."
+                )
             gdf = self.gdf
 
-        if not gdf is self.gdf:
+        if gdf is not self.gdf:
             self.gdf = gdf
 
         file_to_write = self.gpkg_fname_compressed if compress else self.gpkg_fname
@@ -388,9 +432,12 @@ class ICESat2_Database:
             tempfile_name = base + "_TEMP" + ext
             if os.path.exists(tempfile_name):
                 if verbose:
-                    print(tempfile_name, "already exists.",
-                          "\n\tExiting ICESat2_Database.save_geopackage(use_tempfile=True). Other processes may be writing to it.",
-                          "\n\tIf this is in error, delete that file before running again.")
+                    print(
+                        tempfile_name,
+                        "already exists.",
+                        "\n\tExiting ICESat2_Database.save_geopackage(use_tempfile=True). Other processes may be writing to it.",
+                        "\n\tIf this is in error, delete that file before running again.",
+                    )
                 return
             success = False
             while not success:
@@ -402,7 +449,9 @@ class ICESat2_Database:
                     else:
                         raise NotImplementedError(
                             "Uknown file format for photon_tile_geopackage: {0}. Can accept .gpkg or .blosc2.".format(
-                                os.path.basename(file_to_write)))
+                                os.path.basename(file_to_write)
+                            )
+                        )
                     os.remove(file_to_write)
                     shutil.move(tempfile_name, file_to_write)
                     success = True
@@ -411,16 +460,24 @@ class ICESat2_Database:
                     if os.path.exists(tempfile_name):
                         os.remove(tempfile_name)
                     if verbose:
-                        print("Error occurred while writing", os.path.basename(self.gpkg_fname) + ". Waiting 30 seconds to retry...")
+                        print(
+                            "Error occurred while writing",
+                            os.path.basename(self.gpkg_fname)
+                            + ". Waiting 30 seconds to retry...",
+                        )
                     time.sleep(30)
         else:
             # Write the file.
             if ext == ".gpkg":
-                gdf.to_file(file_to_write, layer="icesat2", driver='GPKG')
+                gdf.to_file(file_to_write, layer="icesat2", driver="GPKG")
             elif ext == ".blosc2":
                 utils.pickle_blosc.write(gdf, file_to_write)
             else:
-                raise NotImplementedError("Uknown file format for photon_tile_geopackage: {0}. Can accept .gpkg or .blosc2.".format(os.path.basename(file_to_write)))
+                raise NotImplementedError(
+                    "Uknown file format for photon_tile_geopackage: {0}. Can accept .gpkg or .blosc2.".format(
+                        os.path.basename(file_to_write)
+                    )
+                )
 
         if verbose:
             print(os.path.basename(file_to_write), "written with", len(gdf), "entries.")
@@ -431,7 +488,9 @@ class ICESat2_Database:
         #                                          force_read_from_disk = False,
         #                                          verbose = verbose)
 
-    def query_geopackage(self, polygon_or_bbox, return_whole_records=True, verbose=True):
+    def query_geopackage(
+        self, polygon_or_bbox, return_whole_records=True, verbose=True
+    ):
         """Return the photon database tile filenames that intersect the polygon in question.
 
         If return_whole_records is True, then return the entire dataset subset, including all the fields.
@@ -441,8 +500,12 @@ class ICESat2_Database:
         if (type(polygon_or_bbox) in (list, tuple)) and (len(polygon_or_bbox) == 4):
             polygon = shapely.geometry.box(*polygon_or_bbox, ccw=False)
         else:
-            assert type(polygon_or_bbox) in (shapely.geometry.Polygon, shapely.geometry.polygon.Polygon,
-                                             shapely.geometry.MultiPolygon, shapely.geometry.multipolygon.MultiPolygon)
+            assert type(polygon_or_bbox) in (
+                shapely.geometry.Polygon,
+                shapely.geometry.polygon.Polygon,
+                shapely.geometry.MultiPolygon,
+                shapely.geometry.multipolygon.MultiPolygon,
+            )
             polygon = polygon_or_bbox
 
         # Use the polygon intersection tool to find the intersection.
@@ -460,14 +523,16 @@ class ICESat2_Database:
         else:
             return gdf_subset["filename"].tolist()
 
-    def get_photon_dataframe(self,
-                             polygon_or_bbox=None,
-                             build_tiles_if_nonexistent=False,
-                             good_photons_only=True,
-                             dem_fname=None,
-                             dem_fname_orig_backup=None,
-                             dem_epsg=None,
-                             verbose=True):
+    def get_photon_dataframe(
+        self,
+        polygon_or_bbox=None,
+        build_tiles_if_nonexistent=False,
+        good_photons_only=True,
+        dem_fname=None,
+        dem_fname_orig_backup=None,
+        dem_epsg=None,
+        verbose=True,
+    ):
         """Given a polygon or bounding box, return the combined database of all
         the photons within the polygon or bounding box.
 
@@ -479,9 +544,14 @@ class ICESat2_Database:
             A pandas.DataFrame object containing the photon data of all tiles that overlap the
             given bounding-box.
         """
-        df_tiles_subset = self.query_geopackage(polygon_or_bbox, return_whole_records=True)
+        df_tiles_subset = self.query_geopackage(
+            polygon_or_bbox, return_whole_records=True
+        )
         if verbose:
-            print(len(df_tiles_subset.index), "ICESat-2 photon tiles overlap this polygon. Retrieving them.")
+            print(
+                len(df_tiles_subset.index),
+                "ICESat-2 photon tiles overlap this polygon. Retrieving them.",
+            )
 
         dataframes_list = [None] * len(df_tiles_subset.index)
 
@@ -493,12 +563,14 @@ class ICESat2_Database:
 
         # For each tile, read the data into a dataframe.
         for i, (idx, df_row) in enumerate(df_tiles_subset.iterrows()):
-            fname = df_row['filename']
+            fname = df_row["filename"]
             if verbose:
-                print("\t{0}/{1} Reading".format(i + 1,
-                                                 len(df_tiles_subset)),
-                                                 os.path.splitext(os.path.basename(fname))[0],
-                                                 "...", end="")
+                print(
+                    "\t{0}/{1} Reading".format(i + 1, len(df_tiles_subset)),
+                    os.path.splitext(os.path.basename(fname))[0],
+                    "...",
+                    end="",
+                )
 
             tile_df = self.read_photon_tile(fname)
 
@@ -507,7 +579,8 @@ class ICESat2_Database:
                 # quality_ph == 0 ("nominal") and "conf_land" == 4 ("high") and/or "conf_land_ice" == 4 ("high")
                 # Using photon_df.eval() is far more efficient for complex expressions than a boolean python expression.
                 good_photon_mask = tile_df.eval(
-                    "(quality_ph == 0) & ((conf_land == 4) | (conf_land_ice == 4)) & (class_code >= 1)")
+                    "(quality_ph == 0) & ((conf_land == 4) | (conf_land_ice == 4)) & (class_code >= 1)"
+                )
                 new_tile_df = tile_df[good_photon_mask].copy()
                 # Try to complete de-reference the previous dataframe to free up memory.
                 del tile_df
@@ -519,16 +592,21 @@ class ICESat2_Database:
             # If the file doesn't exist, create it and get the data.
             if tile_df is None and build_tiles_if_nonexistent:
                 if verbose:
-                    print("\t{0}/{1} Creating".format(i+1, len(df_tiles_subset)), os.path.split(fname)[1], "...")
-                tile_df = self.create_photon_tile(df_row['geometry'],
-                                                  fname,
-                                                  overwrite=False,
-                                                  write_stats = True,
-                                                  verbose=verbose)
+                    print(
+                        "\t{0}/{1} Creating".format(i + 1, len(df_tiles_subset)),
+                        os.path.split(fname)[1],
+                        "...",
+                    )
+                tile_df = self.create_photon_tile(
+                    df_row["geometry"],
+                    fname,
+                    overwrite=False,
+                    write_stats=True,
+                    verbose=verbose,
+                )
 
             # If the DEM is not in WGS84, project the points into the DEM coordinate system.
             if tile_df is not None and dem_fname is not None:
-
                 if len(tile_df) == 0:
                     tile_df["dem_x"] = 0.0
                     tile_df["dem_y"] = 0.0
@@ -536,7 +614,11 @@ class ICESat2_Database:
                 elif dem_epsg is not None and dem_epsg != 4326:
                     dem_proj_wkt = dem_ds.GetProjection()
 
-                    if dem_proj_wkt is None or len(dem_proj_wkt) == 0 and dem_fname_orig_backup is not None:
+                    if (
+                        dem_proj_wkt is None
+                        or len(dem_proj_wkt) == 0
+                        and dem_fname_orig_backup is not None
+                    ):
                         # If the primary file fails (maybe something got messed up in the vertical transformation),
                         # try to read the projection from the original DEM file.
 
@@ -581,16 +663,20 @@ class ICESat2_Database:
                 maxy = max(ystart, yend)
                 # Again, using a numexpr expression here is far more time-and-memory efficient than doing all these compound boolean
                 # operations on the numpy arrays in a Python expression.
-                ph_bbox_mask = numexpr.evaluate("(ph_xcoords >= minx) & "
-                                                "(ph_xcoords < maxx) & "
-                                                "(ph_ycoords > miny) & "
-                                                "(ph_ycoords <= maxy)",
-                                                local_dict={"ph_xcoords": ph_xcoords,
-                                                            "ph_ycoords": ph_ycoords,
-                                                            "minx": minx,
-                                                            "maxx": maxx,
-                                                            "miny": miny,
-                                                            "maxy": maxy})
+                ph_bbox_mask = numexpr.evaluate(
+                    "(ph_xcoords >= minx) & "
+                    "(ph_xcoords < maxx) & "
+                    "(ph_ycoords > miny) & "
+                    "(ph_ycoords <= maxy)",
+                    local_dict={
+                        "ph_xcoords": ph_xcoords,
+                        "ph_ycoords": ph_ycoords,
+                        "minx": minx,
+                        "maxx": maxx,
+                        "miny": miny,
+                        "maxy": maxy,
+                    },
+                )
 
                 # By creating a copy of the subset, it ensures the original is dereferenced and deleted from memory.
                 tile_df = tile_df[ph_bbox_mask].copy()
@@ -616,22 +702,34 @@ class ICESat2_Database:
         one of those exists), empty it, and save it out to the
         ivert_config.icesat2_photon_empty_tile file."""
         if os.path.exists(self.ivert_config.icesat2_photon_empty_tile):
-            empty_df = pandas.read_hdf(self.ivert_config.icesat2_photon_empty_tile, mode="r")
+            empty_df = pandas.read_hdf(
+                self.ivert_config.icesat2_photon_empty_tile, mode="r"
+            )
         else:
             # If we can't find the empty tile, create it by gleaming off one of the other databases.
             # NOTE: This assumes at least one photon tile or one photon granul
             # database already exists in their respective folders. It might be a good idea down
             # the line to not rely upon this assumption. Maybe include the empty tile in the
             # git repository so we ensure it's there.
-            list_of_files = [fn for fn in os.listdir(self.tiles_directory) \
-                             if (re.search(r"\Aphoton_tile_[\w\.]+\.((h5)|(feather))\Z", fn) != None)]
+            list_of_files = [
+                fn
+                for fn in os.listdir(self.tiles_directory)
+                if (re.search(r"\Aphoton_tile_[\w\.]+\.((h5)|(feather))\Z", fn) != None)
+            ]
             if len(list_of_files) > 0:
                 example_file = os.path.join(self.tiles_directory, list_of_files[0])
             else:
-                list_of_files = [fn for fn in os.listdir(self.granules_directory) \
-                                 if re.search(r"\AATL03_(\w)+_photons\.((h5)|(feather))\Z", fn) != None]
+                list_of_files = [
+                    fn
+                    for fn in os.listdir(self.granules_directory)
+                    if re.search(r"\AATL03_(\w)+_photons\.((h5)|(feather))\Z", fn)
+                    != None
+                ]
                 if len(list_of_files) == 0:
-                    raise FileNotFoundError("Could not find an existing photon tile or granule to use to create the file", self.ivert_config.icesat2_photon_empty_tile)
+                    raise FileNotFoundError(
+                        "Could not find an existing photon tile or granule to use to create the file",
+                        self.ivert_config.icesat2_photon_empty_tile,
+                    )
                 example_file = os.path.join(self.granules_directory, list_of_files[0])
 
             df = pandas.read_hdf(example_file, mode="r")
@@ -644,7 +742,9 @@ class ICESat2_Database:
         assert len(empty_df) == 0
         return empty_df
 
-    def look_for_local_icesat2_photon_db(self, db_name, look_for_subset_at_longitude=None, lon_chunksize=2):
+    def look_for_local_icesat2_photon_db(
+        self, db_name, look_for_subset_at_longitude=None, lon_chunksize=2
+    ):
         """Look through the local granules directory, as well as any alternate directories, to find ICESat-2 photon database granule files.
         Return the file location if it exists. Return None if not.
 
@@ -652,14 +752,16 @@ class ICESat2_Database:
 
         # First, if we've opted to do this with the optional parameters, look for a smaller subset of the granule file. If it exists, just use that.
         if (look_for_subset_at_longitude is not None) and (lon_chunksize is not None):
-            granule_sub_filename = self.give_granule_subset_name(db_name, look_for_subset_at_longitude, lon_deg_chunksize=lon_chunksize)
+            granule_sub_filename = self.give_granule_subset_name(
+                db_name, look_for_subset_at_longitude, lon_deg_chunksize=lon_chunksize
+            )
             if os.path.exists(granule_sub_filename):
                 return granule_sub_filename
 
         # Otherwise, look for either a .h5 or .feather file in the granules directory.
         # If you can't find it in the main granules directory, look in the alternate directories.
         possible_exts = [".h5", ".feather"]
-        possible_dirs = [self.granules_directory] ## + self.alt_granules_directories
+        possible_dirs = [self.granules_directory]  ## + self.alt_granules_directories
 
         basename, ext = os.path.splitext(os.path.basename(db_name))
         assert ext in possible_exts
@@ -916,7 +1018,9 @@ class ICESat2_Database:
     #
     #     return tile_df
 
-    def delete_csvs_already_in_database(self, gdf = None, force_read_from_disk=False, verbose=True):
+    def delete_csvs_already_in_database(
+        self, gdf=None, force_read_from_disk=False, verbose=True
+    ):
         """Sometimes in parallelization, a tile _summary.csv file gets entered into the database
         but never erased from disk. Go through the database,
         delete any CSV files that are already entered as populated in the database.
@@ -925,10 +1029,13 @@ class ICESat2_Database:
         geopackage could be more "recent" than what's on disk, use
         'force_read_from_disk' to only use the version of the gpkg that is on disk,
         not the one in memory here."""
-        csv_filenames = [os.path.join(self.tiles_directory,fname) for fname in os.listdir(self.tiles_directory) \
-                         if (re.search(r"_summary\.csv\Z", fname) != None)]
+        csv_filenames = [
+            os.path.join(self.tiles_directory, fname)
+            for fname in os.listdir(self.tiles_directory)
+            if (re.search(r"_summary\.csv\Z", fname) != None)
+        ]
         if force_read_from_disk:
-            gdf = geopandas.read_file(self.gpkg_fname, mode='r')
+            gdf = geopandas.read_file(self.gpkg_fname, mode="r")
             if verbose:
                 print(os.path.split(self.gpkg_fname)[1], "read.")
         elif gdf is None:
@@ -938,10 +1045,12 @@ class ICESat2_Database:
 
         num_files_removed = 0
         for csv_fname in csv_filenames:
-            tile_fname = csv_fname.replace("_summary.csv", ".h5") # Right now this only works if .h5 names are in the database. TOOD: Change for future inclusion of .h5 or .feather.
+            tile_fname = csv_fname.replace(
+                "_summary.csv", ".h5"
+            )  # Right now this only works if .h5 names are in the database. TOOD: Change for future inclusion of .h5 or .feather.
             gdf_record = gdf.loc[gdf.filename == tile_fname]
             assert len(gdf_record) == 1
-            if gdf_record['is_populated'].tolist()[0] == True:
+            if gdf_record["is_populated"].tolist()[0] == True:
                 os.remove(csv_fname)
                 num_files_removed += 1
 
@@ -950,11 +1059,14 @@ class ICESat2_Database:
 
         return
 
-    def update_gpkg_with_csvfiles(self, gdf=None,
-                                        use_tempfile = True,
-                                        delete_when_finished=True,
-                                        save_to_disk = True,
-                                        verbose=True):
+    def update_gpkg_with_csvfiles(
+        self,
+        gdf=None,
+        use_tempfile=True,
+        delete_when_finished=True,
+        save_to_disk=True,
+        verbose=True,
+    ):
         """Look through the photon tiles directory, look for any "_summary.csv" files that have been written.
         Ingest them into the database.
 
@@ -975,10 +1087,18 @@ class ICESat2_Database:
             gdf = self.get_gdf(verbose=verbose)
 
         # Get the filenames from the csv files.
-        csv_filenames = [os.path.join(self.tiles_directory,fname) for fname in os.listdir(self.tiles_directory) \
-                         if (re.search(r"_summary\.csv\Z", fname) != None)]
+        csv_filenames = [
+            os.path.join(self.tiles_directory, fname)
+            for fname in os.listdir(self.tiles_directory)
+            if (re.search(r"_summary\.csv\Z", fname) != None)
+        ]
         if verbose and len(csv_filenames) > 0:
-            print("Found", len(csv_filenames), "csv records to update the tile database... ", end="")
+            print(
+                "Found",
+                len(csv_filenames),
+                "csv records to update the tile database... ",
+                end="",
+            )
 
         # print(gdf)
 
@@ -990,26 +1110,26 @@ class ICESat2_Database:
             # print(csv_gdf['filename'].tolist())
             # print(csv_gdf['filename'].tolist()[0])
             # insert the record into the database.
-            gdf_record = gdf.loc[gdf.filename == csv_gdf['filename'].tolist()[0]]
+            gdf_record = gdf.loc[gdf.filename == csv_gdf["filename"].tolist()[0]]
             # Sometimes the filename can be a .feather but the database still has a .h5 listed in it. Try that instead.
             if len(gdf_record) == 0:
-                fname = os.path.splitext(csv_gdf['filename'].tolist()[0])[0] + ".h5"
+                fname = os.path.splitext(csv_gdf["filename"].tolist()[0])[0] + ".h5"
                 gdf_record = gdf.loc[gdf.filename == fname]
             # print(gdf_record)
             idx = gdf_record.index
             # print(idx)
             # All these records should be the same.
             assert len(gdf_record) == 1
-            assert gdf_record['xmin'].tolist()[0] == csv_gdf['xmin'].tolist()[0]
-            assert gdf_record['xmax'].tolist()[0] == csv_gdf['xmax'].tolist()[0]
-            assert gdf_record['ymin'].tolist()[0] == csv_gdf['ymin'].tolist()[0]
-            assert gdf_record['ymax'].tolist()[0] == csv_gdf['ymax'].tolist()[0]
-            assert csv_gdf['is_populated'].tolist()[0] == True
+            assert gdf_record["xmin"].tolist()[0] == csv_gdf["xmin"].tolist()[0]
+            assert gdf_record["xmax"].tolist()[0] == csv_gdf["xmax"].tolist()[0]
+            assert gdf_record["ymin"].tolist()[0] == csv_gdf["ymin"].tolist()[0]
+            assert gdf_record["ymax"].tolist()[0] == csv_gdf["ymax"].tolist()[0]
+            assert csv_gdf["is_populated"].tolist()[0] == True
             # Update the photon counts.
-            gdf.loc[idx,'numphotons'] = csv_gdf['numphotons'].tolist()[0]
-            gdf.loc[idx,'numphotons_canopy'] = csv_gdf['numphotons_canopy'].tolist()[0]
-            gdf.loc[idx,'numphotons_ground'] = csv_gdf['numphotons_ground'].tolist()[0]
-            gdf.loc[idx,'is_populated'] = True
+            gdf.loc[idx, "numphotons"] = csv_gdf["numphotons"].tolist()[0]
+            gdf.loc[idx, "numphotons_canopy"] = csv_gdf["numphotons_canopy"].tolist()[0]
+            gdf.loc[idx, "numphotons_ground"] = csv_gdf["numphotons_ground"].tolist()[0]
+            gdf.loc[idx, "is_populated"] = True
 
         # Update the gdf we have on record, make sure it matches.
         self.gdf = gdf
@@ -1020,7 +1140,7 @@ class ICESat2_Database:
         if len(csv_filenames) > 0 and save_to_disk:
             if verbose:
                 print("Writing geopackage...")
-            self.save_geopackage(gdf=gdf, use_tempfile = use_tempfile, verbose=verbose)
+            self.save_geopackage(gdf=gdf, use_tempfile=use_tempfile, verbose=verbose)
 
         if delete_when_finished:
             for csv_fname in csv_filenames:
@@ -1045,23 +1165,38 @@ class ICESat2_Database:
         print(gdf)
         print(gdf.columns)
 
-        gdf['numphotons_bathy'] = 0
-        gdf['start_date_YYYYMMDD'] = 20210101
-        gdf['end_date_YYYYMMDD'] = 20211231
-        gdf['atl03_version'] = 5
+        gdf["numphotons_bathy"] = 0
+        gdf["start_date_YYYYMMDD"] = 20210101
+        gdf["end_date_YYYYMMDD"] = 20211231
+        gdf["atl03_version"] = 5
 
-        fnames = gdf['filename'].tolist()
-        fnames = [os.path.basename(os.path.splitext(fname)[0] + ".feather") for fname in fnames]
-        gdf['filename'] = fnames
+        fnames = gdf["filename"].tolist()
+        fnames = [
+            os.path.basename(os.path.splitext(fname)[0] + ".feather")
+            for fname in fnames
+        ]
+        gdf["filename"] = fnames
 
-        new_column_order = ['filename', 'xmin', 'xmax', 'ymin', 'ymax', 'numphotons', 'numphotons_canopy',
-                            'numphotons_ground', 'numphotons_bathy', 'start_date_YYYYMMDD', 'end_date_YYYYMMDD',
-                            'atl03_version'
-                            'is_populated', 'geometry']
+        new_column_order = [
+            "filename",
+            "xmin",
+            "xmax",
+            "ymin",
+            "ymax",
+            "numphotons",
+            "numphotons_canopy",
+            "numphotons_ground",
+            "numphotons_bathy",
+            "start_date_YYYYMMDD",
+            "end_date_YYYYMMDD",
+            "atl03_versionis_populated",
+            "geometry",
+        ]
 
         # Do a bit of validation on the files we just hard-coded here.
-        assert len(new_column_order) == len(list(gdf.columns.values)) and \
-               numpy.all([colname in list(gdf.columns.values) for colname in new_column_order])
+        assert len(new_column_order) == len(list(gdf.columns.values)) and numpy.all(
+            [colname in list(gdf.columns.values) for colname in new_column_order]
+        )
 
         gdf = gdf[new_column_order]
 
@@ -1079,7 +1214,10 @@ class ICESat2_Database:
 
         # If the tilename doesn't start with the directory, add it.
         if self.ivert_config.icesat2_photon_tiles_directory not in tilename:
-            tilename = os.path.join(self.ivert_config.icesat2_photon_tiles_directory, os.path.basename(tilename))
+            tilename = os.path.join(
+                self.ivert_config.icesat2_photon_tiles_directory,
+                os.path.basename(tilename),
+            )
 
         # Look for either a .h5 or .feather tile. If neither exists, return None.
         base, ext = os.path.splitext(tilename)
@@ -1089,7 +1227,11 @@ class ICESat2_Database:
         h5_name = base + ".h5"
 
         # If the file doesn't exist locally but we're in the AWS cloud, see if we can download it from an S3 bucket.
-        if not os.path.exists(feather_name) and not os.path.exists(h5_name) and self.ivert_config.is_aws:
+        if (
+            not os.path.exists(feather_name)
+            and not os.path.exists(h5_name)
+            and self.ivert_config.is_aws
+        ):
             s3_manager = self.get_s3_manager()
             s3_photon_tiles_dir = self.ivert_config.s3_photon_tiles_directory_prefix
 
@@ -1099,8 +1241,12 @@ class ICESat2_Database:
                 os.makedirs(self.ivert_config.icesat2_photon_tiles_directory)
 
             assert s3_photon_tiles_dir is not None
-            s3_feather_key = s3_photon_tiles_dir.rstrip("/") + "/" + os.path.basename(feather_name)
-            s3_h5_key = s3_photon_tiles_dir.rstrip("/") + "/" + os.path.basename(h5_name)
+            s3_feather_key = (
+                s3_photon_tiles_dir.rstrip("/") + "/" + os.path.basename(feather_name)
+            )
+            s3_h5_key = (
+                s3_photon_tiles_dir.rstrip("/") + "/" + os.path.basename(h5_name)
+            )
             if s3_manager.exists(s3_feather_key):
                 s3_manager.download(s3_feather_key, feather_name)
             elif s3_manager.exists(s3_h5_key):
@@ -1115,9 +1261,15 @@ class ICESat2_Database:
             if os.path.exists(feather_name):
                 return pandas.read_feather(feather_name)
             elif os.path.exists(h5_name):
-                return pandas.read_hdf(h5_name, mode='r')
-        except (pyarrow.lib.ArrowInvalid, pyarrow.lib.ArrowIOError, pyarrow.lib.ArrowKeyError,
-                tables.exceptions.HDF5ExtError, tables.exceptions.NodeError, tables.exceptions.FlavorError):
+                return pandas.read_hdf(h5_name, mode="r")
+        except (
+            pyarrow.lib.ArrowInvalid,
+            pyarrow.lib.ArrowIOError,
+            pyarrow.lib.ArrowKeyError,
+            tables.exceptions.HDF5ExtError,
+            tables.exceptions.NodeError,
+            tables.exceptions.FlavorError,
+        ):
             pass
 
         # If neither of those work, return None if the file is not found.
@@ -1127,7 +1279,9 @@ class ICESat2_Database:
         """Output a map of the tiling progress so far.
         This must be called within download_all_icesat2_granules.py to avoid circular import conflicts.
         """
-        return os.path.abspath(os.path.splitext(self.gpkg_fname)[0] + "_progress_map.png")
+        return os.path.abspath(
+            os.path.splitext(self.gpkg_fname)[0] + "_progress_map.png"
+        )
 
     def update_and_fix_photon_database(self, start_i=0, end_i=None, verbose=True):
         """Sometimes the download_all_icesat2_granules.py -- photon_tiling process
@@ -1152,7 +1306,11 @@ class ICESat2_Database:
         num_zero = 0
 
         bar_str = ""
-        for idx, row in itertools.islice(gdf.iterrows(), start_i, end_i if ((end_i is not None) and (end_i < len(gdf))) else None):
+        for idx, row in itertools.islice(
+            gdf.iterrows(),
+            start_i,
+            end_i if ((end_i is not None) and (end_i < len(gdf))) else None,
+        ):
             i = int(idx)
             # if i < start_i:
             #     continue
@@ -1169,12 +1327,19 @@ class ICESat2_Database:
             df = pandas.read_feather(feather_name)
             # print(df.columns)
             if len(df) != row.numphotons:
-                print("\r" + (" "*len(bar_str)) + "\r", end="")
+                print("\r" + (" " * len(bar_str)) + "\r", end="")
                 print("Row", idx, "needs fixing.", len(df), row.numphotons)
-                gdf.loc[idx, 'numphotons'] = len(df)
-                gdf.loc[idx, 'numphotons_canopy'] = numpy.count_nonzero(df['class_code'].between(2, 3, inclusize="both"))
-                gdf.loc[idx, 'numphotons_ground'] = numpy.count_nonzero(df['class_code'] == 1)
-                assert gdf.loc[idx, 'numphotons'] == (gdf.loc[idx, 'numphotons_canopy'] + gdf.loc[idx, 'numphotons_ground'])
+                gdf.loc[idx, "numphotons"] = len(df)
+                gdf.loc[idx, "numphotons_canopy"] = numpy.count_nonzero(
+                    df["class_code"].between(2, 3, inclusize="both")
+                )
+                gdf.loc[idx, "numphotons_ground"] = numpy.count_nonzero(
+                    df["class_code"] == 1
+                )
+                assert gdf.loc[idx, "numphotons"] == (
+                    gdf.loc[idx, "numphotons_canopy"]
+                    + gdf.loc[idx, "numphotons_ground"]
+                )
 
                 num_corrected += 1
 
@@ -1186,11 +1351,18 @@ class ICESat2_Database:
 
             # Print out a status line every 500th tile.
             if verbose and ((i == 0) or ((i % 500) == 499)):
-                print("\r" + (" "*len(bar_str)) + "\r", end="")
-                print("{0}/{1}".format(i+1, len(gdf)), os.path.basename(feather_name), len(df), "photons.")
+                print("\r" + (" " * len(bar_str)) + "\r", end="")
+                print(
+                    "{0}/{1}".format(i + 1, len(gdf)),
+                    os.path.basename(feather_name),
+                    len(df),
+                    "photons.",
+                )
 
             if verbose:
-                bar_str = utils.progress_bar.ProgressBar(i+1, len(gdf), suffix="{0}/{1}".format(i+1, len(gdf)))
+                bar_str = utils.progress_bar.ProgressBar(
+                    i + 1, len(gdf), suffix="{0}/{1}".format(i + 1, len(gdf))
+                )
 
             # if idx==250:
             #     break
@@ -1218,30 +1390,69 @@ class ICESat2_Database:
     # Below: Last for for east-side bottom-row only.
     # TODO: After runnign this form -138 to -136 to cover the gap left by the error of not capping the bin boundaries,
     #    then re-run it with lon_min at -180 and mask out all if i<3180. Change the "proc 4" if-statement to do that.
-    def subset_remaining_granules(self, lon_min=-180, lon_max=-136, lat_min=-90, lat_max=-88, lon_deg_chunksize=2, icesat2_region_num=11):
+    def subset_remaining_granules(
+        self,
+        lon_min=-180,
+        lon_max=-136,
+        lat_min=-90,
+        lat_max=-88,
+        lon_deg_chunksize=2,
+        icesat2_region_num=11,
+    ):
         """Take the remaining granules that are in the icesat2_granules_subset_directory that match a certain region number, and subset them into chucks by longitude.
         This will make subsetting them much easier down the line."""
-        bin_boundaries = numpy.arange(lon_min, lon_max + (lon_deg_chunksize*0.5), lon_deg_chunksize)
+        bin_boundaries = numpy.arange(
+            lon_min, lon_max + (lon_deg_chunksize * 0.5), lon_deg_chunksize
+        )
 
-        granule_dir = self.ivert_config._abspath(self.ivert_config.icesat2_granules_directory)
+        granule_dir = self.ivert_config._abspath(
+            self.ivert_config.icesat2_granules_directory
+        )
         granule_fnames = os.listdir(granule_dir)
         if icesat2_region_num is not None:
-            granule_fnames = [fn for fn in granule_fnames \
-                              if int(re.search(r"(?<=ATL03_(\d){14}_(\d){6})(\d){2}(?=_005_01_photons)",
-                                               fn).group()) == icesat2_region_num]
+            granule_fnames = [
+                fn
+                for fn in granule_fnames
+                if int(
+                    re.search(
+                        r"(?<=ATL03_(\d){14}_(\d){6})(\d){2}(?=_005_01_photons)", fn
+                    ).group()
+                )
+                == icesat2_region_num
+            ]
 
         granule_fnames = [os.path.join(granule_dir, fn) for fn in granule_fnames]
 
         # external_drive = self.ivert_config._abspath(self.ivert_config.icesat2_granules_directory_alternate)
 
         for i, gfn in enumerate(granule_fnames):
+            n_written = self.subset_individual_granule(
+                gfn,
+                bin_boundaries,
+                lat_min=lat_min,
+                lat_max=lat_max,
+                lon_deg_chunksize=lon_deg_chunksize,
+            )
+            print(
+                "{0}/{1}".format(i + 1, len(granule_fnames)),
+                os.path.basename(gfn),
+                "->",
+                n_written,
+                "subset files.",
+            )
 
-            n_written = self.subset_individual_granule(gfn, bin_boundaries, lat_min=lat_min, lat_max=lat_max, lon_deg_chunksize=lon_deg_chunksize)
-            print("{0}/{1}".format(i+1, len(granule_fnames)), os.path.basename(gfn), "->", n_written, "subset files.")
-
-    def subset_individual_granule(self, granule_name, bin_boundaries, lat_min=-90, lat_max=-86, lon_deg_chunksize=2):
+    def subset_individual_granule(
+        self,
+        granule_name,
+        bin_boundaries,
+        lat_min=-90,
+        lat_max=-86,
+        lon_deg_chunksize=2,
+    ):
         """Take an individual icesat-2 granule, divide it up into all its counterparts, save them to subset files."""
-        outfiles = self.list_of_granule_subset_names(granule_name, bin_boundaries, lon_deg_chunksize=lon_deg_chunksize)
+        outfiles = self.list_of_granule_subset_names(
+            granule_name, bin_boundaries, lon_deg_chunksize=lon_deg_chunksize
+        )
         # If all the subset files already exist, just exit.
         if numpy.all([os.path.exists(of) for of in outfiles]):
             return 0
@@ -1253,7 +1464,9 @@ class ICESat2_Database:
 
         # Quick check, in the instance where we're only looking at one bin, if the photons all fall outside the bounds
         # of that bin, then just move on and don't consider this one.
-        if len(bin_boundaries) == 2 and ((bin_boundaries[0] > max_lon) or (bin_boundaries[1] < min_lon)):
+        if len(bin_boundaries) == 2 and (
+            (bin_boundaries[0] > max_lon) or (bin_boundaries[1] < min_lon)
+        ):
             return 0
         # Subtract 1 to put the first bin at index 0, everything to the left as index -1. This will ensure the for statement
         # below misses the first bin (everything left of the minimum longitude).
@@ -1263,12 +1476,17 @@ class ICESat2_Database:
         # print("bins_left", bins_left)
         # print("outfiles", [os.path.basename(of) for of in outfiles])
         max_bin_num = numpy.max(photon_bin_nums)
-        assert max_bin_num <= len(bin_boundaries) == (len(outfiles)+1)
+        assert max_bin_num <= len(bin_boundaries) == (len(outfiles) + 1)
         num_written = 0
 
         # print(os.path.basename(granule_name), len(photon_bin_nums), "photons.")
         # Omit the last "photon_bin_num" bin, we're just using that as a cutoff beyond the "max."
-        for (bin_id, left_lon, right_lon, of) in zip(numpy.arange(0, max_bin_num), bin_boundaries[:-1], bin_boundaries[1:], outfiles):
+        for bin_id, left_lon, right_lon, of in zip(
+            numpy.arange(0, max_bin_num),
+            bin_boundaries[:-1],
+            bin_boundaries[1:],
+            outfiles,
+        ):
             # If it already exists, just skip it.
             if os.path.exists(of):
                 continue
@@ -1288,7 +1506,9 @@ class ICESat2_Database:
                 if lat_max is None:
                     subset_mask = subset_mask & (lats >= lat_min)
                 else:
-                    subset_mask = subset_mask & lats.between(lat_min, lat_max, inclusive="left")
+                    subset_mask = subset_mask & lats.between(
+                        lat_min, lat_max, inclusive="left"
+                    )
             elif lat_max is not None:
                 lats = df.latitude
                 subset_mask = subset_mask & (lats < lat_max)
@@ -1304,30 +1524,42 @@ class ICESat2_Database:
 
         return num_written
 
-    def list_of_granule_subset_names(self, granule_name, bin_boundaries, lon_deg_chunksize=2, fmt=".feather"):
+    def list_of_granule_subset_names(
+        self, granule_name, bin_boundaries, lon_deg_chunksize=2, fmt=".feather"
+    ):
         """For a given ICESat-2 granule name, return all the granule subset names associated with it."""
-        return [self.give_granule_subset_name(granule_name, lon, lon_deg_chunksize=lon_deg_chunksize, fmt=fmt) for lon in bin_boundaries[:-1]]
+        return [
+            self.give_granule_subset_name(
+                granule_name, lon, lon_deg_chunksize=lon_deg_chunksize, fmt=fmt
+            )
+            for lon in bin_boundaries[:-1]
+        ]
 
-    def give_granule_subset_name(self, granule_name, longitude, lon_deg_chunksize=2, fmt=".feather"):
+    def give_granule_subset_name(
+        self, granule_name, longitude, lon_deg_chunksize=2, fmt=".feather"
+    ):
         """Given an ICESat-2 granule name, return the names of the granule_subset file that should correspond to it."""
         fname = os.path.basename(granule_name)
         base, ext = os.path.splitext(fname)
-        dirname_out = self.ivert_config._abspath(self.ivert_config.icesat2_granules_subset_directory)
+        dirname_out = self.ivert_config._abspath(
+            self.ivert_config.icesat2_granules_subset_directory
+        )
 
         bin_left = int(numpy.floor(longitude / lon_deg_chunksize) * lon_deg_chunksize)
         bin_right = int(bin_left + lon_deg_chunksize)
 
         # Append a lon_min and lon_max to the filename.
-        basename_out = base + "_{1}{0:03d}_{3}{2:03d}".format(abs(bin_left),
-                                                              "W" if (bin_left < 0) else "E",
-                                                              abs(bin_right),
-                                                              "W" if (bin_right < 0) else "E")
+        basename_out = base + "_{1}{0:03d}_{3}{2:03d}".format(
+            abs(bin_left),
+            "W" if (bin_left < 0) else "E",
+            abs(bin_right),
+            "W" if (bin_right < 0) else "E",
+        )
         return os.path.join(dirname_out, basename_out + fmt)
 
-    def check_integrity(self,
-                        logfile: str = None,
-                        fix_db_mistakes: bool = True,
-                        verbose: bool = True) -> str:
+    def check_integrity(
+        self, logfile: str = None, fix_db_mistakes: bool = True, verbose: bool = True
+    ) -> str:
         """Check the integrity of all the files in the photon database, and that they match the database records.
 
         Args:
@@ -1350,35 +1582,49 @@ class ICESat2_Database:
             if df is None:
                 tiles_missing.append(tname)
                 if verbose:
-                    utils.progress_bar.ProgressBar(i + 1, len(tilenames), suffix=f"{i + 1}/{len(tilenames)}")
+                    utils.progress_bar.ProgressBar(
+                        i + 1, len(tilenames), suffix=f"{i + 1}/{len(tilenames)}"
+                    )
                 continue
 
             # Fetch the record for this tile.
             row = gdf[gdf.filename == tname].iloc[0]
-            if row['numphotons'] == len(df):
+            if row["numphotons"] == len(df):
                 tiles_good.append(tname)
             else:
                 tiles_w_mistakes.append(tname)
                 if fix_db_mistakes:
                     gdf_subset = gdf[gdf.filename == tname]
                     gdf_subset["numphotons"] = len(df)
-                    gdf_subset["numphotons_canopy"] = numpy.count_nonzero(df["class_code"].between(2, 3, inclusive="both"))
-                    gdf_subset["numphotons_ground"] = numpy.count_nonzero(df["class_code"] == 1)
-                    gdf_subset["numphotons_bathy"] = numpy.count_nonzero(df["class_code"] == 4)
+                    gdf_subset["numphotons_canopy"] = numpy.count_nonzero(
+                        df["class_code"].between(2, 3, inclusive="both")
+                    )
+                    gdf_subset["numphotons_ground"] = numpy.count_nonzero(
+                        df["class_code"] == 1
+                    )
+                    gdf_subset["numphotons_bathy"] = numpy.count_nonzero(
+                        df["class_code"] == 4
+                    )
 
             if self.ivert_config.is_aws:
                 # Delete the local tile after we're done with it, if in on the AWS environment.
                 # ONLY do this on the AWS environment, where tiles are stored in the s3 bucket but used locally.
-                local_tile = os.path.join(self.ivert_config.icesat2_photon_tiles_directory, tname)
+                local_tile = os.path.join(
+                    self.ivert_config.icesat2_photon_tiles_directory, tname
+                )
                 if os.path.exists(local_tile):
                     os.remove(local_tile)
 
             if verbose:
-                utils.progress_bar.ProgressBar(i + 1, len(tilenames), suffix=f"{i + 1}/{len(tilenames)}")
+                utils.progress_bar.ProgressBar(
+                    i + 1, len(tilenames), suffix=f"{i + 1}/{len(tilenames)}"
+                )
 
         if fix_db_mistakes and (len(tiles_w_mistakes) > 0):
             if verbose:
-                print(f"Fixing {len(tiles_w_mistakes)} tiles with 'numphotons' mismatches.")
+                print(
+                    f"Fixing {len(tiles_w_mistakes)} tiles with 'numphotons' mismatches."
+                )
                 print(f"Writing {self.gpkg_fname}.")
             self.save_geopackage(gdf=gdf, use_tempfile=True, compress=False)
 
@@ -1405,7 +1651,6 @@ class ICESat2_Database:
 
 
 if __name__ == "__main__":
-
     is2db = ICESat2_Database()
     if not os.path.exists(is2db.gpkg_fname_compressed):
         gdf = is2db.get_gdf()

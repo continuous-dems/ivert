@@ -4,6 +4,7 @@
 import argparse
 import botocore.exceptions
 import dateparser
+
 # import datetime
 import os
 import pandas
@@ -13,7 +14,7 @@ import sys
 import time
 import typing
 
-if vars(sys.modules[__name__])['__package__'] in ('ivert', 'ivert_utils'):
+if vars(sys.modules[__name__])["__package__"] in ("ivert", "ivert_utils"):
     # When this is built a setup.py package, it names the modules 'ivert' and 'ivert_utils'. This reflects that.
     import ivert_utils.configfile as configfile
     import ivert_utils.version_check_server as version_check_server
@@ -70,28 +71,45 @@ class JobsDatabaseClient:
 
         # Where the jobs database sits in the S3 bucket
         if ivert_config.use_export_alt_bucket:
-            self.s3_bucket_type= self.ivert_config.s3_ivert_jobs_database_bucket_type_export_alt
-            self.s3_database_key = self.ivert_config.s3_ivert_jobs_database_alt_client_key
+            self.s3_bucket_type = (
+                self.ivert_config.s3_ivert_jobs_database_bucket_type_export_alt
+            )
+            self.s3_database_key = (
+                self.ivert_config.s3_ivert_jobs_database_alt_client_key
+            )
         else:
             if ivert_config.is_aws:
-                self.s3_bucket_type = self.ivert_config.s3_ivert_jobs_database_bucket_type_server
-                self.s3_database_key = self.ivert_config.s3_ivert_jobs_database_server_key
+                self.s3_bucket_type = (
+                    self.ivert_config.s3_ivert_jobs_database_bucket_type_server
+                )
+                self.s3_database_key = (
+                    self.ivert_config.s3_ivert_jobs_database_server_key
+                )
             else:
-                self.s3_bucket_type = self.ivert_config.s3_ivert_jobs_database_bucket_type_client
-                self.s3_database_key = self.ivert_config.s3_ivert_jobs_database_client_key
+                self.s3_bucket_type = (
+                    self.ivert_config.s3_ivert_jobs_database_bucket_type_client
+                )
+                self.s3_database_key = (
+                    self.ivert_config.s3_ivert_jobs_database_client_key
+                )
 
         # The S3Manager instance, for uploading and downloading files to the S3 buckets
         self.s3m = s3.S3Manager()
 
         # The metadata key for the latest job in the database, to tag with the file in the s3 bucket.
-        self.s3_latest_job_metadata_key = self.ivert_config.s3_jobs_db_latest_job_metadata_key
-        self.s3_vnum_metadata_key = self.ivert_config.s3_jobs_db_version_number_metadata_key
-        self.s3_jobs_since_metadata_key = self.ivert_config.s3_jobs_db_jobs_since_metadata_key
+        self.s3_latest_job_metadata_key = (
+            self.ivert_config.s3_jobs_db_latest_job_metadata_key
+        )
+        self.s3_vnum_metadata_key = (
+            self.ivert_config.s3_jobs_db_version_number_metadata_key
+        )
+        self.s3_jobs_since_metadata_key = (
+            self.ivert_config.s3_jobs_db_jobs_since_metadata_key
+        )
 
         return
 
-    def download_from_s3(self,
-                         only_if_newer: bool = True) -> None:
+    def download_from_s3(self, only_if_newer: bool = True) -> None:
         """
         Fetches the IVERT jobs database from the S3 bucket.
 
@@ -117,7 +135,9 @@ class JobsDatabaseClient:
 
         # Check if the database exists in the S3 bucket
         if not self.s3m.exists(db_key, bucket_type=db_btype):
-            raise FileNotFoundError(f"The {db_key} database doesn't exist in the S3 bucket.")
+            raise FileNotFoundError(
+                f"The {db_key} database doesn't exist in the S3 bucket."
+            )
 
         if only_if_newer and os.path.exists(local_db):
             if not self.is_s3_newer_than_local():
@@ -156,12 +176,14 @@ class JobsDatabaseClient:
             max_num_tries = 5
             wait_time_s = 0.05
 
-            while not self.exists(local_or_s3='local') and num_tries < max_num_tries:
+            while not self.exists(local_or_s3="local") and num_tries < max_num_tries:
                 num_tries += 1
                 time.sleep(wait_time_s)
 
-            if not self.exists(local_or_s3='local'):
-                raise FileNotFoundError(f"IVERT jobs database doesn't exist in '{self.db_fname}'.")
+            if not self.exists(local_or_s3="local"):
+                raise FileNotFoundError(
+                    f"IVERT jobs database doesn't exist in '{self.db_fname}'."
+                )
 
             # Open the database
             conn = sqlite3.connect(self.db_fname)
@@ -207,8 +229,7 @@ class JobsDatabaseClient:
         del self.conn
         self.conn = None
 
-    def exists(self,
-               local_or_s3: str = 'local') -> bool:
+    def exists(self, local_or_s3: str = "local") -> bool:
         """Checks if the database exists.
 
         Args:
@@ -219,12 +240,16 @@ class JobsDatabaseClient:
         """
         local_or_s3 = local_or_s3.strip().lower()
 
-        if local_or_s3 == 'local':
+        if local_or_s3 == "local":
             return os.path.exists(self.db_fname)
-        elif local_or_s3 == 's3':
-            return self.s3m.exists(self.s3_database_key, bucket_type=self.s3_bucket_type)
+        elif local_or_s3 == "s3":
+            return self.s3m.exists(
+                self.s3_database_key, bucket_type=self.s3_bucket_type
+            )
         else:
-            raise ValueError(f'local_or_s3 must be "local" or "s3". "{local_or_s3}" not recognized.')
+            raise ValueError(
+                f'local_or_s3 must be "local" or "s3". "{local_or_s3}" not recognized.'
+            )
 
     def __del__(self):
         """
@@ -252,7 +277,7 @@ class JobsDatabaseClient:
         # The results is a list of sqlite.Row objects. Should be only one long of my logic is right here
         assert len(results) == 1
 
-        resultnum = results[0]['MAX(job_id)']
+        resultnum = results[0]["MAX(job_id)"]
 
         # If the result is None, it means there are no jobs in the database yet. Just return 0.
         # Else return the highest job number
@@ -278,11 +303,15 @@ class JobsDatabaseClient:
         # latest_job number in the S3 metadata. Just return 0.
         # Else return the highest job number.
         if self.s3m.exists(self.s3_database_key, bucket_type=self.s3_bucket_type):
-            md = self.s3m.get_metadata(self.s3_database_key, bucket_type=self.s3_bucket_type)
+            md = self.s3m.get_metadata(
+                self.s3_database_key, bucket_type=self.s3_bucket_type
+            )
             if md is not None:
                 if self.s3_latest_job_metadata_key in md.keys():
                     return int(md[self.s3_latest_job_metadata_key])
-                elif "latest_job" in md.keys(): # For now, maintain backward compatibility with old metadata keys.
+                elif (
+                    "latest_job" in md.keys()
+                ):  # For now, maintain backward compatibility with old metadata keys.
                     return int(md["latest_job"])
                 elif "ivert_latest_job" in md.keys():
                     return int(md["ivert_latest_job"])
@@ -299,7 +328,11 @@ class JobsDatabaseClient:
             int: The last version number from the 'vnum' entry in the database.
         """
         conn = self.get_connection()
-        return conn.cursor().execute("SELECT vnum FROM vnumber LIMIT 1;").fetchall()[0]["vnum"]
+        return (
+            conn.cursor()
+            .execute("SELECT vnum FROM vnumber LIMIT 1;")
+            .fetchall()[0]["vnum"]
+        )
 
     def fetch_latest_db_vnum_from_s3_metadata(self) -> typing.Union[int, None]:
         """Fetch the last version number from the S3 metadata.
@@ -314,11 +347,15 @@ class JobsDatabaseClient:
             None: If the database doesn't exist in the S3 bucket or the 'vnum' metadata key doesn't exist.
         """
         if self.s3m.exists(self.s3_database_key, bucket_type=self.s3_bucket_type):
-            md = self.s3m.get_metadata(self.s3_database_key, bucket_type=self.s3_bucket_type)
+            md = self.s3m.get_metadata(
+                self.s3_database_key, bucket_type=self.s3_bucket_type
+            )
             if md is not None:
                 if self.s3_vnum_metadata_key in md.keys():
                     return int(md[self.s3_vnum_metadata_key])
-                elif "vnum" in md.keys(): # For now, maintain backward compatibility with old metadata keys.
+                elif (
+                    "vnum" in md.keys()
+                ):  # For now, maintain backward compatibility with old metadata keys.
                     return int(md["vnum"])
                 elif "ivert_db_vnum" in md.keys():
                     return int(md["ivert_db_vnum"])
@@ -338,11 +375,15 @@ class JobsDatabaseClient:
             or...
             None: If the 'ivert_version' metadata key doesn't exist in the S3 metadata."""
         if self.s3m.exists(self.s3_database_key, bucket_type=self.s3_bucket_type):
-            md = self.s3m.get_metadata(self.s3_database_key, bucket_type=self.s3_bucket_type)
+            md = self.s3m.get_metadata(
+                self.s3_database_key, bucket_type=self.s3_bucket_type
+            )
             if md is not None:
                 if self.ivert_config.s3_jobs_db_ivert_version_metadata_key in md.keys():
                     return md[self.ivert_config.s3_jobs_db_ivert_version_metadata_key]
-                elif "ivert_version" in md.keys(): # For now, maintain backward compatibility with old metadata keys.
+                elif (
+                    "ivert_version" in md.keys()
+                ):  # For now, maintain backward compatibility with old metadata keys.
                     return md["ivert_version"]
             else:
                 return None
@@ -357,11 +398,15 @@ class JobsDatabaseClient:
             int: The earliest job number from the 'job_id' entry in the database.
         """
         if self.s3m.exists(self.s3_database_key, bucket_type=self.s3_bucket_type):
-            md = self.s3m.get_metadata(self.s3_database_key, bucket_type=self.s3_bucket_type)
+            md = self.s3m.get_metadata(
+                self.s3_database_key, bucket_type=self.s3_bucket_type
+            )
             if md is not None and self.s3_jobs_since_metadata_key in md.keys():
                 if self.s3_jobs_since_metadata_key in md:
                     return int(md[self.s3_jobs_since_metadata_key])
-                elif "jobs_since" in md: # For now, maintain backward compatibility with old metadata keys.
+                elif (
+                    "jobs_since" in md
+                ):  # For now, maintain backward compatibility with old metadata keys.
                     return int(md["jobs_since"])
                 elif "ivert_jobs_since" in md:
                     return int(md["ivert_jobs_since"])
@@ -399,9 +444,13 @@ class JobsDatabaseClient:
         elif src_to_use == "s3":
             return int(self.fetch_earliest_job_number_from_s3_metadata())
         else:
-            raise ValueError(f"Unrecognized source_data: {source_data}. Must be 'database' or 's3'.")
+            raise ValueError(
+                f"Unrecognized source_data: {source_data}. Must be 'database' or 's3'."
+            )
 
-    def job_exists(self, username, job_id, return_row: bool = False) -> typing.Union[bool, sqlite3.Row]:
+    def job_exists(
+        self, username, job_id, return_row: bool = False
+    ) -> typing.Union[bool, sqlite3.Row]:
         """Returns True/False whether a (username, job_id) job presently exists in the database or not.
 
         If return_row is True, then it returns the sqlite3.Row object for the job if it exists.
@@ -409,14 +458,19 @@ class JobsDatabaseClient:
         conn = self.get_connection()
         cur = conn.cursor()
         if return_row:
-            results = cur.execute("SELECT * FROM ivert_jobs WHERE username = ? AND job_id = ? LIMIT 1;",
-                                  (username, job_id)).fetchone()
+            results = cur.execute(
+                "SELECT * FROM ivert_jobs WHERE username = ? AND job_id = ? LIMIT 1;",
+                (username, job_id),
+            ).fetchone()
             if results is None:
                 return False
             else:
                 return results
         else:
-            cur.execute("SELECT count(*) FROM ivert_jobs WHERE username = ? AND job_id = ?;", (username, job_id))
+            cur.execute(
+                "SELECT count(*) FROM ivert_jobs WHERE username = ? AND job_id = ?;",
+                (username, job_id),
+            )
             count = cur.fetchone()[0]
             if count == 0:
                 return False
@@ -424,15 +478,19 @@ class JobsDatabaseClient:
                 assert count == 1
                 return True
 
-    def file_exists(self, filename, username, job_id, return_row: bool = False) -> typing.Union[bool, sqlite3.Row]:
+    def file_exists(
+        self, filename, username, job_id, return_row: bool = False
+    ) -> typing.Union[bool, sqlite3.Row]:
         """Returns True/False whether the (filename, username, job_id) file already exists in the ivert_files table or not.
 
         If return_row is True, then it returns to the sqlite3.Row object for the file record if it exists."""
         conn = self.get_connection()
         cur = conn.cursor()
         if return_row:
-            results = cur.execute("SELECT * FROM ivert_files WHERE filename = ? AND username = ? AND job_id = ?;",
-                                  (filename, username, job_id))
+            results = cur.execute(
+                "SELECT * FROM ivert_files WHERE filename = ? AND username = ? AND job_id = ?;",
+                (filename, username, job_id),
+            )
 
             if results is None:
                 return False
@@ -440,8 +498,10 @@ class JobsDatabaseClient:
                 return results.fetchone()
 
         else:
-            cur.execute("SELECT count(*) FROM ivert_files WHERE filename = ? AND username = ? AND job_id = ?;",
-                        (filename, username, job_id))
+            cur.execute(
+                "SELECT count(*) FROM ivert_files WHERE filename = ? AND username = ? AND job_id = ?;",
+                (filename, username, job_id),
+            )
             count = cur.fetchone()[0]
             if count == 0:
                 return False
@@ -463,7 +523,7 @@ class JobsDatabaseClient:
 
         # Separate string into parts
         s3_parts = [part for part in s3_key.split("/") if len(part) > 0]
-        job_id_regex = re.compile(r'^(\d{12})$')
+        job_id_regex = re.compile(r"^(\d{12})$")
         # The last part should be the job ID. If this is a path to a file, remove the file part at the end.
         if not job_id_regex.match(s3_parts[-1]):
             s3_parts.pop()
@@ -477,9 +537,15 @@ class JobsDatabaseClient:
         # 3rd-to-last part should be command
         assert s3_parts[-3] in self.ivert_config.ivert_commands
 
-        return {"command": s3_parts[-3], "username": s3_parts[-2], "job_id": s3_parts[-1]}
+        return {
+            "command": s3_parts[-3],
+            "username": s3_parts[-2],
+            "job_id": s3_parts[-1],
+        }
 
-    def get_job_path_from_params(self, command, username, job_id, local_os: bool = False) -> str:
+    def get_job_path_from_params(
+        self, command, username, job_id, local_os: bool = False
+    ) -> str:
         """Get the relative folder path from the parameters, outlined in ivert_config::s3_ivert_job_subdirs_template
 
         Args:
@@ -492,9 +558,11 @@ class JobsDatabaseClient:
         Returns:
             str: The relative folder path."""
         job_path_template = self.ivert_config.s3_ivert_job_subdirs_template
-        path = job_path_template.replace("[command]", command.strip().lower()
-                                         ).replace("[username]", username.strip().lower()
-                                                   ).replace("[job_id]", str(job_id).strip().lower())
+        path = (
+            job_path_template.replace("[command]", command.strip().lower())
+            .replace("[username]", username.strip().lower())
+            .replace("[job_id]", str(job_id).strip().lower())
+        )
 
         if local_os:
             path = path.replace("/", os.sep)
@@ -544,17 +612,21 @@ class JobsDatabaseClient:
         count = cursor.execute(f"SELECT COUNT(*) FROM {table_name};").fetchone()[0]
         return count
 
-    def read(self, table_name: str,
-             username: typing.Union[str, None] = None,
-             job_id: typing.Union[str, None] = None
-             ) -> pandas.DataFrame:
+    def read(
+        self,
+        table_name: str,
+        username: typing.Union[str, None] = None,
+        job_id: typing.Union[str, None] = None,
+    ) -> pandas.DataFrame:
         """Shorthand for read_table_as_pandas_df."""
         return self.read_table_as_pandas_df(table_name, username, job_id)
 
-    def read_table_as_pandas_df(self,
-                                table_name: str,
-                                username: typing.Union[str, None] = None,
-                                job_id: typing.Union[str, int, None] = None) -> pandas.DataFrame:
+    def read_table_as_pandas_df(
+        self,
+        table_name: str,
+        username: typing.Union[str, None] = None,
+        job_id: typing.Union[str, int, None] = None,
+    ) -> pandas.DataFrame:
         """Read a table and return as a pandas dataframe.
 
         Args:
@@ -604,7 +676,9 @@ class JobsDatabaseClient:
         """
         conn = self.get_connection()
         cursor = conn.cursor()
-        cursor.execute(f"SELECT sns_arn FROM sns_subscriptions WHERE user_email = '{email}';")
+        cursor.execute(
+            f"SELECT sns_arn FROM sns_subscriptions WHERE user_email = '{email}';"
+        )
         return cursor.fetchone()[0]
 
     def get_job_from_pid(self, pid: int) -> sqlite3.Row:
@@ -642,8 +716,9 @@ class JobsDatabaseClient:
         else:
             return None
 
-    def list_unfinished_jobs(self,
-                             return_rows: bool = False) -> typing.Union[list[tuple], list[sqlite3.Row]]:
+    def list_unfinished_jobs(
+        self, return_rows: bool = False
+    ) -> typing.Union[list[tuple], list[sqlite3.Row]]:
         """Return a list of all jobs whose status is marked as 'started', 'running' or 'unknown'.
 
         NOTE: This does not denote whether the job is actually still running or not.
@@ -659,10 +734,15 @@ class JobsDatabaseClient:
         if return_rows:
             return rows
         else:
-            return [{'username': row['username'],
-                     'job_id': row['job_id'],
-                     'job_pid': row['job_pid'],
-                     'status': row['status']} for row in rows]
+            return [
+                {
+                    "username": row["username"],
+                    "job_id": row["job_id"],
+                    "job_pid": row["job_pid"],
+                    "status": row["status"],
+                }
+                for row in rows
+            ]
 
 
 class JobsDatabaseServer(JobsDatabaseClient):
@@ -681,11 +761,13 @@ class JobsDatabaseServer(JobsDatabaseClient):
         """
         super().__init__()
 
-    def create_new_database(self,
-                            database_fname: typing.Union[str, None] = None,
-                            only_if_not_exists_in_s3: bool = True,
-                            overwrite: bool = False,
-                            verbose: bool = True) -> typing.Union[sqlite3.Connection, None]:
+    def create_new_database(
+        self,
+        database_fname: typing.Union[str, None] = None,
+        only_if_not_exists_in_s3: bool = True,
+        overwrite: bool = False,
+        verbose: bool = True,
+    ) -> typing.Union[sqlite3.Connection, None]:
         """
         Creates a new database from scratch.
 
@@ -701,22 +783,28 @@ class JobsDatabaseServer(JobsDatabaseClient):
         """
         # Make sure the schema text file exists and is a complete and valid SQL statement
         assert os.path.exists(self.schema_file)
-        schema_text = open(self.schema_file, 'r').read()
+        schema_text = open(self.schema_file, "r").read()
         assert sqlite3.complete_statement(schema_text)
 
         # Create database in its location outlined in ivert_config.ini (read by the base-class constructor)
         if not database_fname:
             database_fname = self.db_fname
 
-        if only_if_not_exists_in_s3 and self.s3m.exists(self.s3_database_key, bucket_type=self.s3_bucket_type):
-            raise RuntimeError('The jobs database already exists in the S3 bucket. Delete from there first:\n'
-                               '> python s3.py rm {} -b {}'.format(self.s3_database_key, self.s3_bucket_type))
+        if only_if_not_exists_in_s3 and self.s3m.exists(
+            self.s3_database_key, bucket_type=self.s3_bucket_type
+        ):
+            raise RuntimeError(
+                "The jobs database already exists in the S3 bucket. Delete from there first:\n"
+                "> python s3.py rm {} -b {}".format(
+                    self.s3_database_key, self.s3_bucket_type
+                )
+            )
 
         if os.path.exists(database_fname):
             if overwrite:
                 os.remove(database_fname)
                 if verbose:
-                    print(f'Delete existing {database_fname}')
+                    print(f"Delete existing {database_fname}")
             elif database_fname == self.db_fname:
                 return self.get_connection()
             else:
@@ -740,13 +828,15 @@ class JobsDatabaseServer(JobsDatabaseClient):
         # Return the connection
         return conn
 
-    def update_job_status(self,
-                          job_username: str,
-                          job_id: typing.Union[int, str],
-                          status: str,
-                          new_pid: typing.Union[int, None] = None,
-                          increment_vnum: bool = True,
-                          upload_to_s3: bool = True):
+    def update_job_status(
+        self,
+        job_username: str,
+        job_id: typing.Union[int, str],
+        status: str,
+        new_pid: typing.Union[int, None] = None,
+        increment_vnum: bool = True,
+        upload_to_s3: bool = True,
+    ):
         """
         Updates a job record in the existing database.
 
@@ -775,10 +865,14 @@ class JobsDatabaseServer(JobsDatabaseClient):
         results = self.job_exists(job_username, job_id, return_row=True)
         if results:
             # Check to see if the status is different, or if the PID is different. If not, don't do anything.
-            if results['status'] == status and (new_pid is None or results['job_pid'] == new_pid):
+            if results["status"] == status and (
+                new_pid is None or results["job_pid"] == new_pid
+            ):
                 return
         else:
-            raise ValueError(f"Job {job_username}_{job_id} does not exist in the database.")
+            raise ValueError(
+                f"Job {job_username}_{job_id} does not exist in the database."
+            )
 
         # Connect to the database
         conn = self.get_connection()
@@ -809,14 +903,16 @@ class JobsDatabaseServer(JobsDatabaseClient):
 
         return
 
-    def update_file_status(self,
-                           username: str,
-                           job_id: typing.Union[int, str],
-                           filename: str,
-                           status: str,
-                           new_size: typing.Union[int, None] = None,
-                           increment_vnum: bool = True,
-                           upload_to_s3: bool = True) -> None:
+    def update_file_status(
+        self,
+        username: str,
+        job_id: typing.Union[int, str],
+        filename: str,
+        status: str,
+        new_size: typing.Union[int, None] = None,
+        increment_vnum: bool = True,
+        upload_to_s3: bool = True,
+    ) -> None:
         """
         Updates a file record in the existing database.
 
@@ -843,7 +939,7 @@ class JobsDatabaseServer(JobsDatabaseClient):
         result = self.file_exists(file_basename, username, job_id, return_row=True)
         if result:
             # Check to see if the status is different. If not, don't do anything.
-            if result['status'] == status:
+            if result["status"] == status:
                 return
         else:
             raise ValueError(f"File {file_basename} does not exist in the database.")
@@ -863,7 +959,9 @@ class JobsDatabaseServer(JobsDatabaseClient):
         if new_size is None:
             cursor.execute(update_stmt, (status, username, job_id, file_basename))
         else:
-            cursor.execute(update_stmt, (status, new_size, username, job_id, file_basename))
+            cursor.execute(
+                update_stmt, (status, new_size, username, job_id, file_basename)
+            )
 
         # Increment the database version number
         if increment_vnum:
@@ -878,13 +976,15 @@ class JobsDatabaseServer(JobsDatabaseClient):
 
         return
 
-    def update_file_statistics(self,
-                               username: str,
-                               job_id: typing.Union[int, str],
-                               filename: str,
-                               new_status: typing.Union[str, None] = None,
-                               increment_vnumber: bool = True,
-                               upload_to_s3: bool = True) -> None:
+    def update_file_statistics(
+        self,
+        username: str,
+        job_id: typing.Union[int, str],
+        filename: str,
+        new_status: typing.Union[str, None] = None,
+        increment_vnumber: bool = True,
+        upload_to_s3: bool = True,
+    ) -> None:
         """
         Updates a file record in the existing database with new md5 and file size statistics.
 
@@ -924,14 +1024,19 @@ class JobsDatabaseServer(JobsDatabaseClient):
                               SET md5 = ?, size_bytes = ?, status = ?
                               WHERE username = ? AND job_id = ? AND filename = ?;"""
 
-            cursor.execute(update_query, (md5, size_bytes, new_status, username, job_id, file_basename))
+            cursor.execute(
+                update_query,
+                (md5, size_bytes, new_status, username, job_id, file_basename),
+            )
 
         else:
             update_query = """UPDATE ivert_files
                               SET md5 = ?, size_bytes = ?
                               WHERE username = ? AND job_id = ? AND filename = ?;"""
 
-            cursor.execute(update_query, (md5, size_bytes, username, job_id, file_basename))
+            cursor.execute(
+                update_query, (md5, size_bytes, username, job_id, file_basename)
+            )
 
         # Increment the database version number
         if increment_vnumber:
@@ -971,33 +1076,39 @@ class JobsDatabaseServer(JobsDatabaseClient):
         # Upload the database to the S3 bucket.
         # Set the md5, the latest_job number, and the vnum in the S3 metadata.
         # Also set the jobs_since key to whatever the first job number is in the database is set to.
-        self.s3m.upload(local_filename,
-                        db_s3_key,
-                        bucket_type=self.s3_bucket_type,
-                        include_md5=True,
-                        other_metadata={
-                            self.s3_latest_job_metadata_key: str(latest_job_id),
-                            self.s3_vnum_metadata_key: str(self.fetch_latest_db_vnum_from_database()),
-                            self.ivert_config.s3_jobs_db_ivert_version_metadata_key: version.__version__,
-                            self.ivert_config.s3_jobs_db_jobs_since_metadata_key: str(database_earliest_job_id),
-                            self.ivert_config.s3_jobs_db_min_client_version_metadata_key: version_check_server.minimum_client_version()
-                        },
-                        )
+        self.s3m.upload(
+            local_filename,
+            db_s3_key,
+            bucket_type=self.s3_bucket_type,
+            include_md5=True,
+            other_metadata={
+                self.s3_latest_job_metadata_key: str(latest_job_id),
+                self.s3_vnum_metadata_key: str(
+                    self.fetch_latest_db_vnum_from_database()
+                ),
+                self.ivert_config.s3_jobs_db_ivert_version_metadata_key: version.__version__,
+                self.ivert_config.s3_jobs_db_jobs_since_metadata_key: str(
+                    database_earliest_job_id
+                ),
+                self.ivert_config.s3_jobs_db_min_client_version_metadata_key: version_check_server.minimum_client_version(),
+            },
+        )
 
         return
 
-    def create_new_job(self,
-                       job_config_obj: configfile.Config,
-                       job_configfile: str,
-                       job_logfile: str,
-                       job_local_dir: str,
-                       job_local_output_dir: str,
-                       job_import_prefix: str,
-                       job_export_prefix: str,
-                       job_status: str = "unknown",
-                       update_vnum: bool = True,
-                       upload_to_s3: bool = True,
-                       ) -> sqlite3.Row:
+    def create_new_job(
+        self,
+        job_config_obj: configfile.Config,
+        job_configfile: str,
+        job_logfile: str,
+        job_local_dir: str,
+        job_local_output_dir: str,
+        job_import_prefix: str,
+        job_export_prefix: str,
+        job_status: str = "unknown",
+        update_vnum: bool = True,
+        upload_to_s3: bool = True,
+    ) -> sqlite3.Row:
         """
         Given the prefix of a job in the S3 bucket, create a new job in the "ivert_jobs" table of the database.
 
@@ -1033,7 +1144,11 @@ class JobsDatabaseServer(JobsDatabaseClient):
         if existing_row:
             return existing_row
 
-        if not (hasattr(jco, "job_id") and hasattr(jco, "username") and hasattr(jco, "ivert_command")):
+        if not (
+            hasattr(jco, "job_id")
+            and hasattr(jco, "username")
+            and hasattr(jco, "ivert_command")
+        ):
             # If we have an imcompliete job Config ini file, then populate these fields with values from the S3 path.
             # This can be the case if we're backfilling the database with old files from the S3 bucket.
             params_dict = self.get_params_from_s3_path(job_configfile)
@@ -1044,21 +1159,29 @@ class JobsDatabaseServer(JobsDatabaseClient):
         # Insert the new job into the database
         conn = self.get_connection()
         c = conn.cursor()
-        c.execute("INSERT INTO ivert_jobs (command, username, job_id, import_prefix, export_prefix, configfile, "
-                  "command_args, logfile, input_dir_local, output_dir_local, job_pid, status) "
-                  "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);",
-                 (jco.ivert_command,
-                  jco.username,
-                  jco.job_id,
-                  job_import_prefix,
-                  job_export_prefix,
-                  os.path.basename(job_configfile),
-                  str(jco.cmd_args) if hasattr(jco, "cmd_args") else "",
-                  os.path.basename(job_logfile),
-                  job_local_dir.removeprefix(self.ivert_config.ivert_jobs_directory_local).lstrip("/"),
-                  job_local_output_dir.removeprefix(self.ivert_config.ivert_jobs_directory_local).lstrip("/"),
-                  os.getpid(),
-                  job_status.strip().lower()))
+        c.execute(
+            "INSERT INTO ivert_jobs (command, username, job_id, import_prefix, export_prefix, configfile, "
+            "command_args, logfile, input_dir_local, output_dir_local, job_pid, status) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);",
+            (
+                jco.ivert_command,
+                jco.username,
+                jco.job_id,
+                job_import_prefix,
+                job_export_prefix,
+                os.path.basename(job_configfile),
+                str(jco.cmd_args) if hasattr(jco, "cmd_args") else "",
+                os.path.basename(job_logfile),
+                job_local_dir.removeprefix(
+                    self.ivert_config.ivert_jobs_directory_local
+                ).lstrip("/"),
+                job_local_output_dir.removeprefix(
+                    self.ivert_config.ivert_jobs_directory_local
+                ).lstrip("/"),
+                os.getpid(),
+                job_status.strip().lower(),
+            ),
+        )
 
         if update_vnum:
             self.increment_vnumber(c)
@@ -1071,15 +1194,19 @@ class JobsDatabaseServer(JobsDatabaseClient):
         existing_row = self.job_exists(jco.username, jco.job_id, return_row=True)
         return existing_row
 
-    def populate_export_prefix_if_not_set(self,
-                                          username: str,
-                                          job_id: typing.Union[int, str],
-                                          increment_vnum: bool = True,
-                                          upload_to_s3: bool = True) -> str:
+    def populate_export_prefix_if_not_set(
+        self,
+        username: str,
+        job_id: typing.Union[int, str],
+        increment_vnum: bool = True,
+        upload_to_s3: bool = True,
+    ) -> str:
         """For a given job, if we're exporting files, populate the export_prefix field in the database."""
         job_row = self.job_exists(username, job_id, return_row=True)
         if not job_row:
-            raise ValueError(f"Job ({username}, {job_id}) does not exist in the database.")
+            raise ValueError(
+                f"Job ({username}, {job_id}) does not exist in the database."
+            )
 
         if job_row["export_prefix"] is not None:
             return job_row["export_prefix"]
@@ -1087,15 +1214,22 @@ class JobsDatabaseServer(JobsDatabaseClient):
         # Get the export prefix from the Config file.
         export_base_prefix = self.ivert_config.s3_export_prefix_base + "jobs/"
 
-        export_prefix = export_base_prefix + self.ivert_config.s3_ivert_job_subdirs_template \
-                                                .replace("[command]", job_row["command"]) \
-                                                .replace("[username]", job_row["username"]) \
-                                                .replace("[job_id]", str(job_row["job_id"])) + "/"
+        export_prefix = (
+            export_base_prefix
+            + self.ivert_config.s3_ivert_job_subdirs_template.replace(
+                "[command]", job_row["command"]
+            )
+            .replace("[username]", job_row["username"])
+            .replace("[job_id]", str(job_row["job_id"]))
+            + "/"
+        )
 
         conn = self.get_connection()
         c = conn.cursor()
-        c.execute("UPDATE ivert_jobs SET export_prefix = ? WHERE username = ? AND job_id = ?;",
-                  (export_prefix, username, job_id))
+        c.execute(
+            "UPDATE ivert_jobs SET export_prefix = ? WHERE username = ? AND job_id = ?;",
+            (export_prefix, username, job_id),
+        )
 
         if increment_vnum:
             self.increment_vnumber(c)
@@ -1107,16 +1241,17 @@ class JobsDatabaseServer(JobsDatabaseClient):
 
         return export_prefix
 
-    def create_new_file_record(self,
-                               filename: str,
-                               job_id: int,
-                               username: str,
-                               import_or_export: int,
-                               status: str = "unknown",
-                               upload_to_s3: bool = True,
-                               fake_file_stats: bool = False,
-                               default_file_size: int = 0,
-                               ) -> sqlite3.Row:
+    def create_new_file_record(
+        self,
+        filename: str,
+        job_id: int,
+        username: str,
+        import_or_export: int,
+        status: str = "unknown",
+        upload_to_s3: bool = True,
+        fake_file_stats: bool = False,
+        default_file_size: int = 0,
+    ) -> sqlite3.Row:
         """
         Create a new file record in the database. The (username, job_id) tuple must already exist in the ivert_jobs table.
 
@@ -1139,7 +1274,9 @@ class JobsDatabaseServer(JobsDatabaseClient):
             ValueError: If a job matching the (job_id, username) pair doesn't exist in the database.
         """
         if not self.job_exists(username, job_id):
-            raise ValueError(f"Job '{username}_{job_id} does not exist in the IVERT jobs database.")
+            raise ValueError(
+                f"Job '{username}_{job_id} does not exist in the IVERT jobs database."
+            )
 
         # Get just the basename of the filename. Strip any directories.
         f_basename = os.path.basename(filename)
@@ -1169,14 +1306,18 @@ class JobsDatabaseServer(JobsDatabaseClient):
                           """
 
         # Insert the new file into the database
-        cursor.execute(insert_query,
-                       (job_id,
-                        username,
-                        f_basename,
-                        import_or_export,
-                        file_size,
-                        file_md5,
-                        status))
+        cursor.execute(
+            insert_query,
+            (
+                job_id,
+                username,
+                f_basename,
+                import_or_export,
+                file_size,
+                file_md5,
+                status,
+            ),
+        )
 
         self.increment_vnumber(cursor)
         conn.commit()
@@ -1187,9 +1328,11 @@ class JobsDatabaseServer(JobsDatabaseClient):
         existing_row = self.file_exists(f_basename, username, job_id, return_row=True)
         return existing_row
 
-    def increment_vnumber(self,
-                          cursor: typing.Union[sqlite3.Cursor, None] = None,
-                          reset_to_zero: bool = False) -> None:
+    def increment_vnumber(
+        self,
+        cursor: typing.Union[sqlite3.Cursor, None] = None,
+        reset_to_zero: bool = False,
+    ) -> None:
         """Increment the version number in the database.
 
         This is done every time a commit change is made to the database.
@@ -1230,31 +1373,39 @@ class JobsDatabaseServer(JobsDatabaseClient):
         conn.commit()
         return
 
-    def create_or_update_sns_subscription(self,
-                                          username: str,
-                                          email: str,
-                                          topic_arn: str,
-                                          sns_arn: str,
-                                          sns_filter_string: typing.Union[str, None],
-                                          increment_vnum: bool = True,
-                                          upload_to_s3: bool = True) -> None:
+    def create_or_update_sns_subscription(
+        self,
+        username: str,
+        email: str,
+        topic_arn: str,
+        sns_arn: str,
+        sns_filter_string: typing.Union[str, None],
+        increment_vnum: bool = True,
+        upload_to_s3: bool = True,
+    ) -> None:
         """Create a record of a new SNS subscription. If this record alredy exists, update it."""
         # First, see if this subscription already exists or not.
         conn = self.get_connection()
         cursor = conn.cursor()
 
-        cursor.execute("SELECT * FROM sns_subscriptions WHERE user_email = ? AND topic_arn = ? AND sns_arn = ?;",
-                       (email, topic_arn, sns_arn))
+        cursor.execute(
+            "SELECT * FROM sns_subscriptions WHERE user_email = ? AND topic_arn = ? AND sns_arn = ?;",
+            (email, topic_arn, sns_arn),
+        )
         result = cursor.fetchone()
         if result is None:
             # The sns subscription doesn't exist. Create a new record.
-            cursor.execute("""INSERT INTO sns_subscriptions (username, user_email, topic_arn, sns_filter_string, sns_arn) "
+            cursor.execute(
+                """INSERT INTO sns_subscriptions (username, user_email, topic_arn, sns_filter_string, sns_arn) "
                            VALUES (?, ?, ?, ?, ?);""",
-                           (username, email, topic_arn, sns_filter_string, sns_arn))
+                (username, email, topic_arn, sns_filter_string, sns_arn),
+            )
         else:
-            cursor.execute("UPDATE sns_subscriptions SET username = ?, sns_filter_string = ? "
-                           "WHERE user_email = ? AND topic_arn = ? AND sns_arn = ?;",
-                           (username, sns_filter_string, email, topic_arn, sns_arn))
+            cursor.execute(
+                "UPDATE sns_subscriptions SET username = ?, sns_filter_string = ? "
+                "WHERE user_email = ? AND topic_arn = ? AND sns_arn = ?;",
+                (username, sns_filter_string, email, topic_arn, sns_arn),
+            )
 
         if increment_vnum:
             self.increment_vnumber(cursor)
@@ -1264,10 +1415,9 @@ class JobsDatabaseServer(JobsDatabaseClient):
         if upload_to_s3:
             self.upload_to_s3()
 
-    def remove_sns_subscription(self,
-                                email: str,
-                                update_vnum: bool = True,
-                                upload_to_s3: bool = True) -> None:
+    def remove_sns_subscription(
+        self, email: str, update_vnum: bool = True, upload_to_s3: bool = True
+    ) -> None:
         """Remove a record of an SNS subscription from the database.
 
         Note: this does not actually unsubscribe the user from the SNS topic. It just deletes the record.
@@ -1285,15 +1435,15 @@ class JobsDatabaseServer(JobsDatabaseClient):
         conn = self.get_connection()
         cursor = conn.cursor()
 
-        cursor.execute("SELECT count(*) FROM sns_subscriptions WHERE user_email = ?;",
-                       (email,))
+        cursor.execute(
+            "SELECT count(*) FROM sns_subscriptions WHERE user_email = ?;", (email,)
+        )
         count = cursor.fetchone()[0]
         if count == 0:
             # If it doesn't exist, just return. Nothing to do here.
             return
 
-        cursor.execute("DELETE FROM sns_subscriptions WHERE user_email = ?;",
-                       (email,))
+        cursor.execute("DELETE FROM sns_subscriptions WHERE user_email = ?;", (email,))
 
         if update_vnum:
             self.increment_vnumber(cursor)
@@ -1303,21 +1453,25 @@ class JobsDatabaseServer(JobsDatabaseClient):
         if upload_to_s3:
             self.upload_to_s3(only_if_newer=False)
 
-    def create_new_sns_message(self,
-                               username: str,
-                               job_id: typing.Union[str, int],
-                               subject: str,
-                               sns_response: str,
-                               update_vnum: bool = True,
-                               upload_to_s3: bool = True) -> None:
+    def create_new_sns_message(
+        self,
+        username: str,
+        job_id: typing.Union[str, int],
+        subject: str,
+        sns_response: str,
+        update_vnum: bool = True,
+        upload_to_s3: bool = True,
+    ) -> None:
         """Create a new record of an SNS message sent to an SNS topic."""
 
         conn = self.get_connection()
         cursor = conn.cursor()
 
-        cursor.execute("INSERT INTO sns_messages (username, job_id, subject, response) "
-                       "VALUES (?, ?, ?, ?);",
-                       (username, job_id, subject, sns_response))
+        cursor.execute(
+            "INSERT INTO sns_messages (username, job_id, subject, response) "
+            "VALUES (?, ?, ?, ?);",
+            (username, job_id, subject, sns_response),
+        )
 
         if update_vnum:
             self.increment_vnumber(cursor)
@@ -1342,7 +1496,7 @@ class JobsDatabaseServer(JobsDatabaseClient):
             try:
                 self.s3m.delete(self.s3_database_key, bucket_type=self.s3_bucket_type)
             except botocore.exceptions.ClientError as e:
-                if e.response['Error']['Code'] == 'AccessDenied':
+                if e.response["Error"]["Code"] == "AccessDenied":
                     print("Access denied to delete the database from the S3 bucket.")
                 else:
                     raise e
@@ -1350,13 +1504,15 @@ class JobsDatabaseServer(JobsDatabaseClient):
         # Delete the database locally using the JobsDatabaseClient::delete_database() method.
         super().delete_database()
 
-    def export_single_job_data(self,
-                               username: str,
-                               job_id: typing.Union[str, int],
-                               local_directory: str,
-                               s3_directory: str,
-                               upload_to_s3: bool = True,
-                               verbose: bool = False) -> None:
+    def export_single_job_data(
+        self,
+        username: str,
+        job_id: typing.Union[str, int],
+        local_directory: str,
+        s3_directory: str,
+        upload_to_s3: bool = True,
+        verbose: bool = False,
+    ) -> None:
         """Export a subset of the database, just the ivert_jobs and ivert_files data, for a single job.
 
         Will automatically overwrite any other subset database in the local directory.
@@ -1388,10 +1544,12 @@ class JobsDatabaseServer(JobsDatabaseClient):
             os.remove(db_fname)
 
         # Create a new database.
-        conn = self.create_new_database(database_fname=db_fname,
-                                        only_if_not_exists_in_s3=False,
-                                        overwrite=True,
-                                        verbose=verbose)
+        conn = self.create_new_database(
+            database_fname=db_fname,
+            only_if_not_exists_in_s3=False,
+            overwrite=True,
+            verbose=verbose,
+        )
 
         # Drop the subscriptions and messages tables, we don't need them.
         conn.execute("DROP TABLE IF EXISTS sns_subscriptions;")
@@ -1403,27 +1561,30 @@ class JobsDatabaseServer(JobsDatabaseClient):
         # Copy the data into the new database.
         job_data.to_sql("ivert_jobs", conn, if_exists="replace", index=False)
         file_data.to_sql("ivert_files", conn, if_exists="replace", index=False)
-        conn.execute("INSERT OR REPLACE INTO vnumber (vnum) VALUES (?)", (current_vnum,))
+        conn.execute(
+            "INSERT OR REPLACE INTO vnumber (vnum) VALUES (?)", (current_vnum,)
+        )
         conn.commit()
 
         # 3. Upload the local file to the s3 bucket.
         if upload_to_s3:
             s3_key = os.path.join(s3_directory, os.path.basename(db_fname))
-            self.s3m.upload(db_fname,
-                            s3_key,
-                            bucket_type="export_server",
-                            delete_original=True,
-                            recursive=False,
-                            other_metadata={
-                                self.s3_latest_job_metadata_key: str(job_id),
-                                self.s3_vnum_metadata_key: str(current_vnum),
-                                self.ivert_config.s3_jobs_db_ivert_version_metadata_key: version.__version__,
-                            },
-                            )
+            self.s3m.upload(
+                db_fname,
+                s3_key,
+                bucket_type="export_server",
+                delete_original=True,
+                recursive=False,
+                other_metadata={
+                    self.s3_latest_job_metadata_key: str(job_id),
+                    self.s3_vnum_metadata_key: str(current_vnum),
+                    self.ivert_config.s3_jobs_db_ivert_version_metadata_key: version.__version__,
+                },
+            )
 
-    def archive_database(self,
-                         cutoff_date_str: str = "7 days ago",
-                         verbose: bool = True) -> None:
+    def archive_database(
+        self, cutoff_date_str: str = "7 days ago", verbose: bool = True
+    ) -> None:
         """Truncate the database to only jobs that were created before a certain cutoff date.
 
         Files and jobs before that date will be copied into an archive file, of the name ivert_jobs_archive_YYYYMMDD_YYYYMMDD.db,
@@ -1439,13 +1600,21 @@ class JobsDatabaseServer(JobsDatabaseClient):
         # First, make a copy of the database.
         base, ext = os.path.splitext(self.db_fname)
         cutoff_date = dateparser.parse(cutoff_date_str).date()
-        earliest_job_date_str = str(self.earliest_job_number('database'))[:-4]
+        earliest_job_date_str = str(self.earliest_job_number("database"))[:-4]
         # Create the location of the archive database file.
-        archive_fname = os.path.join(self.ivert_config.ivert_jobs_archive_dir,
-                                     os.path.basename(base + f"_archive_{earliest_job_date_str}_{cutoff_date.year:04}{cutoff_date.month:02}{cutoff_date.day:02}" + ext))
+        archive_fname = os.path.join(
+            self.ivert_config.ivert_jobs_archive_dir,
+            os.path.basename(
+                base
+                + f"_archive_{earliest_job_date_str}_{cutoff_date.year:04}{cutoff_date.month:02}{cutoff_date.day:02}"
+                + ext
+            ),
+        )
 
         cutoff_date_p1 = cutoff_date
-        job_id_cutoff = int(f"{cutoff_date_p1.year:04}{cutoff_date_p1.month:02}{cutoff_date_p1.day:02}0000")
+        job_id_cutoff = int(
+            f"{cutoff_date_p1.year:04}{cutoff_date_p1.month:02}{cutoff_date_p1.day:02}0000"
+        )
 
         # Create a full copy of the old database.
         conn = self.get_connection()
@@ -1453,7 +1622,9 @@ class JobsDatabaseServer(JobsDatabaseClient):
         # First, see if there are any jobs in the current database that are older than the cutoff date.
         # If not, there's nothing to do here.
         cursor = conn.cursor()
-        cursor.execute("SELECT COUNT(*) FROM ivert_jobs WHERE job_id < ?;", (job_id_cutoff,))
+        cursor.execute(
+            "SELECT COUNT(*) FROM ivert_jobs WHERE job_id < ?;", (job_id_cutoff,)
+        )
         if cursor.fetchone()[0] == 0:
             return
 
@@ -1467,25 +1638,43 @@ class JobsDatabaseServer(JobsDatabaseClient):
 
         # Now truncate the old database to only include files and jobs that are older or including the cutoff date.
         # Delete any files, jobs, or messages that are newer than the cutoff date.
-        total_jobs_count = cursor.execute(f"SELECT COUNT(*) FROM ivert_jobs;").fetchone()[0]
-        total_files_count = cursor.execute("SELECT COUNT(*) FROM ivert_files;").fetchone()[0]
-        total_sns_count = cursor.execute("SELECT COUNT(*) FROM sns_messages;").fetchone()[0]
+        total_jobs_count = cursor.execute(
+            "SELECT COUNT(*) FROM ivert_jobs;"
+        ).fetchone()[0]
+        total_files_count = cursor.execute(
+            "SELECT COUNT(*) FROM ivert_files;"
+        ).fetchone()[0]
+        total_sns_count = cursor.execute(
+            "SELECT COUNT(*) FROM sns_messages;"
+        ).fetchone()[0]
 
         # Now truncate the old database to only include files and jobs that are older or including the cutoff date.
         # Delete any files, jobs, or messages that are newer than the cutoff date.
         cursor_archive = conn_archive.cursor()
-        cursor_archive.execute("DELETE FROM ivert_files WHERE job_id >= ?;", (job_id_cutoff,))
-        cursor_archive.execute("DELETE FROM ivert_jobs WHERE job_id >= ?;", (job_id_cutoff,))
-        cursor_archive.execute("DELETE FROM sns_messages WHERE job_id >= ?;", (job_id_cutoff,))
+        cursor_archive.execute(
+            "DELETE FROM ivert_files WHERE job_id >= ?;", (job_id_cutoff,)
+        )
+        cursor_archive.execute(
+            "DELETE FROM ivert_jobs WHERE job_id >= ?;", (job_id_cutoff,)
+        )
+        cursor_archive.execute(
+            "DELETE FROM sns_messages WHERE job_id >= ?;", (job_id_cutoff,)
+        )
         conn_archive.commit()
         # The "vacuum" command is used to free up disk space.
         cursor_archive.execute("VACUUM;")
         conn_archive.commit()
 
         # Now query how many files there are.
-        old_jobs_count = cursor_archive.execute(f"SELECT COUNT(*) FROM ivert_jobs;").fetchone()[0]
-        old_files_count = cursor_archive.execute("SELECT COUNT(*) FROM ivert_files;").fetchone()[0]
-        old_sns_count = cursor_archive.execute("SELECT COUNT(*) FROM sns_messages;").fetchone()[0]
+        old_jobs_count = cursor_archive.execute(
+            "SELECT COUNT(*) FROM ivert_jobs;"
+        ).fetchone()[0]
+        old_files_count = cursor_archive.execute(
+            "SELECT COUNT(*) FROM ivert_files;"
+        ).fetchone()[0]
+        old_sns_count = cursor_archive.execute(
+            "SELECT COUNT(*) FROM sns_messages;"
+        ).fetchone()[0]
 
         conn_archive.close()
 
@@ -1501,16 +1690,28 @@ class JobsDatabaseServer(JobsDatabaseClient):
         cursor.execute("VACUUM;")
         conn.commit()
 
-        new_jobs_count = cursor.execute(f"SELECT COUNT(*) FROM ivert_jobs;").fetchone()[0]
-        new_files_count = cursor.execute("SELECT COUNT(*) FROM ivert_files;").fetchone()[0]
-        new_sns_count = cursor.execute("SELECT COUNT(*) FROM sns_messages;").fetchone()[0]
+        new_jobs_count = cursor.execute("SELECT COUNT(*) FROM ivert_jobs;").fetchone()[
+            0
+        ]
+        new_files_count = cursor.execute(
+            "SELECT COUNT(*) FROM ivert_files;"
+        ).fetchone()[0]
+        new_sns_count = cursor.execute("SELECT COUNT(*) FROM sns_messages;").fetchone()[
+            0
+        ]
 
         assert os.path.exists(archive_fname)
         if verbose:
             print(os.path.basename(archive_fname), "written.")
-            print(f"{total_jobs_count:,} jobs, {total_files_count:,} files, and {total_sns_count:,} messages in {os.path.basename(self.db_fname)} (originally).")
-            print(f"{old_jobs_count:,} jobs, {old_files_count:,} files, and {old_sns_count:,} messages in {os.path.basename(archive_fname)}.")
-            print(f"{new_jobs_count:,} jobs, {new_files_count:,} files, and {new_sns_count:,} messages in {os.path.basename(self.db_fname)} (now).")
+            print(
+                f"{total_jobs_count:,} jobs, {total_files_count:,} files, and {total_sns_count:,} messages in {os.path.basename(self.db_fname)} (originally)."
+            )
+            print(
+                f"{old_jobs_count:,} jobs, {old_files_count:,} files, and {old_sns_count:,} messages in {os.path.basename(archive_fname)}."
+            )
+            print(
+                f"{new_jobs_count:,} jobs, {new_files_count:,} files, and {new_sns_count:,} messages in {os.path.basename(self.db_fname)} (now)."
+            )
 
         # Reset the version number back to zero.
         # TODO: This will require a hard (required) update in IVERT client software.
@@ -1527,24 +1728,72 @@ class JobsDatabaseServer(JobsDatabaseClient):
 
 def define_and_parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Manipulate the ivert_jobs database.")
-    parser.add_argument("command", type=str, choices=["create", "upload", "download", "delete", "print", "archive"],
-                        help="The command to execute. Choices: create, upload, download, delete, print, archive")
-    parser.add_argument("-o", "--overwrite", dest="overwrite", action="store_true",
-                        help="Overwrite the existing database. (For create command only) Default: False")
-    parser.add_argument("-t", "--table", dest="table",
-                        help="Name of the table to print to the screen. Only used for the 'print' command.")
-    parser.add_argument("-a", "--all", dest="all", action="store_true", default=False,
-                        help="Print all the columns of the table. Used only with 'print -t' command.")
-    parser.add_argument("-d", "--days_ago", dest="days_ago", type=int, default=7,
-                        help="When 'archive'ing, archive job & file entries older than this many days. Default: 7")
-    parser.add_argument("-vn", "--vnum", dest="vnum", default="",
-                        help="Print the mod-version of the database, from the 'database'/'d' or 'server'/'s'. Used only with the print command.")
-    parser.add_argument("-v", "--version", dest="version", action="store_true", default=False,
-                        help="Print the version of the IVERT software running on the databse. Used only with the print command.")
-    parser.add_argument("-j", "--job_id", dest="job_id", type=int, default=None,
-                        help="Print only records from the given job_id. Default: Print all records.")
-    parser.add_argument("-l", "--latest", dest="latest", action="store_true", default=False,
-                        help="Get the latest job number from the IVERT online database.")
+    parser.add_argument(
+        "command",
+        type=str,
+        choices=["create", "upload", "download", "delete", "print", "archive"],
+        help="The command to execute. Choices: create, upload, download, delete, print, archive",
+    )
+    parser.add_argument(
+        "-o",
+        "--overwrite",
+        dest="overwrite",
+        action="store_true",
+        help="Overwrite the existing database. (For create command only) Default: False",
+    )
+    parser.add_argument(
+        "-t",
+        "--table",
+        dest="table",
+        help="Name of the table to print to the screen. Only used for the 'print' command.",
+    )
+    parser.add_argument(
+        "-a",
+        "--all",
+        dest="all",
+        action="store_true",
+        default=False,
+        help="Print all the columns of the table. Used only with 'print -t' command.",
+    )
+    parser.add_argument(
+        "-d",
+        "--days_ago",
+        dest="days_ago",
+        type=int,
+        default=7,
+        help="When 'archive'ing, archive job & file entries older than this many days. Default: 7",
+    )
+    parser.add_argument(
+        "-vn",
+        "--vnum",
+        dest="vnum",
+        default="",
+        help="Print the mod-version of the database, from the 'database'/'d' or 'server'/'s'. Used only with the print command.",
+    )
+    parser.add_argument(
+        "-v",
+        "--version",
+        dest="version",
+        action="store_true",
+        default=False,
+        help="Print the version of the IVERT software running on the databse. Used only with the print command.",
+    )
+    parser.add_argument(
+        "-j",
+        "--job_id",
+        dest="job_id",
+        type=int,
+        default=None,
+        help="Print only records from the given job_id. Default: Print all records.",
+    )
+    parser.add_argument(
+        "-l",
+        "--latest",
+        dest="latest",
+        action="store_true",
+        default=False,
+        help="Get the latest job number from the IVERT online database.",
+    )
 
     return parser.parse_args()
 
@@ -1585,7 +1834,7 @@ if __name__ == "__main__":
 
         else:
             if args.all:
-                with pandas.option_context('display.max_columns', None):
+                with pandas.option_context("display.max_columns", None):
                     print(idb.read_table_as_pandas_df(args.table, job_id=args.job_id))
             else:
                 print(idb.read_table_as_pandas_df(args.table, job_id=args.job_id))

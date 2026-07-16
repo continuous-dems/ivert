@@ -15,6 +15,7 @@ ivert_default_configfile = str(
 
 ivert_config = None
 
+
 class Config:
     """A subclass implementation of configparser.ConfigParser(), expect that Config attributes are referenced as object
     attributes rather than in a dictionary.
@@ -39,9 +40,9 @@ class Config:
     No other sections are read by this object, for now.
     """
 
-    def __init__(self,
-                 configfile: str = ivert_default_configfile,
-                 ignore_errors: bool = False):
+    def __init__(
+        self, configfile: str = ivert_default_configfile, ignore_errors: bool = False
+    ):
         """Initializes a new instance of the Config class."""
 
         self._configfile = os.path.abspath(os.path.realpath(configfile))
@@ -64,7 +65,9 @@ class Config:
         #     self._add_user_variables_and_s3_creds_to_config_obj(ignore_errors=ignore_errors)
 
         # If loading the defaults config, overlay any user-local overrides on top.
-        if os.path.basename(self._configfile) == os.path.basename(ivert_default_configfile):
+        if os.path.basename(self._configfile) == os.path.basename(
+            ivert_default_configfile
+        ):
             self._apply_user_config()
 
         # If 'ivert_version' is present and not already set, set it.
@@ -85,7 +88,9 @@ class Config:
         # If we've specified to do this only if the path doesn't exist in its current location,
         # and the path does exist in its current location (either the filename, or the parent directory),
         # then just return the path as-is
-        if only_if_actual_path_doesnt_exist and (os.path.exists(path) or os.path.exists(os.path.split(path)[0])):
+        if only_if_actual_path_doesnt_exist and (
+            os.path.exists(path) or os.path.exists(os.path.split(path)[0])
+        ):
             return path
 
         return os.path.abspath(os.path.join(os.path.dirname(self._configfile), path))
@@ -148,7 +153,7 @@ class Config:
             # Using ast.literal_eval() rather than eval(), because literal_eval only allows the creation of generic
             # python objects but doesn't allow the calling of functions or commands that could pose security risks.
             # It will natively evaluate things like lists, dictionaries, or other generic python data types.
-            val = setattr(self, key, ast.literal_eval(value))
+            setattr(self, key, ast.literal_eval(value))
             return
         except (NameError, ValueError, SyntaxError):
             pass
@@ -170,11 +175,11 @@ class Config:
                 # This is an S3 key-path. Do not convert it to an absolute path.
                 pass
 
-            elif re.match(r'[a-zA-Z][a-zA-Z0-9+\-.]*://', value.strip()):
+            elif re.match(r"[a-zA-Z][a-zA-Z0-9+\-.]*://", value.strip()):
                 # This is a URL (http://, https://, ftp://, s3://, etc.). Leave it as-is.
                 pass
 
-            elif sys.platform in ('linux', 'cygwin', 'darwin') and value.find("/") > -1:
+            elif sys.platform in ("linux", "cygwin", "darwin") and value.find("/") > -1:
                 # If it's an absolute path or it already exists where it is, just use it as-is
                 if value.strip().find("/") == 0:
                     setattr(self, key, os.path.abspath(value))
@@ -183,20 +188,32 @@ class Config:
                     setattr(self, key, os.path.abspath(os.path.expanduser(value)))
                 # If it's a relative path, make it relative to the _configfile's local directory.
                 else:
-                    setattr(self, key, self._abspath(os.path.join(os.path.dirname(self._configfile), value)))
+                    setattr(
+                        self,
+                        key,
+                        self._abspath(
+                            os.path.join(os.path.dirname(self._configfile), value)
+                        ),
+                    )
                 return
 
-            elif sys.platform in ('win32', 'win64') and value.find("\\") > -1:
+            elif sys.platform in ("win32", "win64") and value.find("\\") > -1:
                 # If it's an absolute path or it already exists where it is, just use it as-is
                 # For a base path, look for the "C:\" drive-name pattern at the start (upper- or lower-case).
-                if re.search(r'\A[A-Za-z]:\\', value.strip()) is not None:
+                if re.search(r"\A[A-Za-z]:\\", value.strip()) is not None:
                     setattr(self, key, os.path.abspath(value))
                 # If it references the home directory, expand that on the local machine.
                 elif value.find("~") > -1:
                     setattr(self, key, os.path.abspath(os.path.expanduser(value)))
                 # If it's a relative path, make it relative to the _configfile directory.
                 else:
-                    setattr(self, key, self._abspath(os.path.join(os.path.dirname(self._configfile), value)))
+                    setattr(
+                        self,
+                        key,
+                        self._abspath(
+                            os.path.join(os.path.dirname(self._configfile), value)
+                        ),
+                    )
                 return
         except ValueError:
             pass
@@ -365,39 +382,39 @@ class Config:
     #         else:
     #             raise e
 
-        # If we're on the server side (in the AWS), get these from the "ivert_setup" repository under /setup/paths.sh.
-        #    In this case, only the s3_bucket_import_trusted, s3_bucket_database, and s3_bucket_export are needed.
-        # if self.is_aws:
-        #     self._fill_bucket_names_from_ivert_setup()
+    # If we're on the server side (in the AWS), get these from the "ivert_setup" repository under /setup/paths.sh.
+    #    In this case, only the s3_bucket_import_trusted, s3_bucket_database, and s3_bucket_export are needed.
+    # if self.is_aws:
+    #     self._fill_bucket_names_from_ivert_setup()
 
-        # If we're on the client side (not in an AWS instance), get these from the user configfile.
-        # else:
-        #     try:
-        #         if os.path.exists(self.user_configfile):
-        #             user_config = Config(self.user_configfile)
-        #             self.user_email = user_config.user_email
-        #             self.username = user_config.username
-        #             self.aws_profile_ivert_import_untrusted = user_config.aws_profile_ivert_import_untrusted
-        #             self.aws_profile_ivert_export_client = user_config.aws_profile_ivert_export_client
-        #             self.aws_profile_ivert_export_alt = user_config.aws_profile_ivert_export_alt
-        #
-        #         # Now try to read the s3 credentials file.
-        #         if os.path.exists(os.path.abspath(self.ivert_s3_credentials_file)):
-        #             s3_credentials = Config(self.ivert_s3_credentials_file)
-        #             self.s3_bucket_import_untrusted = s3_credentials.s3_bucket_import_untrusted
-        #             self.s3_import_untrusted_endpoint_url = s3_credentials.s3_import_untrusted_endpoint_url
-        #
-        #             self.s3_bucket_export_client = s3_credentials.s3_bucket_export_client
-        #             self.s3_export_client_endpoint_url = s3_credentials.s3_export_client_endpoint_url
-        #
-        #             self.s3_bucket_export_alt = s3_credentials.s3_bucket_export_alt
-        #             self.s3_export_alt_endpoint_url = s3_credentials.s3_export_alt_endpoint_url
-        #
-        #
-        #     except AttributeError as e:
-        #         if ignore_errors:
-        #             pass
-        #         else:
-        #             raise e
+    # If we're on the client side (not in an AWS instance), get these from the user configfile.
+    # else:
+    #     try:
+    #         if os.path.exists(self.user_configfile):
+    #             user_config = Config(self.user_configfile)
+    #             self.user_email = user_config.user_email
+    #             self.username = user_config.username
+    #             self.aws_profile_ivert_import_untrusted = user_config.aws_profile_ivert_import_untrusted
+    #             self.aws_profile_ivert_export_client = user_config.aws_profile_ivert_export_client
+    #             self.aws_profile_ivert_export_alt = user_config.aws_profile_ivert_export_alt
+    #
+    #         # Now try to read the s3 credentials file.
+    #         if os.path.exists(os.path.abspath(self.ivert_s3_credentials_file)):
+    #             s3_credentials = Config(self.ivert_s3_credentials_file)
+    #             self.s3_bucket_import_untrusted = s3_credentials.s3_bucket_import_untrusted
+    #             self.s3_import_untrusted_endpoint_url = s3_credentials.s3_import_untrusted_endpoint_url
+    #
+    #             self.s3_bucket_export_client = s3_credentials.s3_bucket_export_client
+    #             self.s3_export_client_endpoint_url = s3_credentials.s3_export_client_endpoint_url
+    #
+    #             self.s3_bucket_export_alt = s3_credentials.s3_bucket_export_alt
+    #             self.s3_export_alt_endpoint_url = s3_credentials.s3_export_alt_endpoint_url
+    #
+    #
+    #     except AttributeError as e:
+    #         if ignore_errors:
+    #             pass
+    #         else:
+    #             raise e
 
-        # return
+    # return
