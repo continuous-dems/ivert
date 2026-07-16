@@ -27,7 +27,6 @@ import ivert.utils.pickle_blosc
 import ivert.utils.split_dem
 import ivert.plot_validation_results
 import ivert.icesat2_database_v2
-import ivert.coastline_mask
 import ivert.utils.dem_geom as dem_geom
 import ivert.transform_points
 import ivert.utils.loggerproc
@@ -411,40 +410,14 @@ def kick_off_new_child_process(
 def subdivide_dem(
     dem_name: str, factor: int = 2, output_dir: str | None = None, verbose: bool = False
 ) -> list[str]:
-    """Split a DEM into 4 smaller parts.
+    """Split a DEM into 4 smaller parts."""
 
-    Also attempt to subdivide its coastline mask if it already exists."""
-
-    # First make sure the dem exists, and check to see if the coastline mask exists.
     if not os.path.exists(dem_name):
         raise FileNotFoundError(f"DEM {dem_name} does not exist.")
 
     sub_dems = ivert.utils.split_dem.split(
         dem_name, factor=factor, output_dir=output_dir, verbose=verbose
     )
-
-    # If the coastline mask exists, sub-divide that into 4 parts too.
-    # Don't need to keep track of the coastline files, it'll be automatically detected as existing by validate_dem_parallel.
-    dem_base, ext = os.path.splitext(dem_name)
-    cmask_name = dem_base + "_coastline_mask" + ext
-
-    if not os.path.exists(cmask_name):
-        if os.path.exists(os.path.join(output_dir, cmask_name)):
-            cmask_name = os.path.join(output_dir, cmask_name)
-
-    if os.path.exists(cmask_name):
-        cmask_names = ivert.utils.split_dem.split(
-            cmask_name, factor=factor, verbose=verbose
-        )
-        # Gotta change the filenames though. "_coastline_mask" should be at the end.
-        for cname in cmask_names:
-            cdir, cbase = os.path.split(cname)
-            cbase, cext = os.path.splitext(cbase)
-            new_cbase = cbase.replace("_coastline_mask", "") + "_coastline_mask" + cext
-            new_cname = os.path.join(cdir, new_cbase)
-            if verbose:
-                print(os.path.basename(cname), "->", os.path.basename(new_cname))
-            os.rename(cname, new_cname)
 
     return sub_dems
 
@@ -514,7 +487,6 @@ def validate_dem(
     orig_dem_name: str | None = None,
     min_confidence_level: int = 4,
     min_bathy_confidence: float = 0.90,
-    filter_misclassified: bool = True,
     export_error_formats: str | list | None = None,
     verbose: bool = True,
 ):
@@ -555,8 +527,6 @@ def validate_dem(
         subdivision_number (int): The current recursion depth of this subdivision. Will not subdivide further if
             subdivision_number == max_subdivides.
         orig_dem_name (str): Name of the original DEM file. Only used for error messages.
-        filter_misclassified (bool): Discard cells whose large errors are likely caused by
-            mis-classified ICESat-2 photons, using a coastline mask. Defaults to True.
         export_error_formats (str, list, None): GIS formats to export the per-cell errors into,
             as a comma-separated string or list drawn from 'tif', 'gpkg', 'shp', 'xyz'. Defaults
             to None, which uses the 'export_error_formats' config value.
@@ -593,7 +563,6 @@ def validate_dem(
         "numprocs": numprocs,
         "min_confidence_level": min_confidence_level,
         "min_bathy_confidence": min_bathy_confidence,
-        "filter_misclassified": filter_misclassified,
         "export_error_formats": export_error_formats,
         "verbose": verbose,
     }
@@ -1601,73 +1570,6 @@ def _run_parallel_cell_validation(
     return results_dataframes_list
 
 
-def filter_misclassified_photons(
-    results_dataframe: pandas.DataFrame,
-    mask_array: numpy.ndarray,
-    error_threshold_m: float,
-    verbose: bool = True,
-) -> tuple[pandas.DataFrame, int]:
-    """Discard DEM cells whose errors are likely driven by mis-classified ICESat-2 photons.
-
-    Uses a DEM-aligned coastline mask (land=1, water=0) to classify each results cell as
-    onshore or offshore, then drops cells whose absolute error exceeds error_threshold_m and
-    that match a known misclassification pattern:
-
-        - Offshore with a large error (false 'bathy_floor' or false 'ground' offshore).
-        - Onshore but containing 'bathy_floor' (class 40) photons with a large error.
-
-    Legitimate onshore ground errors (large errors with no bathy photons on land) are KEPT.
-
-    Args:
-        results_dataframe: Per-cell results, MultiIndexed by (i, j). Must contain the
-            'diff_mean', 'numphotons_bathy', and 'numphotons' columns.
-        mask_array: Coastline mask aligned to the DEM grid (coastline_mask.MASK_LAND / WATER).
-        error_threshold_m: Absolute-error threshold (meters) above which a matching cell is dropped.
-        verbose: Print a diagnostic message.
-
-    Returns:
-        (filtered_dataframe, n_photons_discarded), where n_photons_discarded is the number of
-        photons in the discarded cells (reported to the user, while the unit dropped is the cell).
-    """
-    if len(results_dataframe) == 0:
-        return results_dataframe, 0
-
-    i_idx = results_dataframe.index.get_level_values("i").to_numpy()
-    j_idx = results_dataframe.index.get_level_values("j").to_numpy()
-
-    # Guard against any indices outside the mask (shouldn't happen, but stay safe).
-    in_bounds = (
-        (i_idx >= 0)
-        & (i_idx < mask_array.shape[0])
-        & (j_idx >= 0)
-        & (j_idx < mask_array.shape[1])
-    )
-    cell_mask_vals = numpy.full(
-        len(results_dataframe), ivert.coastline_mask.MASK_NODATA, dtype=int
-    )
-    cell_mask_vals[in_bounds] = mask_array[i_idx[in_bounds], j_idx[in_bounds]]
-
-    onshore = cell_mask_vals == ivert.coastline_mask.MASK_LAND
-    offshore = cell_mask_vals == ivert.coastline_mask.MASK_WATER
-    # Cells over MASK_NODATA (unknown) are neither -> never auto-discarded.
-
-    err = results_dataframe["diff_mean"].abs().to_numpy()
-    has_bathy = results_dataframe["numphotons_bathy"].to_numpy() > 0
-
-    discard = (err > error_threshold_m) & (offshore | (onshore & has_bathy))
-
-    n_photons_discarded = int(results_dataframe.loc[discard, "numphotons"].sum())
-
-    if verbose and discard.any():
-        print(
-            "{0:,} DEM cells flagged as likely-misclassified and removed.".format(
-                int(discard.sum())
-            )
-        )
-
-    return results_dataframe[~discard].copy(), n_photons_discarded
-
-
 def _write_validation_outputs(
     results_dataframes_list,
     dem_ds,
@@ -1686,10 +1588,9 @@ def _write_validation_outputs(
     shared_ret_values,
     verbose,
     files_to_export,
-    filter_misclassified=True,
     export_error_formats=None,
 ):
-    """Concatenate results, filter outliers and misclassified photons, and write all output files.
+    """Concatenate results, filter outliers, and write all output files.
 
     Returns the final files_to_export list.
     """
@@ -1725,29 +1626,6 @@ def _write_validation_outputs(
                     len(results_dataframe)
                 )
             )
-
-    # Discard cells whose large errors are likely driven by mis-classified ICESat-2 photons
-    # (e.g. false offshore 'bathy_floor'/'ground', or onshore 'bathy_floor'), using a
-    # coastline mask to classify each cell as onshore or offshore.
-    if filter_misclassified and len(results_dataframe) > 0:
-        # Write the mask alongside the other results (in output_dir), not next to the source DEM.
-        mask_output_fname = os.path.join(
-            os.path.dirname(results_dataframe_file),
-            os.path.splitext(os.path.basename(dem_name))[0] + "_coastline_mask.tif",
-        )
-        mask_fname = ivert.coastline_mask.get_or_create_coastline_mask(
-            dem_name, output_fname=mask_output_fname, verbose=verbose
-        )
-        if mask_fname is not None:
-            mask_array = ivert.coastline_mask.load_coastline_mask_array(mask_fname)
-            results_dataframe, n_photons_discarded = filter_misclassified_photons(
-                results_dataframe,
-                mask_array,
-                ivert_config.icesat2_misclassification_error_threshold_m,
-                verbose=verbose,
-            )
-        elif verbose:
-            print("Coastline mask unavailable; skipping misclassification filter.")
 
     if len(results_dataframe) == 0:
         if verbose:
@@ -1852,7 +1730,6 @@ def validate_dem_parallel(
     numprocs: int = parallel_funcs.physical_cpu_count(),
     min_confidence_level: int = 4,
     min_bathy_confidence: float = 0.90,
-    filter_misclassified: bool = True,
     export_error_formats: str | list | None = None,
     verbose: bool = True,
 ):
@@ -2016,7 +1893,6 @@ def validate_dem_parallel(
         shared_ret_values,
         verbose,
         files_to_export,
-        filter_misclassified=filter_misclassified,
         export_error_formats=export_error_formats,
     )
 
@@ -2406,12 +2282,6 @@ def read_and_parse_args():
         help="Overwrite all interim and output files, even if they already exist. Default: Use interim files to compute results, saving time.",
     )
     parser.add_argument(
-        "--no_misclassification_filter",
-        action="store_true",
-        default=False,
-        help="Disable the coastline-based filtering of likely mis-classified ICESat-2 photons. Default: filtering is on.",
-    )
-    parser.add_argument(
         "--quiet",
         action="store_true",
         default=False,
@@ -2459,6 +2329,5 @@ if __name__ == "__main__":
         measure_coverage=args.measure_coverage,
         numprocs=args.numprocs,
         band_num=args.band_num,
-        filter_misclassified=not args.no_misclassification_filter,
         verbose=not args.quiet,
     )
