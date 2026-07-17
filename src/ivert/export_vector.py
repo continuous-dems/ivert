@@ -23,11 +23,11 @@ Examples
     python ivert_output_vector.py granules/ --merge -o merged_bahamas.gpkg
 """
 
-import argparse
 import glob
 import os
 import sys
 
+import click
 import geopandas
 import netCDF4
 import numpy as np
@@ -170,82 +170,73 @@ def collect_nc_files(paths: list) -> list:
 # ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
-def define_and_parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(
-        description="Convert IVERT ICESat-2 .nc granule files to GIS vector formats.",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog=__doc__,
-    )
-    parser.add_argument(
-        "inputs",
-        nargs="+",
-        help=".nc file(s) or director(y/ies) containing .nc files.",
-    )
-    parser.add_argument(
-        "-of",
-        "--output_format",
-        dest="output_format",
-        default="gpkg",
-        choices=list(SUPPORTED_FORMATS.keys()),
-        help="Output format. Default: gpkg",
-    )
-    parser.add_argument(
-        "-d",
-        "--output_dir",
-        dest="output_dir",
-        default=None,
-        help="Output directory. Default: same directory as each input file.",
-    )
-    parser.add_argument(
-        "-o",
-        "--output",
-        dest="output",
-        default=None,
-        help="Explicit output filename (only valid with --merge or a single input).",
-    )
-    parser.add_argument(
-        "--merge",
-        action="store_true",
-        default=False,
-        help="Merge all input granules into a single output file.",
-    )
-    parser.add_argument(
-        "--classes",
-        default=None,
-        help="Comma-separated class codes to include (e.g. '1,40,41'). "
-        "Default: all classes.",
-    )
-    parser.add_argument(
-        "-w",
-        "--overwrite",
-        action="store_true",
-        default=False,
-        help="Overwrite existing output files.",
-    )
-    return parser.parse_args()
+@click.command(
+    help="Convert IVERT ICESat-2 .nc granule files to GIS vector formats.",
+    epilog=__doc__,
+)
+@click.argument("inputs", nargs=-1, required=True)
+@click.option(
+    "-of",
+    "--output_format",
+    default="gpkg",
+    type=click.Choice(list(SUPPORTED_FORMATS.keys())),
+    help="Output format. Default: gpkg",
+)
+@click.option(
+    "-d",
+    "--output_dir",
+    default=None,
+    help="Output directory. Default: same directory as each input file.",
+)
+@click.option(
+    "-o",
+    "--output",
+    default=None,
+    help="Explicit output filename (only valid with --merge or a single input).",
+)
+@click.option(
+    "--merge",
+    is_flag=True,
+    default=False,
+    help="Merge all input granules into a single output file.",
+)
+@click.option(
+    "--classes",
+    "classes_str",
+    default=None,
+    help="Comma-separated class codes to include (e.g. '1,40,41'). "
+    "Default: all classes.",
+)
+@click.option(
+    "-w",
+    "--overwrite",
+    is_flag=True,
+    default=False,
+    help="Overwrite existing output files.",
+)
+def main(inputs, output_format, output_dir, output, merge, classes_str, overwrite):
+    """Convert IVERT ICESat-2 .nc granule files to GIS vector formats.
 
-
-def main():
-    args = define_and_parse_args()
-
-    fmt_key = args.output_format.lower().lstrip(".")
+    INPUTS is one or more .nc file(s) or director(y/ies) containing .nc files.
+    """
+    fmt_key = output_format.lower().lstrip(".")
     _, ext = SUPPORTED_FORMATS[fmt_key]
 
     classes = None
-    if args.classes:
-        classes = [int(c.strip()) for c in args.classes.split(",")]
+    if classes_str:
+        classes = [int(c.strip()) for c in classes_str.split(",")]
 
-    nc_files = collect_nc_files(args.inputs)
+    nc_files = collect_nc_files(list(inputs))
     if not nc_files:
         sys.exit("No .nc files found.")
 
-    if args.output_dir and not os.path.isdir(args.output_dir):
-        sys.exit(f"Output directory does not exist: {args.output_dir}")
+    if output_dir and not os.path.isdir(output_dir):
+        sys.exit(f"Output directory does not exist: {output_dir}")
 
     # ------------------------------------------------------------------
     # Merged mode: combine all granules into one output file
     # ------------------------------------------------------------------
-    if args.merge:
+    if merge:
         gdfs = []
         for nc_path in nc_files:
             print(f"Reading {os.path.basename(nc_path)} ...", flush=True)
@@ -261,19 +252,19 @@ def main():
             crs=WGS84_EPSG,
         )
 
-        if args.output:
-            outpath = args.output
+        if output:
+            outpath = output
         else:
-            outdir = args.output_dir or os.path.dirname(nc_files[0])
+            outdir = output_dir or os.path.dirname(nc_files[0])
             outpath = os.path.join(outdir, "merged" + ext)
 
-        write_vector(merged, outpath, fmt_key, overwrite=args.overwrite)
+        write_vector(merged, outpath, fmt_key, overwrite=overwrite)
         return
 
     # ------------------------------------------------------------------
     # Per-file mode
     # ------------------------------------------------------------------
-    if args.output and len(nc_files) > 1:
+    if output and len(nc_files) > 1:
         sys.exit("--output requires exactly one input file (or use --merge).")
 
     for nc_path in nc_files:
@@ -281,14 +272,14 @@ def main():
         gdf = nc_to_geodataframe(nc_path, classes=classes)
         print(f"  {len(gdf):,} photons")
 
-        if args.output:
-            outpath = args.output
+        if output:
+            outpath = output
         else:
             stem = os.path.splitext(os.path.basename(nc_path))[0]
-            outdir = args.output_dir or os.path.dirname(nc_path)
+            outdir = output_dir or os.path.dirname(nc_path)
             outpath = os.path.join(outdir, stem + ext)
 
-        write_vector(gdf, outpath, fmt_key, overwrite=args.overwrite)
+        write_vector(gdf, outpath, fmt_key, overwrite=overwrite)
 
 
 if __name__ == "__main__":
