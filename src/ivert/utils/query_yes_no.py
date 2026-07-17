@@ -26,11 +26,10 @@ def query_yes_no(question: str, default: str = "yes") -> bool:
         choice = input().strip()
         if default is not None and choice == "":
             return interpret_yes_no(default)
-        else:
-            try:
-                return interpret_yes_no(choice)
-            except ValueError:
-                sys.stdout.write("Please respond with 'yes' or 'no' (or 'y' or 'n').\n")
+        try:
+            return interpret_yes_no(choice)
+        except ValueError:
+            sys.stdout.write("Please respond with 'yes' or 'no' (or 'y' or 'n').\n")
 
 
 def interpret_yes_no(input_str: str) -> bool:
@@ -40,11 +39,10 @@ def interpret_yes_no(input_str: str) -> bool:
     if not instr:
         return False
     # Yes, True, Si, Y, T, S, etc will be intrepreted as True
-    elif instr[0] in ("y", "t", "s"):
+    if instr[0] in ("y", "t", "s"):
         return True
     # No, False, N, F, etc will be intrepreted as False
-    elif instr[0] in ("n", "f"):
+    if instr[0] in ("n", "f"):
         return False
     # Anything else is invalid
-    else:
-        raise ValueError("invalid boolean input: '%s'" % input_str)
+    raise ValueError("invalid boolean input: '%s'" % input_str)

@@ -1,40 +1,36 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-"""
-Created on Tue Jun 22 16:06:21 2021
+"""Created on Tue Jun 22 16:06:21 2021
 
 @author: mmacferrin
 """
 
 import ast
-import click
-import geopandas
 import multiprocessing as mp
-import multiprocessing.shared_memory as shared_memory
-import numexpr
-import numpy
 import os
-import pandas
-import pyproj
-import rasterio
 import re
-import shapely
-import shapely.geometry
 import signal
 import sys
 import time
+from multiprocessing import shared_memory
 
-import ivert.utils.progress_bar as progress_bar
-import ivert.utils.parallel_funcs as parallel_funcs
+import click
+import geopandas
+import numexpr
+import numpy
+import pandas
+import pyproj
+import rasterio
+import shapely
+import shapely.geometry
+
+import ivert.icesat2_database_v2
+import ivert.plot_validation_results
+import ivert.transform_points
 import ivert.utils.configfile
+import ivert.utils.loggerproc
 import ivert.utils.pickle_blosc
 import ivert.utils.split_dem
-import ivert.plot_validation_results
-import ivert.icesat2_database_v2
-import ivert.utils.dem_geom as dem_geom
-import ivert.transform_points
-import ivert.utils.loggerproc
-
+from ivert.utils import dem_geom, parallel_funcs, progress_bar
 
 ivert_config = ivert.utils.configfile.Config()
 EMPTY_VAL = ivert_config.dem_default_ndv
@@ -61,7 +57,7 @@ def read_dataframe_file(df_filename: str) -> pandas.DataFrame:
         dataframe = ivert.utils.pickle_blosc.read(df_filename)
     else:
         raise NotImplementedError(
-            f"ERROR: Unknown dataframe file extension '{ext}'. (Currently supporting .pickle, .h5, .hdf, .csv, .txt, .feather, or .blosc2)"
+            f"ERROR: Unknown dataframe file extension '{ext}'. (Currently supporting .pickle, .h5, .hdf, .csv, .txt, .feather, or .blosc2)",
         )
 
     return dataframe
@@ -94,20 +90,24 @@ def validate_dem_child_process(
     to pass data back and forth until getting a "STOP" command over the connection.
 
     'measure_coverage' is a boolean parameter to measure how well a given pixel is covered by ICESat-2 photons.
-    We'll measure a couple of different measures (centrality and coverage), and insert those parameters in the output."""
-
+    We'll measure a couple of different measures (centrality and coverage), and insert those parameters in the output.
+    """
     # Define shared memory arrays here.
     h_shm = shared_memory.SharedMemory(name=height_array_name)
     heights = numpy.ndarray(array_shape, dtype=height_dtype, buffer=h_shm.buf)
 
     pi_shm = shared_memory.SharedMemory(name=i_array_name)
     photon_i = numpy.ndarray(  # noqa: F841 (used by name inside numexpr.evaluate() below)
-        array_shape, dtype=i_dtype, buffer=pi_shm.buf
+        array_shape,
+        dtype=i_dtype,
+        buffer=pi_shm.buf,
     )
 
     pj_shm = shared_memory.SharedMemory(name=j_array_name)
     photon_j = numpy.ndarray(  # noqa: F841 (used by name inside numexpr.evaluate() below)
-        array_shape, dtype=j_dtype, buffer=pj_shm.buf
+        array_shape,
+        dtype=j_dtype,
+        buffer=pj_shm.buf,
     )
 
     pc_shm = shared_memory.SharedMemory(name=code_array_name)
@@ -191,7 +191,7 @@ def validate_dem_child_process(
                     {
                         "height": heights[ph_subset_mask],
                         "ph_code": ph_codes[ph_subset_mask],
-                    }
+                    },
                 )
 
                 # Define and compute measures of centrality & coverage here.
@@ -213,10 +213,10 @@ def validate_dem_child_process(
                     assert (cell_xstep > 0) and (cell_ystep < 0)
 
                     subset_df["subset_i"] = numpy.floor(
-                        (subset_df.ycoord - cell_ymax) / cell_ystep
+                        (subset_df.ycoord - cell_ymax) / cell_ystep,
                     ).astype(int)
                     subset_df["subset_j"] = numpy.floor(
-                        (subset_df.xcoord - cell_xmin) / cell_xstep
+                        (subset_df.xcoord - cell_xmin) / cell_xstep,
                     ).astype(int)
 
                     # By taking i * (number_of_rows) + j, we come up with unique single values for the sub-cell this is in.
@@ -250,7 +250,7 @@ def validate_dem_child_process(
                     r_90p[counter] = EMPTY_VAL
                     r_interdecile[counter] = EMPTY_VAL
                     r_numphotons_bathy[counter] = numpy.count_nonzero(
-                        ground_only_df.ph_code == 40
+                        ground_only_df.ph_code == 40,
                     )
                     r_numphotons_intd[counter] = len(ground_only_df)
                     r_mean[counter] = EMPTY_VAL
@@ -260,7 +260,7 @@ def validate_dem_child_process(
                     r_med_diff[counter] = EMPTY_VAL
                 else:
                     height_desc = ground_only_df.height.describe(
-                        percentiles=[0.10, 0.90]
+                        percentiles=[0.10, 0.90],
                     )
                     r_range[counter] = height_desc["max"] - height_desc["min"]
                     # zp10, zp90 = numpy.percentile(cph_z, [10,90])
@@ -271,7 +271,7 @@ def validate_dem_child_process(
                     # Get only the photons within the inter-decile range
                     # cph_z_intd = cph_z[(cph_z >= zp10) & (cph_z <= zp90)]
                     r_numphotons_bathy[counter] = numpy.count_nonzero(
-                        ground_only_df.ph_code == 40
+                        ground_only_df.ph_code == 40,
                     )
                     df_intd = ground_only_df[
                         (ground_only_df.height >= zp10)
@@ -313,7 +313,7 @@ def validate_dem_child_process(
                     "dem_elev": r_dem_elev,
                     "diff_mean": r_mean_diff,
                     "diff_median": r_med_diff,
-                }
+                },
             ).set_index(["i", "j"])
 
             if measure_coverage:
@@ -324,14 +324,15 @@ def validate_dem_child_process(
             connection.send(results_df)
 
     raise RuntimeError(
-        "Something went wrong in dem_validate child process. Should not get here."
+        "Something went wrong in dem_validate child process. Should not get here.",
     )
 
 
 def clean_procs_and_pipes(procs, pipes1, pipes2, memory_objs):
     """Join all processes and close all pipes.
 
-    Useful for cleaning up after multiprocessing."""
+    Useful for cleaning up after multiprocessing.
+    """
     # Close up all processes.
     for pr in procs:
         if isinstance(pr, mp.Process):
@@ -354,8 +355,6 @@ def clean_procs_and_pipes(procs, pipes1, pipes2, memory_objs):
             smo.unlink()
         except FileNotFoundError:
             pass
-
-    return
 
 
 def kick_off_new_child_process(
@@ -407,29 +406,36 @@ def kick_off_new_child_process(
 
 
 def subdivide_dem(
-    dem_name: str, factor: int = 2, output_dir: str | None = None, verbose: bool = False
+    dem_name: str,
+    factor: int = 2,
+    output_dir: str | None = None,
+    verbose: bool = False,
 ) -> list[str]:
     """Split a DEM into 4 smaller parts."""
-
     if not os.path.exists(dem_name):
         raise FileNotFoundError(f"DEM {dem_name} does not exist.")
 
     sub_dems = ivert.utils.split_dem.split(
-        dem_name, factor=factor, output_dir=output_dir, verbose=verbose
+        dem_name,
+        factor=factor,
+        output_dir=output_dir,
+        verbose=verbose,
     )
 
     return sub_dems
 
 
 def reset_results_indexes_after_merge(
-    sub_results_df: pandas.DataFrame, sub_dem_fname: str, parent_dem_fname: str
+    sub_results_df: pandas.DataFrame,
+    sub_dem_fname: str,
+    parent_dem_fname: str,
 ) -> pandas.DataFrame:
     """DEM results dataframes are indexed by (i, j).  Reset the index after merging."""
     if (
         "i" not in sub_results_df.columns and "i" not in sub_results_df.index.names
     ) or ("j" not in sub_results_df.columns and "j" not in sub_results_df.index.names):
         raise ValueError(
-            "sub_results_df must have columns 'i' and 'j' in columns or index."
+            "sub_results_df must have columns 'i' and 'j' in columns or index.",
         )
 
     with rasterio.open(sub_dem_fname) as sub_ds:
@@ -444,7 +450,7 @@ def reset_results_indexes_after_merge(
     if x_step != parent_geotransform[1] or y_step != parent_geotransform[5]:
         raise ValueError(
             f"DEMs {os.path.basename(sub_dem_fname)} and {os.path.basename(parent_dem_fname)}"
-            " have different x- or y-resolutions. Cannot combine results."
+            " have different x- or y-resolutions. Cannot combine results.",
         )
 
     x_offset = int((sub_geotransform[0] - parent_geotransform[0]) / x_step)
@@ -538,6 +544,7 @@ def validate_dem(
             polygon(s) in any CRS. Photons falling within any zone are dropped. Defaults to None
             (no exclusions).
         verbose (bool): Be verbose.
+
     """
     if shared_ret_values is None:
         shared_ret_values = {}
@@ -600,25 +607,28 @@ def validate_dem(
 
         return list(shared_ret_values.values())
 
-    elif abs(exitcode) == abs(signal.SIGKILL):
+    if abs(exitcode) == abs(signal.SIGKILL):
         # The job was killed by the operating system. This happens with a Memory Error. Divvy the file up and try again.
 
         # Unless we've already hit max recursion. In that case, error-out.
         if subdivision_number == max_subdivides:
             raise MemoryError(
                 f"validate_dem.validate_dem('{orig_dem_name}', ...) was terminated, "
-                f"likely due to a memory error."
+                f"likely due to a memory error.",
             )
 
         # Make sure the DEM exists that we're trying to sub-divide
         if not os.path.exists(dem_name):
             raise FileNotFoundError(
-                f"validate_dem.validate_dem_parallell({orig_dem_name},...) could not find {dem_name}."
+                f"validate_dem.validate_dem_parallell({orig_dem_name},...) could not find {dem_name}.",
             )
 
         # Split up the DEM into 4 parts.
         sub_dem_names = subdivide_dem(
-            dem_name, factor=2, output_dir=output_dir, verbose=verbose
+            dem_name,
+            factor=2,
+            output_dir=output_dir,
+            verbose=verbose,
         )
 
         sub_shared_ret_values = [manager.dict() for i in range(len(sub_dem_names))]
@@ -630,7 +640,8 @@ def validate_dem(
             icesat2_photon_database_obj.open_gdf(verbose=verbose)
 
         for sub_dem_name, sub_shared_ret_dict in zip(
-            sub_dem_names, sub_shared_ret_values
+            sub_dem_names,
+            sub_shared_ret_values,
         ):
             validate_dem(
                 sub_dem_name,
@@ -670,7 +681,7 @@ def validate_dem(
             list(sub_shared_ret_values[0].keys())
             + list(sub_shared_ret_values[1].keys())
             + list(sub_shared_ret_values[2].keys())
-            + list(sub_shared_ret_values[3].keys())
+            + list(sub_shared_ret_values[3].keys()),
         )
 
         shared_results_df = None
@@ -691,7 +702,9 @@ def validate_dem(
                 sub_dem_name = fname.replace("_results.h5", ".tif")
                 parent_dem_name = dem_name
                 dem_results_df = reset_results_indexes_after_merge(
-                    dem_results_df, sub_dem_name, parent_dem_name
+                    dem_results_df,
+                    sub_dem_name,
+                    parent_dem_name,
                 )
                 output_dfs.append(dem_results_df)
 
@@ -707,9 +720,7 @@ def validate_dem(
                 shared_results_df = shared_results_df[valid_mask].copy()
                 if verbose:
                     print(
-                        "{0:,} DEM cells after removing outliers.".format(
-                            len(shared_results_df)
-                        )
+                        f"{len(shared_results_df):,} DEM cells after removing outliers.",
                     )
 
             output_fname = os.path.join(
@@ -717,7 +728,10 @@ def validate_dem(
                 os.path.splitext(os.path.basename(dem_name))[0] + "_results.h5",
             )
             shared_results_df.to_hdf(
-                output_fname, key="icesat2", complib="zlib", mode="w"
+                output_fname,
+                key="icesat2",
+                complib="zlib",
+                mode="w",
             )
 
             shared_ret_values[common_key] = output_fname
@@ -816,16 +830,16 @@ def validate_dem(
 
         return list(shared_ret_values.values())
 
-    else:
-        raise RuntimeError(
-            f"validate_dem.validate_dem({orig_dem_name},...) exited with exitcode {exitcode}."
-        )
+    raise RuntimeError(
+        f"validate_dem.validate_dem({orig_dem_name},...) exited with exitcode {exitcode}.",
+    )
 
 
 def get_dem_dataset_and_vars(dem_fn) -> tuple:
     """Get the rasterio dataset and the variables in the dataset.
 
-    Return (dem_dataset, dem_array, dem_bbox, dem_step_xy)."""
+    Return (dem_dataset, dem_array, dem_bbox, dem_step_xy).
+    """
     dem_ds = rasterio.open(dem_fn)
     dem_array = dem_ds.read(1)
     gt = dem_ds.transform.to_gdal()
@@ -863,7 +877,8 @@ def _setup_output_paths(
         os.makedirs(output_dir)
 
     results_dataframe_file = os.path.join(
-        output_dir, os.path.splitext(os.path.basename(dem_name))[0] + "_results.h5"
+        output_dir,
+        os.path.splitext(os.path.basename(dem_name))[0] + "_results.h5",
     )
 
     if interim_data_dir is None:
@@ -881,13 +896,17 @@ def _setup_output_paths(
     summary_stats_filename = ""
     if write_summary_stats:
         summary_stats_filename = re.sub(
-            r"_results\.h5\Z", "_summary_stats.txt", results_dataframe_file
+            r"_results\.h5\Z",
+            "_summary_stats.txt",
+            results_dataframe_file,
         )
 
     result_tif_filename = ""
     if write_result_tifs:
         result_tif_filename = re.sub(
-            r"_results\.h5\Z", "_ICESat2_error_raster.tif", results_dataframe_file
+            r"_results\.h5\Z",
+            "_ICESat2_error_raster.tif",
+            results_dataframe_file,
         )
 
     plot_filename = ""
@@ -970,7 +989,9 @@ def _check_existing_outputs(
                     if verbose:
                         print("done.")
                 write_summary_stats_file(
-                    results_dataframe, summary_stats_filename, verbose=verbose
+                    results_dataframe,
+                    summary_stats_filename,
+                    verbose=verbose,
                 )
             files_to_export.append(summary_stats_filename)
             shared_ret_values["summary_stats_filename"] = summary_stats_filename
@@ -985,14 +1006,18 @@ def _check_existing_outputs(
                     if verbose:
                         print("done.")
                 generate_result_geotiff(
-                    results_dataframe, dem_ds_tmp, result_tif_filename, verbose=verbose
+                    results_dataframe,
+                    dem_ds_tmp,
+                    result_tif_filename,
+                    verbose=verbose,
                 )
             files_to_export.append(result_tif_filename)
             shared_ret_values["result_tif_filename"] = result_tif_filename
 
         if export_error_formats:
             export_files = _error_export_filenames(
-                results_dataframe_file, export_error_formats
+                results_dataframe_file,
+                export_error_formats,
             )
             missing = [fn for fn in export_files if not os.path.exists(fn)]
             if missing:
@@ -1041,7 +1066,7 @@ def _check_existing_outputs(
 
         return files_to_export
 
-    elif mark_empty_results and os.path.exists(empty_results_filename):
+    if mark_empty_results and os.path.exists(empty_results_filename):
         if verbose:
             print(
                 "No valid data produced during previous ICESat-2 analysis of",
@@ -1069,18 +1094,19 @@ def _fetch_photons(
     Returns (dem_ds, dem_array, photon_df, dem_epsg_str) or None if no photons found.
     """
     get_dem_dataset_and_vars(
-        dem_name
+        dem_name,
     )  # result unused; preserved for validation side-effects
 
     dem_ds = rasterio.open(dem_name)
     dem_array = dem_ds.read(band_num)
 
     dem_horz_ref_frame, dem_vert_ref_frame = dem_geom.get_dem_reference_frame_from_file(
-        dem_name
+        dem_name,
     )
     if dem_vertical_datum is not None:
         dem_vert_ref_frame = dem_geom.get_dem_reference_frame_from_user_input(
-            dem_vertical_datum, "vert"
+            dem_vertical_datum,
+            "vert",
         )
     dem_epsg_str = dem_geom.get_dem_srs_string(dem_horz_ref_frame, dem_vert_ref_frame)
     dem_wgs84_bbox = dem_geom.get_wgs84_bounding_box(dem_name)
@@ -1111,7 +1137,7 @@ def _fetch_photons(
 
     if verbose:
         print(
-            "{0:,}".format(len(photon_df)),
+            f"{len(photon_df):,}",
             "ICESat-2 photons present in photon dataframe.",
         )
 
@@ -1185,14 +1211,14 @@ def _compute_photon_overlap(
         if exclude_geom is not None:
             excluded_mask = (
                 geopandas.GeoSeries(
-                    geopandas.points_from_xy(photon_df["dem_x"], photon_df["dem_y"])
+                    geopandas.points_from_xy(photon_df["dem_x"], photon_df["dem_y"]),
                 )
                 .within(exclude_geom)
                 .to_numpy()
             )
             if verbose and excluded_mask.any():
                 print(
-                    "{:,}".format(numpy.count_nonzero(excluded_mask)),
+                    f"{numpy.count_nonzero(excluded_mask):,}",
                     "photons excluded by exclusion zone(s).",
                 )
             photon_df = photon_df[~excluded_mask]
@@ -1226,7 +1252,8 @@ def _compute_photon_overlap(
     ph_mask_ground_only = numpy.isin(photon_df["class_code"], classes)
     dem_mask_w_ground_photons = numpy.zeros(dem_array.shape, dtype=bool)
     dem_mask_w_ground_photons[
-        photon_df.i[ph_mask_ground_only], photon_df.j[ph_mask_ground_only]
+        photon_df.i[ph_mask_ground_only],
+        photon_df.j[ph_mask_ground_only],
     ] = 1
 
     dem_overlap_mask = dem_goodpixel_mask & dem_mask_w_ground_photons
@@ -1235,24 +1262,22 @@ def _compute_photon_overlap(
 
     if verbose:
         num_goodpixels = numpy.count_nonzero(dem_goodpixel_mask)
-        print("{:,}".format(num_goodpixels), "land cells exist in the DEM.")
+        print(f"{num_goodpixels:,}", "land cells exist in the DEM.")
         if num_goodpixels == 0:
             print(
-                "No land cells found in DEM with overlapping ICESat-2 data. Stopping and moving on."
+                "No land cells found in DEM with overlapping ICESat-2 data. Stopping and moving on.",
             )
             return None
         print(
-            "{:,} ICESat-2 photons overlap".format(len(photon_df)),
-            "{:,}".format(len(dem_overlap_i)),
-            "DEM cells ({:0.2f}% of total DEM data).".format(
-                numpy.count_nonzero(dem_overlap_mask) * 100 / num_goodpixels
-            ),
+            f"{len(photon_df):,} ICESat-2 photons overlap",
+            f"{len(dem_overlap_i):,}",
+            f"DEM cells ({numpy.count_nonzero(dem_overlap_mask) * 100 / num_goodpixels:0.2f}% of total DEM data).",
         )
 
     if numpy.count_nonzero(dem_overlap_mask) == 0:
         if verbose:
             print(
-                "No overlapping ICESat-2 data with valid land cells. Stopping and moving on."
+                "No overlapping ICESat-2 data with valid land cells. Stopping and moving on.",
             )
         return None
 
@@ -1302,11 +1327,12 @@ def _run_photon_level_validation(
     dem_elev_df = pandas.DataFrame(
         {"dem_elevation": dem_overlap_elevs},
         index=pandas.MultiIndex.from_arrays(
-            (dem_overlap_i, dem_overlap_j), names=("i", "j")
+            (dem_overlap_i, dem_overlap_j),
+            names=("i", "j"),
         ),
     )
     if verbose:
-        print("Done with {0} records.".format(len(dem_elev_df)))
+        print(f"Done with {len(dem_elev_df)} records.")
         print("\tJoining photon_df and DEM elevation tables... ", end="")
 
     photon_df_with_dem_elevs = photon_df_ground_only.join(dem_elev_df, how="left")
@@ -1314,7 +1340,7 @@ def _run_photon_level_validation(
         pandas.notna(photon_df_with_dem_elevs["dem_elevation"])
     ]
     if verbose:
-        print("Done with {0} records.".format(len(photon_df_with_dem_elevs)))
+        print(f"Done with {len(photon_df_with_dem_elevs)} records.")
         print("\tCalculating elevation differences... ", end="")
 
     photon_df_with_dem_elevs["dem_minus_is2_m"] = (
@@ -1332,7 +1358,10 @@ def _run_photon_level_validation(
             end="",
         )
     photon_df_with_dem_elevs.to_hdf(
-        photon_results_dataframe_file, "icesat2", complib="zlib", complevel=3
+        photon_results_dataframe_file,
+        "icesat2",
+        complib="zlib",
+        complevel=3,
     )
     if verbose:
         print("Done.\n")
@@ -1360,9 +1389,7 @@ def _run_parallel_cell_validation(
     if verbose:
         if max_photons_per_cell is not None:
             print(
-                "Limiting processing to {0} photons per grid cell.".format(
-                    max_photons_per_cell
-                )
+                f"Limiting processing to {max_photons_per_cell} photons per grid cell.",
             )
         print("Performing ICESat-2/DEM cell validation...")
 
@@ -1383,25 +1410,33 @@ def _run_parallel_cell_validation(
     )
 
     height_smo = shared_memory.SharedMemory(
-        size=height_field.nbytes, name=height_array_name, create=True
+        size=height_field.nbytes,
+        name=height_array_name,
+        create=True,
     )
     height_smo.buf[:] = height_field.to_numpy().tobytes()
     height_dtype = height_field.dtype
 
     i_smo = shared_memory.SharedMemory(
-        size=photon_df.i.nbytes, name=i_array_name, create=True
+        size=photon_df.i.nbytes,
+        name=i_array_name,
+        create=True,
     )
     i_smo.buf[:] = photon_df.i.to_numpy().tobytes()
     i_dtype = photon_df.i.dtype
 
     j_smo = shared_memory.SharedMemory(
-        size=photon_df.j.nbytes, name=j_array_name, create=True
+        size=photon_df.j.nbytes,
+        name=j_array_name,
+        create=True,
     )
     j_smo.buf[:] = photon_df.j.to_numpy().tobytes()
     j_dtype = photon_df.j.dtype
 
     code_smo = shared_memory.SharedMemory(
-        size=photon_df.class_code.nbytes, name=code_array_name, create=True
+        size=photon_df.class_code.nbytes,
+        name=code_array_name,
+        create=True,
     )
     code_smo.buf[:] = photon_df.class_code.to_numpy().tobytes()
     code_dtype = photon_df.class_code.dtype
@@ -1413,14 +1448,18 @@ def _run_parallel_cell_validation(
         )
         x_array_name = f"x_{proc_id}"
         x_smo = shared_memory.SharedMemory(
-            size=photon_df.dem_x.nbytes, name=x_array_name, create=True
+            size=photon_df.dem_x.nbytes,
+            name=x_array_name,
+            create=True,
         )
         x_smo.buf[:] = photon_df.dem_x.to_numpy().tobytes()
         x_dtype = photon_df.dem_x.dtype
 
         y_array_name = f"y_{proc_id}"
         y_smo = shared_memory.SharedMemory(
-            size=photon_df.dem_y.nbytes, name=y_array_name, create=True
+            size=photon_df.dem_y.nbytes,
+            name=y_array_name,
+            create=True,
         )
         y_smo.buf[:] = photon_df.dem_y.to_numpy().tobytes()
         y_dtype = photon_df.dem_y.dtype
@@ -1484,7 +1523,7 @@ def _run_parallel_cell_validation(
                         dem_overlap_xmax[counter_started:counter_chunk_end],
                         dem_overlap_ymin[counter_started:counter_chunk_end],
                         dem_overlap_ymax[counter_started:counter_chunk_end],
-                    )
+                    ),
                 )
             else:
                 open_pipes_parent[i].send(
@@ -1492,22 +1531,22 @@ def _run_parallel_cell_validation(
                         dem_overlap_i[counter_started:counter_chunk_end],
                         dem_overlap_j[counter_started:counter_chunk_end],
                         dem_overlap_elevs[counter_started:counter_chunk_end],
-                    )
+                    ),
                 )
             counter_started = counter_chunk_end
             num_chunks_started += 1
 
         while num_chunks_finished < num_chunks_started:
             for i, (proc, pipe, pipe_child) in enumerate(
-                zip(running_procs, open_pipes_parent, open_pipes_child)
+                zip(running_procs, open_pipes_parent, open_pipes_child),
             ):
                 if proc is None:
                     continue
 
-                elif not proc.is_alive():
+                if not proc.is_alive():
                     if verbose:
                         print(
-                            "\nSub-process terminated unexpectedly. Some data may be missing. Restarting a new process."
+                            "\nSub-process terminated unexpectedly. Some data may be missing. Restarting a new process.",
                         )
                     proc.join()
                     pipe.close()
@@ -1544,13 +1583,15 @@ def _run_parallel_cell_validation(
                             counter_finished,
                             N,
                             suffix=("{0:>" + str(len(str(N))) + "d}/{1:d}").format(
-                                counter_finished, N
+                                counter_finished,
+                                N,
                             ),
                         )
 
                     if counter_started < N:
                         counter_chunk_end = min(
-                            counter_started + items_per_process_chunk, N
+                            counter_started + items_per_process_chunk,
+                            N,
                         )
                         if measure_coverage:
                             pipe.send(
@@ -1564,7 +1605,7 @@ def _run_parallel_cell_validation(
                                     dem_overlap_xmax[counter_started:counter_chunk_end],
                                     dem_overlap_ymin[counter_started:counter_chunk_end],
                                     dem_overlap_ymax[counter_started:counter_chunk_end],
-                                )
+                                ),
                             )
                         else:
                             pipe.send(
@@ -1574,7 +1615,7 @@ def _run_parallel_cell_validation(
                                     dem_overlap_elevs[
                                         counter_started:counter_chunk_end
                                     ],
-                                )
+                                ),
                             )
                         counter_started = counter_chunk_end
                         num_chunks_started += 1
@@ -1594,7 +1635,10 @@ def _run_parallel_cell_validation(
         if verbose:
             print("\nException encountered in ICESat-2 processing loop. Exiting.")
         clean_procs_and_pipes(
-            running_procs, open_pipes_parent, open_pipes_child, memory_objs
+            running_procs,
+            open_pipes_parent,
+            open_pipes_child,
+            memory_objs,
         )
         print(e)
         return results_dataframes_list
@@ -1606,21 +1650,20 @@ def _run_parallel_cell_validation(
             total_time_m = int(total_time_s / 60)
             partial_time_s = total_time_s % 60
             print(
-                "{0:d} minute".format(total_time_m)
+                f"{total_time_m:d} minute"
                 + ("s" if total_time_m > 1 else "")
-                + " {0:0.1f} seconds total, ({1:0.4f} s/iteration)".format(
-                    partial_time_s, (total_time_s / N) if N > 0 else 0
-                )
+                + f" {partial_time_s:0.1f} seconds total, ({(total_time_s / N) if N > 0 else 0:0.4f} s/iteration)",
             )
         else:
             print(
-                "{0:0.1f} seconds total, ({1:0.4f} s/iteration)".format(
-                    total_time_s, (total_time_s / N) if N > 0 else 0
-                )
+                f"{total_time_s:0.1f} seconds total, ({(total_time_s / N) if N > 0 else 0:0.4f} s/iteration)",
             )
 
     clean_procs_and_pipes(
-        running_procs, open_pipes_parent, open_pipes_child, memory_objs
+        running_procs,
+        open_pipes_parent,
+        open_pipes_child,
+        memory_objs,
     )
     return results_dataframes_list
 
@@ -1662,8 +1705,9 @@ def _write_validation_outputs(
     if verbose:
         print(
             "{0:,} valid interdecile photon records in {1:,} DEM cells.".format(
-                results_dataframe["numphotons_intd"].sum(), len(results_dataframe)
-            )
+                results_dataframe["numphotons_intd"].sum(),
+                len(results_dataframe),
+            ),
         )
 
     if outliers_sd_threshold is not None:
@@ -1677,9 +1721,7 @@ def _write_validation_outputs(
         ].copy()
         if verbose:
             print(
-                "{0:,} DEM cells after removing outliers.".format(
-                    len(results_dataframe)
-                )
+                f"{len(results_dataframe):,} DEM cells after removing outliers.",
             )
 
     if len(results_dataframe) == 0:
@@ -1704,7 +1746,10 @@ def _write_validation_outputs(
         results_dataframe.to_csv(results_dataframe_file)
     else:
         results_dataframe.to_hdf(
-            results_dataframe_file, key="icesat2", complib="zlib", mode="w"
+            results_dataframe_file,
+            key="icesat2",
+            complib="zlib",
+            mode="w",
         )
     if verbose:
         print(results_dataframe_file, "written.")
@@ -1713,7 +1758,9 @@ def _write_validation_outputs(
 
     if write_summary_stats:
         write_summary_stats_file(
-            results_dataframe, summary_stats_filename, verbose=verbose
+            results_dataframe,
+            summary_stats_filename,
+            verbose=verbose,
         )
         files_to_export.append(summary_stats_filename)
         shared_ret_values["summary_stats_filename"] = summary_stats_filename
@@ -1722,7 +1769,10 @@ def _write_validation_outputs(
         if dem_ds is None:
             dem_ds = rasterio.open(dem_name)
         generate_result_geotiff(
-            results_dataframe, dem_ds, result_tif_filename, verbose=verbose
+            results_dataframe,
+            dem_ds,
+            result_tif_filename,
+            verbose=verbose,
         )
         files_to_export.append(result_tif_filename)
         shared_ret_values["result_tif_filename"] = result_tif_filename
@@ -1791,7 +1841,8 @@ def validate_dem_parallel(
 ):
     """Validate a single DEM.
 
-    Parameters are described above in the vdalite_dem() docstring."""
+    Parameters are described above in the vdalite_dem() docstring.
+    """
     if not os.path.exists(dem_name):
         raise FileNotFoundError(f"Could not find file {dem_name}.")
 
@@ -1955,7 +2006,9 @@ def validate_dem_parallel(
 
 
 def write_summary_stats_file(
-    results_df: pandas.DataFrame, statsfile_name: str, verbose: bool = True
+    results_df: pandas.DataFrame,
+    statsfile_name: str,
+    verbose: bool = True,
 ) -> None:
     """Write the summary statistics file.
 
@@ -1966,52 +2019,53 @@ def write_summary_stats_file(
 
     Returns:
         None
+
     """
     if results_df is None:
         if verbose:
             print(
-                "write_summary_stats_file(): No results dataframe to write. Returning"
+                "write_summary_stats_file(): No results dataframe to write. Returning",
             )
 
     if len(results_df) == 0:
         if verbose:
             print(
-                "write_summary_stats_file(): No stats to compute in results dataframe. Returning"
+                "write_summary_stats_file(): No stats to compute in results dataframe. Returning",
             )
         return
 
     lines = []
-    lines.append("Number of DEM cells validated (cells): {0}".format(len(results_df)))
+    lines.append(f"Number of DEM cells validated (cells): {len(results_df)}")
     lines.append(
         "Total number of ground photons used to validate this DEM (photons): {0}".format(
-            results_df["numphotons_intd"].sum()
-        )
+            results_df["numphotons_intd"].sum(),
+        ),
     )
     lines.append(
         "Mean number of photons used to validate each cell (photons): {0}".format(
-            results_df["numphotons_intd"].mean()
-        )
+            results_df["numphotons_intd"].mean(),
+        ),
     )
 
     mean_diff = results_df["diff_mean"]
 
-    lines.append("Mean bias error (DEM - ICESat-2) (m): {0}".format(mean_diff.mean()))
+    lines.append(f"Mean bias error (DEM - ICESat-2) (m): {mean_diff.mean()}")
     lines.append(
-        "RMSE (m): {0}".format(numpy.sqrt(numpy.mean(numpy.power(mean_diff, 2))))
+        f"RMSE (m): {numpy.sqrt(numpy.mean(numpy.power(mean_diff, 2)))}",
     )
     lines.append(
-        "== Decile ranges of errors (DEM - ICESat-2) (m) (Look for long-tails, indicating possible artifacts.) ==="
+        "== Decile ranges of errors (DEM - ICESat-2) (m) (Look for long-tails, indicating possible artifacts.) ===",
     )
 
     percentile_levels = [0, 1, 5, 10, 20, 30, 40, 50, 60, 70, 80, 90, 95, 99, 100]
     percentile_values = numpy.percentile(mean_diff, percentile_levels)
     for level, v in zip(percentile_levels, percentile_values):
-        lines.append("    {0:>3d} percentile error level (m): {1}".format(level, v))
+        lines.append(f"    {level:>3d} percentile error level (m): {v}")
 
     lines.append(
         "Number of cells with bathymetry photons: {0:d}".format(
-            numpy.count_nonzero(results_df["numphotons_bathy"] > 0)
-        )
+            numpy.count_nonzero(results_df["numphotons_bathy"] > 0),
+        ),
     )
 
     # lines.append("Mean canopy cover (% cover): {0:0.02f}".format(results_df["canopy_fraction"].mean()*100))
@@ -2019,8 +2073,8 @@ def write_summary_stats_file(
     # lines.append("Mean canopy cover in 'wooded' cells containing >0 canopy (% cover): {0}".format(results_df[results_df["canopy_fraction"] > 0]["canopy_fraction"].mean()*100))
     lines.append(
         "Mean roughness (stddev. of photon elevations within each cell (m)): {0}".format(
-            results_df["stddev"].mean()
-        )
+            results_df["stddev"].mean(),
+        ),
     )
 
     out_text = "\n".join(lines)
@@ -2037,7 +2091,10 @@ def write_summary_stats_file(
 
 
 def generate_result_geotiff(
-    results_dataframe, dem_ds, result_tif_filename, verbose=True
+    results_dataframe,
+    dem_ds,
+    result_tif_filename,
+    verbose=True,
 ):
     """Given the results in the dataframe, output geotiffs to visualize these.
 
@@ -2074,7 +2131,6 @@ def generate_result_geotiff(
         out_ds.write(result_array, 1)
     if verbose:
         print(result_tif_filename, "written.")
-    return
 
 
 # Error-export formats supported by export_error_results(), selectable via the
@@ -2157,7 +2213,9 @@ def _export_errors_xyz(results_dataframe, dem_ds, out_fname, verbose=True):
     x_centers, y_centers = _results_cell_centers(results_dataframe, dem_ds)
     errors = results_dataframe["diff_mean"].to_numpy()
     numpy.savetxt(
-        out_fname, numpy.column_stack([x_centers, y_centers, errors]), fmt="%.8g"
+        out_fname,
+        numpy.column_stack([x_centers, y_centers, errors]),
+        fmt="%.8g",
     )
     if verbose:
         print(out_fname, "written.")
@@ -2165,7 +2223,8 @@ def _export_errors_xyz(results_dataframe, dem_ds, out_fname, verbose=True):
 
 def _normalize_export_formats(formats):
     """Normalize a comma-separated string or iterable of format names into a de-duplicated
-    list of lower-case, recognized format names (others are dropped)."""
+    list of lower-case, recognized format names (others are dropped).
+    """
     if isinstance(formats, str):
         formats = formats.split(",")
     elif formats is None:
@@ -2181,14 +2240,17 @@ def _normalize_export_formats(formats):
 def _error_export_filenames(results_dataframe_file, formats):
     """Return the '<dem>_errors.<ext>' output paths a given format request would produce."""
     base, _ = os.path.splitext(results_dataframe_file)
-    if base.endswith("_results"):
-        base = base[: -len("_results")]
+    base = base.removesuffix("_results")
     base = base + "_errors"
     return [base + "." + fmt for fmt in _normalize_export_formats(formats)]
 
 
 def export_error_results(
-    results_dataframe, dem_ds, results_dataframe_file, formats, verbose=True
+    results_dataframe,
+    dem_ds,
+    results_dataframe_file,
+    formats,
+    verbose=True,
 ):
     """Export the per-cell ICESat-2 errors from a results dataframe into GIS formats.
 
@@ -2208,6 +2270,7 @@ def export_error_results(
 
     Returns:
         list of file paths written.
+
     """
     exported = []
     if results_dataframe is None or len(results_dataframe) == 0:
@@ -2219,11 +2282,18 @@ def export_error_results(
     for fmt, out_fname in zip(formats, filenames):
         if fmt == "tif":
             generate_result_geotiff(
-                results_dataframe, dem_ds, out_fname, verbose=verbose
+                results_dataframe,
+                dem_ds,
+                out_fname,
+                verbose=verbose,
             )
         elif fmt in ("gpkg", "shp"):
             _export_errors_vector(
-                results_dataframe, dem_ds, out_fname, fmt, verbose=verbose
+                results_dataframe,
+                dem_ds,
+                out_fname,
+                fmt,
+                verbose=verbose,
             )
         elif fmt == "xyz":
             _export_errors_xyz(results_dataframe, dem_ds, out_fname, verbose=verbose)
@@ -2233,7 +2303,7 @@ def export_error_results(
 
 
 @click.command(
-    help="Use ICESat-2 photon data to validate a DEM and generate statistics."
+    help="Use ICESat-2 photon data to validate a DEM and generate statistics.",
 )
 @click.argument("input_dem", type=str)
 @click.argument("output_dir", type=str, required=False, default="")
@@ -2354,7 +2424,7 @@ def main(
         classes_list = [int(c) for c in classes.split("/")]
     except ValueError:
         print(
-            "ERROR: 'classes' must be a list of integer values separated by forward-slashes (/)"
+            "ERROR: 'classes' must be a list of integer values separated by forward-slashes (/)",
         )
         sys.exit(1)
 

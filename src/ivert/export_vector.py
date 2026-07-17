@@ -21,6 +21,7 @@ Examples
 
     # Merge all inputs into one output file
     python ivert_output_vector.py granules/ --merge -o merged_bahamas.gpkg
+
 """
 
 import glob
@@ -70,6 +71,7 @@ def nc_to_geodataframe(nc_path: str, classes: list = None) -> geopandas.GeoDataF
         Path to the .nc file.
     classes : list of int, optional
         If given, keep only photons whose class_code is in this list.
+
     """
     with netCDF4.Dataset(nc_path) as ds:
 
@@ -90,7 +92,9 @@ def nc_to_geodataframe(nc_path: str, classes: list = None) -> geopandas.GeoDataF
 
         # Pull granule-level metadata from global attributes
         granule_id = getattr(
-            ds, "granule_id", os.path.splitext(os.path.basename(nc_path))[0]
+            ds,
+            "granule_id",
+            os.path.splitext(os.path.basename(nc_path))[0],
         )
 
     df = pd.DataFrame(
@@ -100,12 +104,13 @@ def nc_to_geodataframe(nc_path: str, classes: list = None) -> geopandas.GeoDataF
             "z": z,
             "class_code": class_code,
             "class_name": pd.array(
-                [CLASS_NAMES.get(c, f"class_{c}") for c in class_code], dtype="string"
+                [CLASS_NAMES.get(c, f"class_{c}") for c in class_code],
+                dtype="string",
             ),
             "confidence": confidence,
             "delta_time": delta_time,
             "granule_id": granule_id,
-        }
+        },
     )
     if bathy_conf is not None:
         df["bathy_confidence"] = bathy_conf
@@ -122,13 +127,16 @@ def nc_to_geodataframe(nc_path: str, classes: list = None) -> geopandas.GeoDataF
 
 
 def write_vector(
-    gdf: geopandas.GeoDataFrame, outpath: str, fmt_key: str, overwrite: bool = False
+    gdf: geopandas.GeoDataFrame,
+    outpath: str,
+    fmt_key: str,
+    overwrite: bool = False,
 ):
     """Write a GeoDataFrame to the requested vector format."""
     if os.path.exists(outpath):
         if not overwrite:
             print(
-                f"  Skipping existing {os.path.basename(outpath)} (use -w to overwrite)."
+                f"  Skipping existing {os.path.basename(outpath)} (use -w to overwrite).",
             )
             return
         os.remove(outpath)

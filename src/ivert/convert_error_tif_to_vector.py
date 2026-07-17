@@ -1,9 +1,10 @@
+import os
+import sys
+
+import geopandas
 import numpy
 import rasterio
 import shapely.geometry
-import os
-import geopandas
-import sys
 
 format_dict = {
     "gpkg": ".gpkg",
@@ -15,10 +16,12 @@ format_dict = {
 
 
 def convert_ivert_error_map_to_vector(
-    ivert_error_tifs, output_format="gpkg", overwrite=True, verbose=True
+    ivert_error_tifs,
+    output_format="gpkg",
+    overwrite=True,
+    verbose=True,
 ):
     """Convert an IVERT raster error_map.tif file into a vector file for easier viewing in GIS programs."""
-
     # Open the raster
     for tif_file in ivert_error_tifs:
         src = rasterio.open(tif_file, mode="r")
@@ -27,10 +30,13 @@ def convert_ivert_error_map_to_vector(
         ndv = src.nodatavals[0]
 
         good_rows, good_cols = numpy.where(
-            (~array.isnan()) if numpy.isnan(ndv) else (array != ndv)
+            (~array.isnan()) if numpy.isnan(ndv) else (array != ndv),
         )
         good_xs, good_ys = rasterio.transform.xy(
-            src.transform, good_rows, good_cols, offset="center"
+            src.transform,
+            good_rows,
+            good_cols,
+            offset="center",
         )
         good_data = array[good_rows, good_cols]
         # print(min(good_data), max(good_data))

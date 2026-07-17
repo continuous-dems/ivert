@@ -1,8 +1,6 @@
 #!/usr/bin/env python
-# -*- coding: utf-8 -*-
 
-"""
-ivert.cli
+"""ivert.cli
 ~~~~~~~~~
 Command-line interface for the ICESat-2 Validation of Elevations Reporting Tool (IVERT).
 """
@@ -55,7 +53,7 @@ def ivert_cli(ctx, user_config, verbosity):
     """
     if user_config:
         os.environ["IVERT_USER_CONFIG"] = os.path.abspath(
-            os.path.expanduser(user_config)
+            os.path.expanduser(user_config),
         )
 
     _VERBOSITY_LEVELS = {
@@ -126,6 +124,7 @@ def options(ctx):
 def _options_set_values(assignments):
     """Write one or more key=value pairs to the user config file."""
     import configparser as _cp
+
     from ivert.utils.configfile import Config
 
     config = Config()
@@ -134,17 +133,17 @@ def _options_set_values(assignments):
     for assignment in assignments:
         if "=" not in assignment:
             raise click.UsageError(
-                f"Invalid format '{assignment}'. Use option_name=value."
+                f"Invalid format '{assignment}'. Use option_name=value.",
             )
         key, _, value = assignment.partition("=")
         key = key.strip().lower()
         if key in _OPTIONS_EXCLUDED_KEYS:
             raise click.UsageError(
-                f"'{key}' is a read-only setting and cannot be changed."
+                f"'{key}' is a read-only setting and cannot be changed.",
             )
         if key not in config._config["DEFAULT"]:
             raise click.UsageError(
-                f"Unknown setting '{key}'. Run 'ivert options list' to see valid settings."
+                f"Unknown setting '{key}'. Run 'ivert options list' to see valid settings.",
             )
         parsed.append((key, value))
 
@@ -196,13 +195,17 @@ def options_list():
 
     click.echo(
         "\n  To change a setting:  ivert options option_name=new_value"
-        "\n  Add quotes around values containing spaces or special characters."
+        "\n  Add quotes around values containing spaces or special characters.",
     )
 
 
 @options.command("reset")
 @click.option(
-    "-y", "--yes", is_flag=True, default=False, help="Skip confirmation prompt."
+    "-y",
+    "--yes",
+    is_flag=True,
+    default=False,
+    help="Skip confirmation prompt.",
 )
 def options_reset(yes):
     """Reset all settings to IVERT defaults by deleting the user config file."""
@@ -217,7 +220,8 @@ def options_reset(yes):
 
     if not yes:
         click.confirm(
-            f"Delete {user_path} and reset all settings to defaults?", abort=True
+            f"Delete {user_path} and reset all settings to defaults?",
+            abort=True,
         )
 
     os.remove(user_path)
@@ -296,7 +300,7 @@ def database_list(show_all, boxes):
                 [
                     str(row[c]) if isinstance(row[c], (list, tuple)) else row[c]
                     for c in cols
-                ]
+                ],
             )
         click.echo(tabulate_mod.tabulate(rows, headers=cols, tablefmt="simple"))
         click.echo(f"\n{len(gdf)} granule(s)  —  db: {db.db_fname}")
@@ -310,11 +314,11 @@ def database_list(show_all, boxes):
                     row["numphotons_ground"],
                     row["numphotons_bathy_floor"],
                     row["numphotons_bathy_surface"],
-                ]
+                ],
             )
         headers = ["File", "Total", "Ground", "BathyFloor", "BathySurf"]
         click.echo(
-            tabulate_mod.tabulate(rows, headers=headers, tablefmt="simple", intfmt=",")
+            tabulate_mod.tabulate(rows, headers=headers, tablefmt="simple", intfmt=","),
         )
         click.echo(f"\n{len(gdf)} granule(s)  —  db: {db.db_fname}")
 
@@ -376,7 +380,7 @@ def database_delete(delete_all, yes):
 
     total_bytes = sum(os.path.getsize(f) for f in all_files)
     click.echo(
-        f"\n  {len(all_files)} file(s) totaling {sizeof_fmt(total_bytes)} will be deleted:"
+        f"\n  {len(all_files)} file(s) totaling {sizeof_fmt(total_bytes)} will be deleted:",
     )
     for fpath in all_files:
         click.echo(f"    {fpath}  ({sizeof_fmt(os.path.getsize(fpath))})")
@@ -392,7 +396,7 @@ def database_delete(delete_all, yes):
         for fpath in nc_files:
             os.remove(fpath)
         click.echo(
-            f"Deleted {len(nc_files)} .nc granule file(s) from {db.granules_dir}"
+            f"Deleted {len(nc_files)} .nc granule file(s) from {db.granules_dir}",
         )
     elif delete_all:
         click.echo(f"No .nc files found in {db.granules_dir}")
@@ -411,7 +415,7 @@ def database_size():
     # .gpkg index
     if os.path.exists(db.db_fname):
         rows.append(
-            ("gpkg index", 1, sizeof_fmt(os.path.getsize(db.db_fname)), db.db_fname)
+            ("gpkg index", 1, sizeof_fmt(os.path.getsize(db.db_fname)), db.db_fname),
         )
     else:
         rows.append(("gpkg index", 0, "—", db.db_fname))
@@ -424,7 +428,7 @@ def database_size():
                 1,
                 sizeof_fmt(os.path.getsize(db.db_fname_compressed)),
                 db.db_fname_compressed,
-            )
+            ),
         )
     else:
         rows.append(("blosc index", 0, "—", db.db_fname_compressed))
@@ -447,15 +451,17 @@ def database_size():
             nc_count,
             sizeof_fmt(nc_bytes) if nc_files else "—",
             db.granules_dir,
-        )
+        ),
     )
 
     import tabulate as tabulate_mod
 
     click.echo(
         tabulate_mod.tabulate(
-            rows, headers=["Type", "Files", "Size", "Path"], tablefmt="simple"
-        )
+            rows,
+            headers=["Type", "Files", "Size", "Path"],
+            tablefmt="simple",
+        ),
     )
 
 
@@ -577,7 +583,6 @@ def database_download(
     extent defines the download region. Use --wsen to switch to W/S/E/N order.
 
     Examples:
-
         ivert database download -- -74.0/-73.0/40.5/41.0
 
         ivert database download -ds 2023.01.01 -de 2024.01.01 ../dems/oregon_coast_v1.tif
@@ -585,6 +590,7 @@ def database_download(
         ivert databasee download -ds "two years ago" -de "one year ago" ../dems/*.tif
 
     (Note: Use the '--' delimiter to explicitly end your command-line options if coordinates begin with a negative '-')
+
     """
     from ivert import icesat2_database_v2 as is2db_mod
     from ivert.utils import dem_geom
@@ -609,7 +615,8 @@ def database_download(
                 wgs84_bbox = (xmin, xmax, ymin, ymax)
             else:
                 wgs84_bbox = dem_geom.get_wgs84_bounding_box(
-                    (xmin, xmax, ymin, ymax), dem_horz_reference_frame=projection
+                    (xmin, xmax, ymin, ymax),
+                    dem_horz_reference_frame=projection,
                 )
         except ValueError:
             pass  # not numeric — fall through to file path handling
@@ -619,13 +626,13 @@ def database_download(
         expanded = []
         for token in bbox_or_files:
             matches = glob.glob(token)
-            expanded.extend(matches if matches else [token])
+            expanded.extend(matches or [token])
 
         missing = [f for f in expanded if not os.path.exists(f)]
         if missing:
             raise click.ClickException(
                 "Files not found (and input is not a valid 4-value bbox): "
-                + ", ".join(missing)
+                + ", ".join(missing),
             )
 
         xmins, xmaxs, ymins, ymaxs = [], [], [], []
@@ -648,7 +655,7 @@ def database_download(
 
     if tmin >= tmax:
         raise click.ClickException(
-            f"--date-start ({tmin}) must be before --date-end ({tmax})."
+            f"--date-start ({tmin}) must be before --date-end ({tmax}).",
         )
 
     # Check ATL24 date cutoff.
@@ -669,7 +676,8 @@ def database_download(
             err=True,
         )
         if not force and not click.confirm(
-            "\nContinue with the download anyway?", default=False
+            "\nContinue with the download anyway?",
+            default=False,
         ):
             raise click.Abort()
 
@@ -679,7 +687,7 @@ def database_download(
 
     if not is2db_mod.IS2Database.bbox_valid(full_bbox):
         raise click.ClickException(
-            f"Invalid bounding box: xmin < xmax, ymin < ymax required. Got {full_bbox[:4]}."
+            f"Invalid bounding box: xmin < xmax, ymin < ymax required. Got {full_bbox[:4]}.",
         )
 
     db.download_new_granules(
@@ -761,8 +769,10 @@ def cache_list():
     rows.append(["TOTAL", f"{total_files:,}", _fmt_size(total_bytes)])
     click.echo(
         tabulate_mod.tabulate(
-            rows, headers=["Subdirectory", "Files", "Size"], tablefmt="simple"
-        )
+            rows,
+            headers=["Subdirectory", "Files", "Size"],
+            tablefmt="simple",
+        ),
     )
     click.echo(f"\nCache directory: {cache_dir}")
 
@@ -799,7 +809,7 @@ def cache_delete(force):
 
     click.echo(
         f"Deleted {deleted_dirs} subdirectorie(s) and {deleted_files} root file(s) "
-        f"from {cache_dir}"
+        f"from {cache_dir}",
     )
 
 
@@ -826,13 +836,13 @@ def _parse_exclude_spec(value):
     if not os.path.exists(value):
         raise click.ClickException(
             f"Invalid --exclude value '{value}': not a 4-value bounding box "
-            "(minx/miny/maxx/maxy) and not an existing file path."
+            "(minx/miny/maxx/maxy) and not an existing file path.",
         )
     ext = os.path.splitext(value)[1].lower()
     if ext not in _EXCLUDE_VECTOR_EXTENSIONS:
         raise click.ClickException(
             f"Invalid --exclude file '{value}': expected one of "
-            f"{', '.join(_EXCLUDE_VECTOR_EXTENSIONS)}."
+            f"{', '.join(_EXCLUDE_VECTOR_EXTENSIONS)}.",
         )
     return value
 
@@ -868,7 +878,7 @@ def _run_validate(
                 f"Unrecognised vertical datum '{vdatum}'. "
                 "Provide an EPSG code (e.g. 'EPSG:5703', '5703') or a known short name "
                 "(e.g. 'navd88', 'egm2008', 'mllw'). "
-                "Run 'ivert validate --list-vdatums' to see all recognised names."
+                "Run 'ivert validate --list-vdatums' to see all recognised names.",
             )
         vdatum = resolved
 
@@ -882,7 +892,7 @@ def _run_validate(
                 ndv_float = float(ndv)
             except ValueError:
                 raise click.ClickException(
-                    f"Invalid --ndv value '{ndv}'. Provide a number or 'nan'."
+                    f"Invalid --ndv value '{ndv}'. Provide a number or 'nan'.",
                 )
 
     # Resolve the export-formats override. None means "use the config default"; an
@@ -905,7 +915,7 @@ def _run_validate(
     expanded = []
     for f in files_or_directory:
         matches = glob.glob(f)
-        expanded.extend(matches if matches else [f])
+        expanded.extend(matches or [f])
 
     if not expanded:
         raise click.ClickException("No input files or directory found.")
@@ -919,7 +929,8 @@ def _run_validate(
         # the DEM's own directory rather than the current working directory.
         if not os.path.isabs(outdir):
             single_outdir = os.path.join(
-                os.path.dirname(os.path.abspath(expanded[0])), outdir
+                os.path.dirname(os.path.abspath(expanded[0])),
+                outdir,
             )
         else:
             single_outdir = outdir
@@ -1188,7 +1199,7 @@ def validate(
         for name, epsg in name_table.items():
             by_epsg.setdefault(epsg, []).append(name)
         click.echo(
-            "Recognised vertical datum names (EPSG code → common names, description):\n"
+            "Recognised vertical datum names (EPSG code → common names, description):\n",
         )
         for epsg in sorted(by_epsg):
             aliases = sorted(by_epsg[epsg], key=len)

@@ -4,8 +4,8 @@ import os
 
 import click
 
-import ivert.utils.configfile as configfile
-import ivert.s3 as s3
+from ivert import s3
+from ivert.utils import configfile
 
 
 def write_photon_tiles_to_file(outfile: str):
@@ -33,12 +33,11 @@ def write_photon_tiles_to_file(outfile: str):
                     (not os.path.isdir(os.path.join(dirname, fn)))
                     and fn.startswith("photon_tile")
                 )
-            ]
+            ],
         )
 
     with open(outfile, "w") as f:
-        for fn in fnames:
-            f.write(fn + "\n")
+        f.writelines(fn + "\n" for fn in fnames)
 
     print(f"Wrote {len(fnames)} photon tiles to {outfile}.")
 

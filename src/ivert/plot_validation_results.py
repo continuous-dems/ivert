@@ -1,15 +1,13 @@
-# -*- coding: utf-8 -*-
-
-import numpy
-import matplotlib.pyplot as plt
-import matplotlib.ticker as ticker
-import matplotlib
-import pandas
-import os
 import collections
-import six
 import math
-import typing
+import os
+
+import matplotlib
+import matplotlib.pyplot as plt
+import numpy
+import pandas
+import six
+from matplotlib import ticker
 
 import ivert.utils.configfile
 import ivert.utils.progress_bar
@@ -20,13 +18,14 @@ ivert_config = ivert.utils.configfile.Config()
 def is_iterable(obj):
     """Tell whether an object is a non-string iterable. (list, tuple, etc)."""
     return isinstance(obj, collections.abc.Iterable) and not isinstance(
-        obj, six.string_types
+        obj,
+        six.string_types,
     )
 
 
 def get_data_from_h5_or_list(
-    h5_name_or_list: typing.Union[str, typing.List[str]],
-    orig_filenames: typing.Union[None, str, typing.List[str]] = None,
+    h5_name_or_list: str | list[str],
+    orig_filenames: None | str | list[str] = None,
     empty_val: float = ivert_config.dem_default_ndv,
     include_filenames: bool = False,
     verbose: bool = True,
@@ -43,7 +42,7 @@ def get_data_from_h5_or_list(
 
     elif is_iterable(h5_name_or_list):
         if verbose:
-            print("Reading {0} h5 results files.".format(len(h5_name_or_list)))
+            print(f"Reading {len(h5_name_or_list)} h5 results files.")
         data_list = []
 
         for i, h5_file in enumerate(h5_name_or_list):
@@ -62,7 +61,7 @@ def get_data_from_h5_or_list(
                 ivert.utils.progress_bar.ProgressBar(
                     i + 1,
                     len(h5_name_or_list),
-                    suffix="{0}/{1}".format(i + 1, len(h5_name_or_list)),
+                    suffix=f"{i + 1}/{len(h5_name_or_list)}",
                 )
 
         data = pandas.concat(data_list)
@@ -149,7 +148,11 @@ def plot_histograms_and_line(
         figsize = matplotlib.rcParams["figure.figsize"]
     scaled_figsize = (figsize[0] * ncols / 3, figsize[1])
     fig, axes = plt.subplots(
-        1, ncols, dpi=dpi, figsize=scaled_figsize, tight_layout=True
+        1,
+        ncols,
+        dpi=dpi,
+        figsize=scaled_figsize,
+        tight_layout=True,
     )
     if ncols == 1:
         axes = [axes]
@@ -177,7 +180,7 @@ def plot_histograms_and_line(
         ax1.set_ylabel("% of data cells")
         ax1.set_xlabel("Elevation difference (m)")
         ax1.yaxis.set_major_formatter(
-            ticker.PercentFormatter(max(len(meandiff_land), 1), decimals=0)
+            ticker.PercentFormatter(max(len(meandiff_land), 1), decimals=0),
         )
 
         # Add the lines for mean +- std
@@ -218,7 +221,7 @@ def plot_histograms_and_line(
         txt = ax1.text(
             0.11,
             0.95,
-            r"{0:.2f} $\pm$ {1:.2f} m".format(center, std),
+            rf"{center:.2f} $\pm$ {std:.2f} m",
             ha="left",
             va="top",
             fontsize="small",
@@ -230,7 +233,7 @@ def plot_histograms_and_line(
                 alpha=0.85,
                 edgecolor="white",
                 boxstyle="square,pad=0",
-            )
+            ),
         )
 
         # If requested, add the RMSE value to the figure.
@@ -239,7 +242,7 @@ def plot_histograms_and_line(
             txt_std = ax1.text(
                 0.97,
                 0.95,
-                "RMSE: {0:0.2f} m".format(rmse),
+                f"RMSE: {rmse:0.2f} m",
                 ha="right",
                 va="top",
                 fontsize="small",
@@ -251,7 +254,7 @@ def plot_histograms_and_line(
                     alpha=0.95,
                     edgecolor="white",
                     boxstyle="square,pad=0",
-                )
+                ),
             )
 
         ax1.text(
@@ -278,7 +281,7 @@ def plot_histograms_and_line(
         ax2.set_ylabel("% of data cells")
         ax2.set_xlabel("Elevation difference (m)")
         ax2.yaxis.set_major_formatter(
-            ticker.PercentFormatter(max(len(meandiff_bathy), 1), decimals=0)
+            ticker.PercentFormatter(max(len(meandiff_bathy), 1), decimals=0),
         )
 
         # Add the lines for mean +- std
@@ -319,7 +322,7 @@ def plot_histograms_and_line(
         txt = ax2.text(
             0.11,
             0.95,
-            r"{0:.2f} $\pm$ {1:.2f} m".format(center, std),
+            rf"{center:.2f} $\pm$ {std:.2f} m",
             ha="left",
             va="top",
             fontsize="small",
@@ -331,7 +334,7 @@ def plot_histograms_and_line(
                 alpha=0.85,
                 edgecolor="white",
                 boxstyle="square,pad=0",
-            )
+            ),
         )
 
         # If requested, add the RMSE value to the figure.
@@ -340,7 +343,7 @@ def plot_histograms_and_line(
             txt_std = ax2.text(
                 0.97,
                 0.95,
-                "RMSE: {0:0.2f} m".format(rmse),
+                f"RMSE: {rmse:0.2f} m",
                 ha="right",
                 va="top",
                 fontsize="small",
@@ -352,7 +355,7 @@ def plot_histograms_and_line(
                     alpha=0.95,
                     edgecolor="white",
                     boxstyle="square,pad=0",
-                )
+                ),
             )
 
         ax2.text(
@@ -425,7 +428,7 @@ def plot_histograms_and_line(
     rmse = (numpy.sum(meandiff**2) / len(meandiff)) ** 0.5
 
     fig.suptitle(
-        f"{place_name}: Errors and Distributions\nRMSE = {rmse:0.3f} m,   N = {len(meandiff):,} cells"
+        f"{place_name}: Errors and Distributions\nRMSE = {rmse:0.3f} m,   N = {len(meandiff):,} cells",
     )
     fig.tight_layout()
 
@@ -435,7 +438,7 @@ def plot_histograms_and_line(
         print(output_figure_name, "written.")
 
         # Compute the RMSE and spit that out too.
-        print("\tRMSE: {0:0.3f} m".format(rmse))
+        print(f"\tRMSE: {rmse:0.3f} m")
 
     # Clear the figure and close the plot.
     # If the plot is not "plt.close()"'ed, MatPlotLib keeps it in memory indefinitely
@@ -513,7 +516,11 @@ def plot_histogram_and_error_stats_4_panels(
     if figsize is None:
         figsize = matplotlib.rcParams["figure.figsize"]
     fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(
-        2, 2, dpi=dpi, figsize=figsize, tight_layout=True
+        2,
+        2,
+        dpi=dpi,
+        figsize=figsize,
+        tight_layout=True,
     )
 
     plot_label_margin = [0.015, 0.97]
@@ -531,7 +538,7 @@ def plot_histogram_and_error_stats_4_panels(
     ax1.set_ylabel("% of data cells")
     ax1.set_xlabel("Elevation difference (m)")
     ax1.yaxis.set_major_formatter(
-        ticker.PercentFormatter(max(len(meandiff), 1), decimals=0)
+        ticker.PercentFormatter(max(len(meandiff), 1), decimals=0),
     )
 
     # Add the lines for mean +- std
@@ -557,14 +564,14 @@ def plot_histogram_and_error_stats_4_panels(
     txt = ax1.text(
         0.11,  # if text_left else 0.97,
         0.95,  # 0.85 if text_left else 0.95,
-        r"{0:.2f} $\pm$ {1:.2f} m".format(center, std),
+        rf"{center:.2f} $\pm$ {std:.2f} m",
         ha="left",  # if text_left else "right",
         va="top",
         fontsize="small",
         transform=ax1.transAxes,
     )
     txt.set_bbox(
-        dict(facecolor="white", alpha=0.85, edgecolor="white", boxstyle="square,pad=0")
+        dict(facecolor="white", alpha=0.85, edgecolor="white", boxstyle="square,pad=0"),
     )
 
     # If requested, as the RMSE value to the figure.
@@ -573,7 +580,7 @@ def plot_histogram_and_error_stats_4_panels(
         txt_std = ax1.text(
             0.97,  # 0.12 if text_left else 0.97,
             0.95,
-            "RMSE: {0:0.2f} m".format(rmse),
+            f"RMSE: {rmse:0.2f} m",
             ha="right",  # "left" if text_left else "right",
             va="top",
             fontsize="small",
@@ -585,7 +592,7 @@ def plot_histogram_and_error_stats_4_panels(
                 alpha=0.85,
                 edgecolor="white",
                 boxstyle="square,pad=0",
-            )
+            ),
         )
 
     # Add subplot label "a"
@@ -653,7 +660,7 @@ def plot_histogram_and_error_stats_4_panels(
     ax3.set_xlabel("Photon count per DEM cell")
     ax3.set_ylabel("% of data cells")
     ax3.yaxis.set_major_formatter(
-        ticker.PercentFormatter(max(len(numphotons_intd), 1), decimals=1)
+        ticker.PercentFormatter(max(len(numphotons_intd), 1), decimals=1),
     )
 
     # Crop the left & right, right at 98 percentile.
@@ -667,9 +674,7 @@ def plot_histogram_and_error_stats_4_panels(
     ax3.text(
         0.95,
         0.95,
-        "{0:d} $\\pm$ {1:d}\nphotons per cell".format(
-            int(numpy.round(center)), int(numpy.round(std))
-        ),
+        f"{int(numpy.round(center)):d} $\\pm$ {int(numpy.round(std)):d}\nphotons per cell",
         ha="right",
         va="top",
         fontsize="small",
@@ -696,7 +701,7 @@ def plot_histogram_and_error_stats_4_panels(
     ax4.set_title("Canopy Cover (%)")
     ax4.set_xlabel("% Canopy Cover")
     ax4.yaxis.set_major_formatter(
-        ticker.PercentFormatter(max(len(canopy_fraction), 1), decimals=0)
+        ticker.PercentFormatter(max(len(canopy_fraction), 1), decimals=0),
     )
 
     # Crop the right edge at the 99th percentile
@@ -717,11 +722,7 @@ def plot_histogram_and_error_stats_4_panels(
     ax4.text(
         0.95,
         0.95,
-        "{0:0.1f} % of cells have >0 cover:\n{1:0.1f} $\\pm$ {2:0.1f} % canopy cover\nin non-zero cells".format(
-            numpy.count_nonzero(canopy_mask) * 100 / canopy_fraction.size,
-            numpy.mean(canopy_fraction[canopy_mask]),
-            numpy.std(canopy_fraction[canopy_mask]),
-        ),
+        f"{numpy.count_nonzero(canopy_mask) * 100 / canopy_fraction.size:0.1f} % of cells have >0 cover:\n{numpy.mean(canopy_fraction[canopy_mask]):0.1f} $\\pm$ {numpy.std(canopy_fraction[canopy_mask]):0.1f} % canopy cover\nin non-zero cells",
         ha="right",
         va="top",
         transform=ax4.transAxes,
@@ -744,9 +745,7 @@ def plot_histogram_and_error_stats_4_panels(
     if place_name is None:
         place_name = "DEM"
     fig.suptitle(
-        "{0}: Errors and Distributions\n(N = {1:,} cells)".format(
-            place_name, len(meandiff)
-        )
+        f"{place_name}: Errors and Distributions\n(N = {len(meandiff):,} cells)",
     )
     fig.tight_layout()
 
@@ -757,7 +756,7 @@ def plot_histogram_and_error_stats_4_panels(
 
         # Compute the RMSE and spit that out too.
         rmse = (numpy.sum(meandiff**2) / len(meandiff)) ** 0.5
-        print("\tRMSE: {0:0.3f} m".format(rmse))
+        print(f"\tRMSE: {rmse:0.3f} m")
 
     # Clear the figure and close the plot.
     # If the plot is not "plt.close()"'ed, MatPlotLib keeps it in memory indefinitely
@@ -856,7 +855,7 @@ def plot_histogram_and_error_stats_4_panels(
 
 if __name__ == "__main__":
     results_df = pandas.read_hdf(
-        "/home/mmacferrin/Research/DEMs/CUDEMs_1_9_Oregon_2025/dems/2025.10.10_w_metadata/icesat2/ncei19_n45x50_w124x00_2025v1_results.h5"
+        "/home/mmacferrin/Research/DEMs/CUDEMs_1_9_Oregon_2025/dems/2025.10.10_w_metadata/icesat2/ncei19_n45x50_w124x00_2025v1_results.h5",
     )
     plot_histograms_and_line(
         results_df,

@@ -1,15 +1,15 @@
-import numpy
-import re
-import matplotlib.pyplot as plt
-import matplotlib.ticker as ticker
-import pandas
-import os
 import math
-import rasterio
+import os
+import re
 
 ####################################3
 # Include the base /src/ directory of thie project, to add all the other modules.
 import import_parent_dir
+import matplotlib.pyplot as plt
+import numpy
+import pandas
+import rasterio
+from matplotlib import ticker
 
 import_parent_dir.import_src_dir_via_pythonpath()
 ####################################3
@@ -21,7 +21,6 @@ import ivert.icesat2.plot_validation_results  # noqa: E402
 
 def add_lat_lons(df):
     """From the filename, get the lat/lon of each grid-cell point, from the filename and the i,j position of the pixel."""
-
     lat = numpy.empty((len(df),), dtype=float)
     lon = numpy.empty((len(df),), dtype=float)
 
@@ -47,7 +46,7 @@ def get_slopes(df, files_dirname):
     fnames = [os.path.join(files_dirname, fn) for fn in df.filename.unique()]
     slope_fnames = [fn.replace("_results.h5", "_slope.tif") for fn in fnames]
     fnames_dict = dict(
-        [(os.path.basename(fn), sfn) for fn, sfn in zip(fnames, slope_fnames)]
+        [(os.path.basename(fn), sfn) for fn, sfn in zip(fnames, slope_fnames)],
     )
 
     fn_array_dict = {}
@@ -82,7 +81,8 @@ def plot_errors_against_slope_centrality(
     verbose=True,
 ):
     total_results_h5 = os.path.join(
-        os.path.dirname(output_figure_name), "total_results.h5"
+        os.path.dirname(output_figure_name),
+        "total_results.h5",
     )
     if os.path.exists(total_results_h5):
         data = pandas.read_hdf(total_results_h5)
@@ -149,14 +149,14 @@ def plot_errors_against_slope_centrality(
     txt = ax1.text(
         0.12 if text_left else 0.97,
         0.95,  # 0.85 if text_left else 0.95,
-        r"{0:.2f} $\pm$ {1:.2f} m".format(center, std),
+        rf"{center:.2f} $\pm$ {std:.2f} m",
         ha="left" if text_left else "right",
         va="top",
         fontsize="small",
         transform=ax1.transAxes,
     )
     txt.set_bbox(
-        dict(facecolor="white", alpha=0.7, edgecolor="white", boxstyle="square,pad=0")
+        dict(facecolor="white", alpha=0.7, edgecolor="white", boxstyle="square,pad=0"),
     )
 
     coverage_pct = coverage_frac * 100
@@ -172,12 +172,12 @@ def plot_errors_against_slope_centrality(
     coverage_rmse = numpy.zeros(
         len(
             unique_coverages,
-        )
+        ),
     )
     coverage_counts = numpy.zeros(
         len(
             unique_coverages,
-        )
+        ),
     )
     for i, c in enumerate(unique_coverages):
         cmask = coverage_pct == c
@@ -187,7 +187,11 @@ def plot_errors_against_slope_centrality(
         coverage_counts[i] = diff_subset.size
 
     ax2.fill_between(
-        unique_coverages, coverage_lo, coverage_hi, alpha=0.3, color="maroon"
+        unique_coverages,
+        coverage_lo,
+        coverage_hi,
+        alpha=0.3,
+        color="maroon",
     )
 
     # Figure 3, plot against slope
@@ -217,7 +221,7 @@ def plot_errors_against_slope_centrality(
     ax4.set_ylabel("% of data cells")
     ax4.set_xlabel("Elevation difference (m)")
     ax4.yaxis.set_major_formatter(
-        ticker.PercentFormatter(len(meandiff_good), decimals=0)
+        ticker.PercentFormatter(len(meandiff_good), decimals=0),
     )
 
     # Add the lines for mean +- std
@@ -233,27 +237,27 @@ def plot_errors_against_slope_centrality(
     txt = ax4.text(
         0.03,
         0.95,
-        "Only data with\n$\\geq${0} % coverage".format(coverage_cutoff_pct),
+        f"Only data with\n$\\geq${coverage_cutoff_pct} % coverage",
         ha="left",
         va="top",
         fontsize="small",
         transform=ax4.transAxes,
     )
     txt.set_bbox(
-        dict(facecolor="white", alpha=0.7, edgecolor="white", boxstyle="square,pad=0")
+        dict(facecolor="white", alpha=0.7, edgecolor="white", boxstyle="square,pad=0"),
     )
 
     txt = ax4.text(
         0.03 if text_left else 0.97,
         0.70,
-        r"{0:.2f} $\pm$ {1:.2f} m".format(center, std),
+        rf"{center:.2f} $\pm$ {std:.2f} m",
         ha="left" if text_left else "right",
         va="top",
         fontsize="small",
         transform=ax4.transAxes,
     )
     txt.set_bbox(
-        dict(facecolor="white", alpha=0.7, edgecolor="white", boxstyle="square,pad=0")
+        dict(facecolor="white", alpha=0.7, edgecolor="white", boxstyle="square,pad=0"),
     )
 
     fig.tight_layout()
@@ -278,7 +282,7 @@ if __name__ == "__main__":
             os.path.join(dirname, fn)
             for fn in os.listdir(dirname)
             if re.search("_results.h5", fn) is not None
-        ]
+        ],
     )
     outdir = os.path.join(dirname, "plots")
 

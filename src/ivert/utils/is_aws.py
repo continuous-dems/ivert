@@ -2,7 +2,7 @@ import os
 
 
 def is_aws():
-    "Return True if running in an Amazon Web Services environment. False otherwise."
+    """Return True if running in an Amazon Web Services environment. False otherwise."""
     # The Amazon OS 2 EC2 instances we run have a /var/lib/cloud/instance/datasource file,
     # which contains "DataSourceEc2: DataSourceEc2" line. Look for that.
     datasource_path = "/var/lib/cloud/instance/datasource"
@@ -13,7 +13,7 @@ def is_aws():
     try:
         return (
             os.path.exists(datasource_path)
-            and "DataSourceEc2" in open(datasource_path, "r").read()
+            and "DataSourceEc2" in open(datasource_path).read()
         )
 
     except (NameError, FileNotFoundError):

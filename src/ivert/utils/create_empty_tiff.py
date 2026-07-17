@@ -1,10 +1,11 @@
 # Quick utility to creatwe an empty .tif file to use for the IVERT test utility.
 
 
-import ivert.utils.configfile as configfile
-
 import os
+
 import rasterio
+
+from ivert.utils import configfile
 
 
 def create_empty_tiff():

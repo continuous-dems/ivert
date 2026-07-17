@@ -1,7 +1,5 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-"""
-ivert.vdatum_lookup
+"""ivert.vdatum_lookup
 ~~~~~~~~~~~~~~~~~~~
 Translate common vertical datum names to formal EPSG code strings.
 
@@ -105,7 +103,7 @@ def _build_tables_from_transformez():
         description = info.get("description", "")
 
         # Description: prefer the explicit "description" field; fall back to "name"
-        desc_table[epsg] = description if description else raw_name
+        desc_table[epsg] = description or raw_name
 
         if not raw_name:
             continue
@@ -199,6 +197,7 @@ def resolve_vdatum(name: str | int | None) -> str | None:
         'EPSG:5703'
         >>> resolve_vdatum('EPSG:5703')
         'EPSG:5703'
+
     """
     if name is None:
         return None

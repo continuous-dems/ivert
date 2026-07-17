@@ -1,6 +1,7 @@
 """Quick little utility for adding colors to the command-line.
 
-Source: https://svn.blender.org/svnroot/bf-blender/trunk/blender/build_files/scons/tools/bcolors.py"""
+Source: https://svn.blender.org/svnroot/bf-blender/trunk/blender/build_files/scons/tools/bcolors.py
+"""
 
 
 class bcolors:

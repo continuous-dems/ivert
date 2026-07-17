@@ -1,7 +1,6 @@
 import io
 import multiprocessing as mp
 import sys
-import typing
 
 import ivert.utils.unformat_text as ut
 
@@ -11,14 +10,15 @@ class LoggerProc(mp.Process):
 
     Inherits from multiprocessing.Process. Run just as you would a Process, but include a filename and an optional
     'include_terminal' argument. If True, print to the terminal as well as return in the logfile. If False, just write
-    to the logfile (not to the terminal)."""
+    to the logfile (not to the terminal).
+    """
 
     def __init__(
         self,
         target: callable,
         filename_out: str,
-        args: typing.Union[typing.List, typing.Tuple, None] = None,
-        kwargs: typing.Union[typing.Dict, None] = None,
+        args: list | tuple | None = None,
+        kwargs: dict | None = None,
         output_to_terminal: bool = False,
     ):
 
@@ -48,7 +48,8 @@ class LoggerProc(mp.Process):
         """
         # Assign a logger to stdout and stderr in this sub-process. Then call the target function.
         logger = Logger(
-            filename=self.filename, output_to_terminal=self.output_to_terminal
+            filename=self.filename,
+            output_to_terminal=self.output_to_terminal,
         )
 
         # Redirect this process's stdout and stderr to the logger.
@@ -58,8 +59,6 @@ class LoggerProc(mp.Process):
         # Call target function directly with args & kwargs after redirecting stdout and stderr.
         self.target(*self.args, **self.kwargs)
 
-        return
-
 
 class Logger(io.TextIOWrapper):
     """A class for logging stdout to a file. Used by LoggerProc.
@@ -67,7 +66,8 @@ class Logger(io.TextIOWrapper):
     Contains a "write" method that can act as an output stream/file.
     If output_to_termianl, this writes all output (including stderr) to the terminal's stdout as well as the logfile.
 
-    At some point we may add support for logging stderr to a separate file."""
+    At some point we may add support for logging stderr to a separate file.
+    """
 
     def __init__(self, filename: str, output_to_terminal: bool = True):
 
@@ -99,7 +99,8 @@ class Logger(io.TextIOWrapper):
     def write(self, message):
         """Write a message to both the terminal (if selected) and the log.
 
-        For the log, use unformatted text without ASCII escape codes or carriage returned-lines."""
+        For the log, use unformatted text without ASCII escape codes or carriage returned-lines.
+        """
         if self.terminal_stdout:
             self.terminal_stdout.write(message)
 
@@ -109,8 +110,8 @@ class Logger(io.TextIOWrapper):
 
 def dummy_test():
     """Test this module."""
-    import time
     import os
+    import time
 
     def do_stuff(foobar, barfoo=None):
         """A dummy function that prints random crap to the screen, both to stdout and stderr (raising expection)."""
@@ -125,7 +126,7 @@ def dummy_test():
     var1 = "hello"
     kwvar2 = "world"
     outfile = os.path.abspath(
-        os.path.join("..", "scratch_data", "loggerproc_test_out.txt")
+        os.path.join("..", "scratch_data", "loggerproc_test_out.txt"),
     )
 
     proc = LoggerProc(

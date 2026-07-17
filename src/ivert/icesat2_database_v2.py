@@ -1,27 +1,26 @@
 # Functionality for reading ICESat-2 data and saving it in a tiled database.
 
 import datetime
+import logging
 import os
 import re
+import shutil
 
 import dateparser
-import geopandas
-import logging
-import numpy
-import pandas
-import shapely
-import shutil
-import xarray
-
 import fetchez
 import fetchez.core
 import fetchez.spatial
-from fetchez.modules.earthdata import IceSat2 as _FetchezIceSat2
+import geopandas
 import globato
+import numpy
+import pandas
+import shapely
+import xarray
+from fetchez.modules.earthdata import IceSat2 as _FetchezIceSat2
 
-import ivert.utils.pickle_blosc
 import ivert.utils.configfile
 import ivert.utils.cuboid_funcs
+import ivert.utils.pickle_blosc
 from ivert.icesat2_requests import ICESat2RequestsCSV
 
 logger = logging.getLogger(__name__)
@@ -41,8 +40,8 @@ def _delta_time_to_yyyymmdd(delta_time: float) -> int:
     """Convert ICESat-2 delta_time (seconds since 2018-01-01) to a YYYYMMDD integer."""
     return int(
         (_ICESAT2_EPOCH + datetime.timedelta(seconds=float(delta_time))).strftime(
-            "%Y%m%d"
-        )
+            "%Y%m%d",
+        ),
     )
 
 
@@ -69,7 +68,9 @@ class IS2Database:
         self.icesat2_download_dir = self.config.icesat2_download_directory
 
     def create_new_database(
-        self, populate: bool = True, overwrite: bool = False
+        self,
+        populate: bool = True,
+        overwrite: bool = False,
     ) -> geopandas.GeoDataFrame:
         """Create a new database from scratch.
 
@@ -87,6 +88,7 @@ class IS2Database:
         Returns
         -------
         geopandas.GeoDataFrame containing the photon tiles from the database.
+
         """
         if overwrite:
             removed = []
@@ -101,7 +103,7 @@ class IS2Database:
 
         elif os.path.exists(self.db_fname):
             raise OSError(
-                "Database file already exists. Use overwrite=True to overwrite it."
+                "Database file already exists. Use overwrite=True to overwrite it.",
             )
 
         if populate:
@@ -110,7 +112,7 @@ class IS2Database:
                     os.path.join(self.granules_dir, fn)
                     for fn in os.listdir(self.granules_dir)
                     if os.path.splitext(fn)[-1].lower() == ".nc"
-                ]
+                ],
             )
 
             records = []
@@ -138,7 +140,9 @@ class IS2Database:
         gdf.to_file(self.db_fname, driver="GPKG")
         if os.path.exists(self.db_fname):
             logger.info(
-                "Created %s with %d records.", os.path.basename(self.db_fname), len(gdf)
+                "Created %s with %d records.",
+                os.path.basename(self.db_fname),
+                len(gdf),
             )
         else:
             raise OSError("Failed to create", os.path.basename(self.db_fname))
@@ -215,21 +219,22 @@ class IS2Database:
             return {
                 "granule_id": str(
                     attrs.get(
-                        "granule_id", os.path.splitext(os.path.basename(nc_fn))[0]
-                    )
+                        "granule_id",
+                        os.path.splitext(os.path.basename(nc_fn))[0],
+                    ),
                 ),
                 "filename": os.path.basename(nc_fn),
                 "source_granule": str(
                     attrs.get(
                         "source_granule",
                         IS2Database._source_granule_from_filename(
-                            os.path.basename(nc_fn)
+                            os.path.basename(nc_fn),
                         ),
-                    )
+                    ),
                 ),
                 "laser_name": str(attrs.get("laser_name", "all")),
                 "query_bbox": _bbox(
-                    attrs.get("query_bbox", [0.0, 0.0, 0.0, 0.0, 0, 0])
+                    attrs.get("query_bbox", [0.0, 0.0, 0.0, 0.0, 0, 0]),
                 ),
                 "data_bbox": data_bbox,
                 "zbounds": [
@@ -244,23 +249,28 @@ class IS2Database:
                 "numphotons_ice_surface": int(attrs.get("numphotons_ice_surface", 0)),
                 "numphotons_bathy_floor": int(attrs.get("numphotons_bathy_floor", 0)),
                 "numphotons_bathy_surface": int(
-                    attrs.get("numphotons_bathy_surface", 0)
+                    attrs.get("numphotons_bathy_surface", 0),
                 ),
                 "numphotons_buildings": int(attrs.get("numphotons_buildings", 0)),
                 "numphotons_inland_water_surface": int(
-                    attrs.get("numphotons_inland_water_surface", 0)
+                    attrs.get("numphotons_inland_water_surface", 0),
                 ),
                 "downloaded_on": int(attrs.get("downloaded_on", 0)),
                 "horizontal_datum": str(attrs.get("horizontal_datum", "")),
                 "vertical_datum": str(attrs.get("vertical_datum", "")),
                 # shapely.box(xmin, ymin, xmax, ymax)
                 "geometry": shapely.box(
-                    data_bbox[0], data_bbox[2], data_bbox[1], data_bbox[3]
+                    data_bbox[0],
+                    data_bbox[2],
+                    data_bbox[1],
+                    data_bbox[3],
                 ),
             }
         except Exception as e:
             logger.warning(
-                "Could not read metadata from %s: %s", os.path.basename(nc_fn), e
+                "Could not read metadata from %s: %s",
+                os.path.basename(nc_fn),
+                e,
             )
             return None
 
@@ -293,7 +303,7 @@ class IS2Database:
     # appended by _nc_filename(), so the source granule id can be recovered from any nc
     # filename regardless of which query bbox/dates produced it.
     _NC_SUFFIX_RE = re.compile(
-        r"_[EW]\d{3}\.\d{5}_[EW]\d{3}\.\d{5}_[NS]\d{2}\.\d{5}_[NS]\d{2}\.\d{5}_\d+_\d+\.nc$"
+        r"_[EW]\d{3}\.\d{5}_[EW]\d{3}\.\d{5}_[NS]\d{2}\.\d{5}_[NS]\d{2}\.\d{5}_\d+_\d+\.nc$",
     )
 
     @classmethod
@@ -333,7 +343,7 @@ class IS2Database:
 
                 # Cumulative distance at the start of each segment
                 seg_cumul_start = numpy.concatenate(
-                    [[0.0], numpy.cumsum(seg_length[:-1])]
+                    [[0.0], numpy.cumsum(seg_length[:-1])],
                 )
 
                 # Map each photon to its segment via ph_index_beg
@@ -352,15 +362,15 @@ class IS2Database:
                             "x": lon,
                             "y": lat,
                             "along_track_m": seg_cumul_start[seg_of_ph] + dist_ph_along,
-                        }
-                    )
+                        },
+                    ),
                 )
 
         return (
             pandas.concat(dfs, ignore_index=True)
             if dfs
             else pandas.DataFrame(
-                columns=["laser", "delta_time", "x", "y", "along_track_m"]
+                columns=["laser", "delta_time", "x", "y", "along_track_m"],
             )
         )
 
@@ -371,7 +381,7 @@ class IS2Database:
         if normalized not in ("ellipsoid", "geoid"):
             raise ValueError(
                 f"Invalid icesat2_vertical_datum value: {raw_value!r}. "
-                "Must be 'ellipsoid' or 'geoid' (case-insensitive)."
+                "Must be 'ellipsoid' or 'geoid' (case-insensitive).",
             )
         return normalized
 
@@ -394,7 +404,7 @@ class IS2Database:
     # (e.g. if globato's ICESat2Reader changes its accepted vocabulary) is
     # caught explicitly rather than silently mis-mapped.
     _GLOBATO_ACCEPTED_VERTICAL_DATUMS = frozenset(
-        {"ellipsoid", "ellipsoid-mean-tide", "geoid", "geoid-mean-tide"}
+        {"ellipsoid", "ellipsoid-mean-tide", "geoid", "geoid-mean-tide"},
     )
 
     @classmethod
@@ -410,7 +420,7 @@ class IS2Database:
             raise ValueError(
                 f"No globato vertical_datum mapping for {vertical_epsg!r}. "
                 "Known mappings: "
-                f"{cls._EPSG_TO_GLOBATO_VERTICAL_DATUM}."
+                f"{cls._EPSG_TO_GLOBATO_VERTICAL_DATUM}.",
             ) from None
 
         if globato_datum not in cls._GLOBATO_ACCEPTED_VERTICAL_DATUMS:
@@ -420,7 +430,7 @@ class IS2Database:
                 f"{sorted(cls._GLOBATO_ACCEPTED_VERTICAL_DATUMS)}. globato's "
                 "ICESat2Reader may have changed its accepted vertical_datum "
                 "vocabulary; update _EPSG_TO_GLOBATO_VERTICAL_DATUM / "
-                "_GLOBATO_ACCEPTED_VERTICAL_DATUMS to match."
+                "_GLOBATO_ACCEPTED_VERTICAL_DATUMS to match.",
             )
         return globato_datum
 
@@ -447,7 +457,7 @@ class IS2Database:
             return self._read_nc_metadata(nc_fn)
 
         vertical_datum = self._validate_vertical_datum(
-            self.config.icesat2_vertical_datum
+            self.config.icesat2_vertical_datum,
         )
         vertical_datum = self._vertical_datum_to_vertical_epsg(vertical_datum)
 
@@ -551,7 +561,8 @@ class IS2Database:
         xr_ds.attrs = metadata_attrs
 
         os.makedirs(
-            os.path.dirname(nc_fn) if os.path.dirname(nc_fn) else ".", exist_ok=True
+            os.path.dirname(nc_fn) if os.path.dirname(nc_fn) else ".",
+            exist_ok=True,
         )
         xr_ds.to_netcdf(nc_fn)
         progress = (
@@ -610,6 +621,7 @@ class IS2Database:
         -------
         geopandas.GeoDataFrame containing the photon tiles from the database that fix the bounding box and date range.
             None if no current database file exists locally.
+
         """
         if self.gdf is not None and not force_reread:
             return self.gdf
@@ -647,16 +659,19 @@ class IS2Database:
         return self.gdf
 
     def read_database_file(
-        self, bbox: list | tuple | None = None, date_range: list | tuple | None = None
+        self,
+        bbox: list | tuple | None = None,
+        date_range: list | tuple | None = None,
     ):
         """Read the master database into a GeoDataFrame.
 
         Subset list of granules by bounding box and date range of the data (not the query box).
 
-        Return the subset of the database read off of disk."""
+        Return the subset of the database read off of disk.
+        """
         if os.path.exists(self.db_fname):
             gdf_subset = self._normalize_bbox_columns(
-                geopandas.read_file(self.db_fname, bbox=bbox)
+                geopandas.read_file(self.db_fname, bbox=bbox),
             )
 
             if date_range is not None:
@@ -671,12 +686,12 @@ class IS2Database:
 
             return gdf_subset
 
-        else:
-            return None
+        return None
 
     @staticmethod
     def omit_photons_from_exclusion_bbox(
-        dataframe, bbox_to_exclude
+        dataframe,
+        bbox_to_exclude,
     ) -> pandas.DataFrame:
         """Exclude any photons that fall within the particular bounding box."""
         x = dataframe["x"]
@@ -705,7 +720,7 @@ class IS2Database:
 
         else:
             raise ValueError(
-                "Bounding boxes must be either 4 values or 6 values, in format (xmin, xmax, ymin, ymax, [tmin, tmax])."
+                "Bounding boxes must be either 4 values or 6 values, in format (xmin, xmax, ymin, ymax, [tmin, tmax]).",
             )
 
         return df_sub
@@ -730,6 +745,7 @@ class IS2Database:
         Returns
         -------
         pandas.DataFrame with columns x, y, z, class_code, bathy_confidence, delta_time.
+
         """
         if photon_classes is None:
             photon_classes = (1, 40)
@@ -798,8 +814,8 @@ class IS2Database:
         -------
             pandas.DataFrame containing classified photons that fit in the bounding box and date range.
             If no photons are found, return None.
-        """
 
+        """
         assert len(bbox) == 6, (
             "bbox must be a list or tuple of length 6 (xmin, ymin, xmax, ymax, tmin, tmax)."
         )
@@ -810,7 +826,7 @@ class IS2Database:
 
         # print(gdf_subset)
         fnames = gdf_subset["filename"].apply(
-            lambda x: os.path.join(self.granules_dir, x)
+            lambda x: os.path.join(self.granules_dir, x),
         )
         logger.info(
             "%d granules exist with %s ground photons and %s bathy_floor photons.",
@@ -825,8 +841,10 @@ class IS2Database:
             # print(os.path.basename(fpath))
             granule_dfs.append(
                 self.read_granule(
-                    fpath, subset_bbox=bbox, photon_classes=photon_classes
-                )
+                    fpath,
+                    subset_bbox=bbox,
+                    photon_classes=photon_classes,
+                ),
             )
             # print()
 
@@ -852,7 +870,7 @@ class IS2Database:
 
         # If we're given a single bounding box of exclusions as a 4- or 6-tuple of numbers (not iterables), put it in a 1-length list.
         if len(omit_bboxes) in (4, 6) and not numpy.any(
-            [self.is_iterable(num) for num in omit_bboxes]
+            [self.is_iterable(num) for num in omit_bboxes],
         ):
             omit_bboxes = [omit_bboxes]
 
@@ -876,20 +894,21 @@ class IS2Database:
         return photons_df.copy()
 
     def convert_date_range(
-        self, date_range: list | tuple | None
+        self,
+        date_range: list | tuple | None,
     ) -> list | tuple | None:
         """Convert date range to the format required by the database."""
         if date_range is None:
             return None
-        elif len(date_range) == 2:
+        if len(date_range) == 2:
             return self.convert_date_to_yyyymmdd(
-                date_range[0]
+                date_range[0],
             ), self.convert_date_to_yyyymmdd(date_range[1])
-        else:
-            raise ValueError("Date range must be a list or tuple of length 2.")
+        raise ValueError("Date range must be a list or tuple of length 2.")
 
     def convert_date_to_yyyymmdd(
-        self, date: int | str | datetime.datetime | datetime.date
+        self,
+        date: int | str | datetime.datetime | datetime.date,
     ) -> int:
         """Convert date to the YYYYMMDD integer format required by the database."""
         if isinstance(date, int):
@@ -897,7 +916,7 @@ class IS2Database:
             if len(str(date)) != 8:
                 raise ValueError("Date must be an 8 digit integer in YYYYMMDD.")
             return date
-        elif isinstance(date, str):
+        if isinstance(date, str):
             try:
                 # If it's a string in "YYYYMMDD" format, convert it to an int.
                 date_int = int(date)
@@ -909,7 +928,7 @@ class IS2Database:
             return int(date.strftime("%Y%m%d"))
         else:
             raise ValueError(
-                "Date must be an int, str, datetime.datetime, or datetime.date."
+                "Date must be an int, str, datetime.datetime, or datetime.date.",
             )
 
     def query_granules(self, bbox: list | tuple) -> pandas.DataFrame | None:
@@ -934,8 +953,10 @@ class IS2Database:
         # Add 1 to each
         int_mask = gdf["data_bbox"].apply(
             lambda b: ivert.utils.cuboid_funcs.cuboids_intersect(
-                b, bbox, bbox_order="axis"
-            )
+                b,
+                bbox,
+                bbox_order="axis",
+            ),
         )
 
         # Return the subset of the dataframe of granules whose data bounding-box intersects the query bounding box.
@@ -959,7 +980,7 @@ class IS2Database:
                 if len(hd_vals) > 0 and len(vd_vals) > 0:
                     hd = str(hd_vals.iloc[0])  # e.g. "EPSG:4326"
                     vd = str(vd_vals.iloc[0])  # e.g. "EPSG:3855" or "EPSG:4979"
-                    vd_num = vd.split(":")[-1]  # strip "EPSG:" prefix
+                    vd_num = vd.rsplit(":", maxsplit=1)[-1]  # strip "EPSG:" prefix
                     return f"{hd}+{vd_num}"  # e.g. "EPSG:4326+3855"
         return "EPSG:4326+4979"
 
@@ -984,7 +1005,7 @@ class IS2Database:
         """
         # Validate the configured water surface and derive the target vertical datum.
         vertical_datum_cfg = self._validate_vertical_datum(
-            self.config.icesat2_vertical_datum
+            self.config.icesat2_vertical_datum,
         )
         target_vd = self._vertical_datum_to_vertical_epsg(vertical_datum_cfg)
 
@@ -1024,14 +1045,14 @@ class IS2Database:
             bboxes = [tuple(bbox)]
             logger.info(
                 "--replace enabled: re-downloading the full requested region and "
-                "overwriting any overlapping existing granules."
+                "overwriting any overlapping existing granules.",
             )
         else:
             bboxes = self.filter_query_bbox(bbox)
 
             if len(bboxes) == 0:
                 logger.info(
-                    "All required granules already exist in the database. Nothing new to download."
+                    "All required granules already exist in the database. Nothing new to download.",
                 )
                 return
 
@@ -1050,7 +1071,7 @@ class IS2Database:
                         bb,
                         tile_size_deg=tile_size_deg,
                         max_tile_scale_factor=max_tile_scale_factor,
-                    )
+                    ),
                 )
             bboxes = bboxes_split
 
@@ -1063,7 +1084,9 @@ class IS2Database:
             int(max(bb[5] for bb in bboxes)),
         )
         logger.info(
-            "Downloading granules over %s in %d parts.", actual_bbox, len(bboxes)
+            "Downloading granules over %s in %d parts.",
+            actual_bbox,
+            len(bboxes),
         )
 
         os.makedirs(self.granules_dir, exist_ok=True)
@@ -1083,10 +1106,12 @@ class IS2Database:
             # fetchez region is "xmin/xmax/ymin/ymax"
             region_str = f"{sbbox[0]}/{sbbox[1]}/{sbbox[2]}/{sbbox[3]}"
             time_start = datetime.datetime.strptime(
-                str(int(sbbox[4])), "%Y%m%d"
+                str(int(sbbox[4])),
+                "%Y%m%d",
             ).strftime("%Y-%m-%dT00:00:00")
             time_end = datetime.datetime.strptime(
-                str(int(sbbox[5])), "%Y%m%d"
+                str(int(sbbox[5])),
+                "%Y%m%d",
             ).strftime("%Y-%m-%dT00:00:00")
 
             logger.info(
@@ -1107,7 +1132,9 @@ class IS2Database:
             # Check for a cached Harmony job for this bbox before submitting.
             requests_csv = ICESat2RequestsCSV()
             cached = requests_csv.find_matching_request(
-                "ATL03", sbbox, only_unexpired=True
+                "ATL03",
+                sbbox,
+                only_unexpired=True,
             )
             if cached:
                 # Ping Harmony to verify the cached job completed without errors.
@@ -1155,7 +1182,10 @@ class IS2Database:
                 final_status = mod.harmony_ping_for_status(mod.subset_job_id)
                 if final_status:
                     requests_csv.update_record(
-                        "ATL03", sbbox, final_status, fail_quietly=True
+                        "ATL03",
+                        sbbox,
+                        final_status,
+                        fail_quietly=True,
                     )
 
             results = fetchez.core.run_fetchez([mod])
@@ -1228,7 +1258,9 @@ class IS2Database:
                 continue
 
             new_gdf = geopandas.GeoDataFrame(
-                new_records, crs=self.crs, geometry="geometry"
+                new_records,
+                crs=self.crs,
+                geometry="geometry",
             )
             if existing_gdf is None or len(existing_gdf) == 0:
                 self.gdf = new_gdf
@@ -1244,12 +1276,12 @@ class IS2Database:
                             "source_granule"
                         ].fillna(
                             existing_gdf["filename"].apply(
-                                self._source_granule_from_filename
-                            )
+                                self._source_granule_from_filename,
+                            ),
                         )
                     else:
                         existing_source_granules = existing_gdf["filename"].apply(
-                            self._source_granule_from_filename
+                            self._source_granule_from_filename,
                         )
                     same_granule = existing_source_granules.isin(new_source_granules)
                     # Only replace records whose query bbox (lat/lon + time) overlaps the
@@ -1259,8 +1291,10 @@ class IS2Database:
                     # doing so would discard original data rather than de-duplicate it.
                     bbox_overlaps = existing_gdf["query_bbox"].apply(
                         lambda qb: ivert.utils.cuboid_funcs.cuboids_intersect(
-                            qb, sbbox, bbox_order="axis"
-                        )
+                            qb,
+                            sbbox,
+                            bbox_order="axis",
+                        ),
                     )
                     is_replaced = same_granule & bbox_overlaps
                     n_replaced = int(is_replaced.sum())
@@ -1334,6 +1368,7 @@ class IS2Database:
         list or None
             A 2-tuple containing (min, max) values for the requested axis.
             Returns None if no data is available or if invalid parameters are provided.
+
         """
         gdf = self.open_gdf()
         if gdf is None or len(gdf) == 0:
@@ -1346,7 +1381,7 @@ class IS2Database:
             bboxes = gdf["query_bbox"]
         else:
             raise ValueError(
-                "Invalid data_or_query parameter. Must be one of 'data' or 'query'."
+                "Invalid data_or_query parameter. Must be one of 'data' or 'query'.",
             )
 
         axis = axis.lower().strip()
@@ -1365,7 +1400,9 @@ class IS2Database:
         return mins, maxs
 
     def unique_bboxes(
-        self, gdf: geopandas.GeoDataFrame | None = None, data_or_query: str = "query"
+        self,
+        gdf: geopandas.GeoDataFrame | None = None,
+        data_or_query: str = "query",
     ) -> list | None:
         """Return a numpy array of unique query bounding boxes in the database.
 
@@ -1388,6 +1425,7 @@ class IS2Database:
             List of unique bounding boxes from the database, where each box is a 6-tuple
             containing (xmin, xmax, ymin, ymax, tmin, tmax).
             Returns None if no data is available in the database.
+
         """
         if gdf is None:
             gdf = self.open_gdf()
@@ -1401,7 +1439,7 @@ class IS2Database:
             field = "query_bbox"
         else:
             raise ValueError(
-                "Invalid data_or_query parameter. Must be one of 'data' or 'query'."
+                "Invalid data_or_query parameter. Must be one of 'data' or 'query'.",
             )
 
         # Create a tuple from each bbox, make a set of those (unique values), turn back into a list and a numpy array
@@ -1440,12 +1478,12 @@ class IS2Database:
                     shutil.rmtree(os.path.join(cache_dir, ".cudem_cache", "cmr"))
 
             if delete_already_processed_txt and os.path.exists(
-                os.path.join(cache_dir, "already_processed.txt")
+                os.path.join(cache_dir, "already_processed.txt"),
             ):
                 os.remove(os.path.join(cache_dir, "already_processed.txt"))
 
             if delete_cudem_cache and os.path.exists(
-                os.path.join(cache_dir, ".cudem_cache")
+                os.path.join(cache_dir, ".cudem_cache"),
             ):
                 shutil.rmtree(os.path.join(cache_dir, ".cudem_cache"))
 
@@ -1453,8 +1491,8 @@ class IS2Database:
     def bbox_valid(bbox: list | tuple) -> bool:
         """Validate a bounding box. Make sure all min-max values are correctly ordered.
 
-        Parameters:
-        -----------
+        Parameters
+        ----------
         bbox : list or tuple
             A 6-item bounding box in [xmin, xmax, ymin, ymax, tmin, tmax] format where t is YYYYMMDD.
             In each case, the following cases must be true:
@@ -1462,9 +1500,10 @@ class IS2Database:
                 ymin < ymax
                 tmin <= tmax
 
-        Returns:
-        --------
+        Returns
+        -------
             Boolean, True if all conditions are met, False if not.
+
         """
         xmin, xmax, ymin, ymax, tmin, tmax = bbox
         return (xmin < xmax) and (ymin < ymax) and (tmin <= tmax)
@@ -1488,10 +1527,11 @@ class IS2Database:
             where each box is a 6-tuple containing (xmin, xmax, ymin, ymax, tmin, tmax).
             tmin and tmax are in YYYYMMDD format and are inclusive.
             Returns an empty list if the entire query_bbox is already present in the database.
+
         """
         if not self.bbox_valid(query_bbox):
             raise ValueError(
-                "query_bbox must be a non-zero-volume valid 6-tuple or 6-value bbox, with values in the correct order."
+                "query_bbox must be a non-zero-volume valid 6-tuple or 6-value bbox, with values in the correct order.",
             )
 
         # First, get a list of the active unique query cuboids within the current database
@@ -1505,7 +1545,8 @@ class IS2Database:
 
         # Simplify by merging these bboxes together (could have been gathered on a number of queries).
         e_bboxes = ivert.utils.cuboid_funcs.merge_cuboids(
-            existing_bboxes, bbox_order="axis"
+            existing_bboxes,
+            bbox_order="axis",
         )
 
         # Now, increment the query_box tmax by 1 to make it non-inclusive as well (for cuboid subtraction)
@@ -1518,15 +1559,18 @@ class IS2Database:
             for q_bbox in query_bboxes:
                 new_bboxes.extend(
                     ivert.utils.cuboid_funcs.subtract_cuboids(
-                        q_bbox, e_bbox, bbox_order="axis"
-                    )
+                        q_bbox,
+                        e_bbox,
+                        bbox_order="axis",
+                    ),
                 )
 
             query_bboxes = new_bboxes
 
         # Do a quick merger on all the remaining bboxes to make sure they're simplified
         query_bboxes = ivert.utils.cuboid_funcs.merge_cuboids(
-            query_bboxes, bbox_order="axis"
+            query_bboxes,
+            bbox_order="axis",
         )
 
         # Now, decrement the tmax day by 1 to make the ranges inclusive again.
@@ -1535,17 +1579,19 @@ class IS2Database:
         return query_bboxes
 
     @staticmethod
-    def increment_yyyymmdd_by_n(yyyymmdd: int | float | str, days: int) -> int:
+    def increment_yyyymmdd_by_n(yyyymmdd: float | str, days: int) -> int:
         """Increment a YYYYMMDD integer by N calendar days (positive or negative).."""
         ymd = int(yyyymmdd)
         ymd_dt = datetime.datetime.strptime(str(ymd), "%Y%m%d") + datetime.timedelta(
-            days=int(days)
+            days=int(days),
         )
         return int(ymd_dt.strftime("%Y%m%d"))
 
 
 def split_bbox_into_parts(
-    bbox: list | tuple, tile_size_deg: float = 2.0, max_tile_scale_factor: float = 1.5
+    bbox: list | tuple,
+    tile_size_deg: float = 2.0,
+    max_tile_scale_factor: float = 1.5,
 ) -> list | None:
     """Split a bounding box into parts of size approximately deg_size degrees.."""
     # if we included a 6-value bbox, save the last two and append them at the end.
@@ -1590,14 +1636,20 @@ def split_bbox_into_parts(
                 int(tmax),
             )
             for (xbmin, xbmax, ybmin, ybmax) in zip(
-                bin_xmins, bin_xmaxs, bin_ymins, bin_ymaxs
+                bin_xmins,
+                bin_xmaxs,
+                bin_ymins,
+                bin_ymaxs,
             )
         ]
     else:
         bboxes = [
             (float(xbmin), float(xbmax), float(ybmin), float(ybmax))
             for (xbmin, xbmax, ybmin, ybmax) in zip(
-                bin_xmins, bin_xmaxs, bin_ymins, bin_ymaxs
+                bin_xmins,
+                bin_xmaxs,
+                bin_ymins,
+                bin_ymaxs,
             )
         ]
 
@@ -1624,7 +1676,7 @@ def _cmd_list():
                 row["numphotons_ground"],
                 row["numphotons_bathy_floor"],
                 row["numphotons_bathy_surface"],
-            ]
+            ],
         )
 
     headers = ["File", "Total", "Ground", "BathyFloor", "BathySurf"]

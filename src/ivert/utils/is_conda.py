@@ -2,8 +2,7 @@ import os
 
 
 def is_conda():
-    "Return True if running in an Anaconda Python environment. False otherwise."
-
+    """Return True if running in an Anaconda Python environment. False otherwise."""
     # Check for the CONDA_DEFAULT_ENV environment variable, which should be set in any conda python environment.
     # Most non-conda environments don't use this.
     # If we're in an AWS Lambda function, 'AWS_LAMBDA_FUNCTION_NAME' will be set in the environment.

@@ -1,13 +1,12 @@
-# -*- coding: utf-8 -*-
-
-import sys
-import os
 import multiprocessing as mp
-import numpy
-import time
+import os
 import subprocess
+import sys
+import time
 
-import ivert.utils.progress_bar as progress_bar
+import numpy
+
+from ivert.utils import progress_bar
 
 
 def physical_cpu_count():
@@ -16,7 +15,8 @@ def physical_cpu_count():
     Not logical cores (when hyperthreading is available), but actual physical cores.
     Things such as multiprocessing.cpu_count often give us the logical cores, which
     means we'll spin off twice as many processes as really helps us when we're
-    multiprocessing for performance. We want the physical cores."""
+    multiprocessing for performance. We want the physical cores.
+    """
     if sys.platform == "linux" or sys.platform == "linux2":
         # On linux. The "linux2" variant is no longer used but here for backward-compatibility.
         lines = os.popen("lscpu").readlines()
@@ -30,20 +30,19 @@ def physical_cpu_count():
 
         return num_sockets * num_cores_per_socket
 
-    elif sys.platform == "darwin":
+    if sys.platform == "darwin":
         # On a mac
         # TODO: Flesh this out from https://stackoverflow.com/questions/12902008/python-how-to-find-out-whether-hyperthreading-is-enabled
         return mp.cpu_count()
 
-    elif sys.platform == "win32" or sys.platform == "win64" or sys.platform == "cygwin":
+    if sys.platform == "win32" or sys.platform == "win64" or sys.platform == "cygwin":
         # On a windows machine.
         # TODO: Flesh this out from https://stackoverflow.com/questions/12902008/python-how-to-find-out-whether-hyperthreading-is-enabled
         return mp.cpu_count()
 
-    else:
-        # If we don't know what platform they're using, just default to the cpu_count()
-        # It will only get logical cores, but it's better than nothing.
-        return mp.cpu_count()
+    # If we don't know what platform they're using, just default to the cpu_count()
+    # It will only get logical cores, but it's better than nothing.
+    return mp.cpu_count()
 
 
 # A dictionary for converting numpy array dtypes into carray identifiers.
@@ -90,7 +89,7 @@ def process_parallel(
 ) -> None:
     """Most of my parallel processing involves working on a list of files.
 
-    parameters:
+    Parameters
     ----------
         target_func (function): process to be executed.
         args_lists (list of lists): A list of arguments to be fed to the function, in the order listed.
@@ -106,8 +105,8 @@ def process_parallel(
         abbreviate_outfile_names_in_stdout (bool): Abbreviate the outfile names to the filename only (omit the path) for
                  brevity of output messages.
         verbose (bool): Print output message for each file created or process executed.
-    """
 
+    """
     # For each optional list, just supply a range of integers if we're not using it. Check for integers later down and
     # ignore them.
     if kwargs_list is None:
@@ -116,36 +115,28 @@ def process_parallel(
         kwargs_list = [kwargs_list] * len(args_lists)
     elif len(kwargs_list) != len(args_lists):
         raise ValueError(
-            "Length of kwargs_list ({0}) != length of args_lists ({1}). Exiting".format(
-                len(kwargs_list), len(args_lists)
-            )
+            f"Length of kwargs_list ({len(kwargs_list)}) != length of args_lists ({len(args_lists)}). Exiting",
         )
 
     if outfiles is None:
         outfiles = range(len(args_lists))
     elif len(outfiles) != len(args_lists):
         raise ValueError(
-            "Length of outfiles ({0}) != length of args_lists ({1}). Exiting".format(
-                len(outfiles), len(args_lists)
-            )
+            f"Length of outfiles ({len(outfiles)}) != length of args_lists ({len(args_lists)}). Exiting",
         )
 
     if temp_working_dirs is None:
         temp_working_dirs = range(len(args_lists))
     elif len(temp_working_dirs) != len(args_lists):
         raise ValueError(
-            "Length of temp_working_dirs ({0}) != length of args_lists ({1}). Exiting".format(
-                len(temp_working_dirs), len(args_lists)
-            )
+            f"Length of temp_working_dirs ({len(temp_working_dirs)}) != length of args_lists ({len(args_lists)}). Exiting",
         )
 
     if proc_names is None:
         proc_names = range(len(args_lists))
     elif len(proc_names) != len(args_lists):
         raise ValueError(
-            "Length of proc_names ({0}) != length of args_lists ({1}). Exiting".format(
-                len(proc_names), len(args_lists)
-            )
+            f"Length of proc_names ({len(proc_names)}) != length of args_lists ({len(args_lists)}). Exiting",
         )
 
     running_outfiles = []
@@ -156,7 +147,7 @@ def process_parallel(
     try:
         num_finished = 0
         for i, (args, kwargs, outfile, temp_dir, proc_name) in enumerate(
-            zip(args_lists, kwargs_list, outfiles, temp_working_dirs, proc_names)
+            zip(args_lists, kwargs_list, outfiles, temp_working_dirs, proc_names),
         ):
             if (outfile is not None) and os.path.exists(outfile):
                 if overwrite_outfiles:
@@ -176,7 +167,10 @@ def process_parallel(
 
                 # First, check to see if any processes are finished. If so, add them to the list of ones to handle and remove.
                 for r_proc, r_outf, r_tdir, r_pname in zip(
-                    running_procs, running_outfiles, running_tempdirs, running_procnames
+                    running_procs,
+                    running_outfiles,
+                    running_tempdirs,
+                    running_procnames,
                 ):
                     if not r_proc.is_alive():
                         r_proc.join()
@@ -203,13 +197,11 @@ def process_parallel(
                             progress_bar.ProgressBar(
                                 i + 1,
                                 len(args_lists),
-                                suffix="{0:,}/{1:,}".format(
-                                    num_finished, len(args_lists)
-                                ),
+                                suffix=f"{num_finished:,}/{len(args_lists):,}",
                             )
                         elif type(d_outf) is str:
                             print(
-                                "{0:,}/{1:,} ".format(num_finished, len(args_lists)),
+                                f"{num_finished:,}/{len(args_lists):,} ",
                                 end="",
                             )
                             written_qualifier = "" if os.path.exists(d_outf) else "NOT "
@@ -217,11 +209,11 @@ def process_parallel(
                                 os.path.basename(d_outf)
                                 if abbreviate_outfile_names_in_stdout
                                 else d_outf,
-                                "{0}written.".format(written_qualifier),
+                                f"{written_qualifier}written.",
                             )
                         elif type(d_pname) is str:
                             print(
-                                "{0:,}/{1:,} ".format(num_finished, len(args_lists)),
+                                f"{num_finished:,}/{len(args_lists):,} ",
                                 end="",
                             )
                             print(d_pname, "finished.")
@@ -231,9 +223,7 @@ def process_parallel(
                             progress_bar.ProgressBar(
                                 i + 1,
                                 len(args_lists),
-                                suffix="{0:,}/{1:,}".format(
-                                    num_finished, len(args_lists)
-                                ),
+                                suffix=f"{num_finished:,}/{len(args_lists):,}",
                             )
 
                     # Delete the temporary directory if it was created.
@@ -252,9 +242,7 @@ def process_parallel(
                             num_finished += 1
                             if verbose:
                                 print(
-                                    "{0:,}/{1:,} ".format(
-                                        num_finished, len(args_lists)
-                                    ),
+                                    f"{num_finished:,}/{len(args_lists):,} ",
                                     end="",
                                 )
                                 print(
@@ -324,5 +312,3 @@ def process_parallel(
                 if type(fn) is str and os.path.exists(fn):
                     os.remove(fn)
         raise e
-
-    return

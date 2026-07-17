@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 import ast
 import configparser
 import importlib.resources
@@ -6,11 +5,10 @@ import os
 import re
 import sys
 
-import ivert.utils.is_aws as is_aws
-import ivert.utils.version as version
+from ivert.utils import is_aws, version
 
 ivert_default_configfile = str(
-    importlib.resources.files("ivert").joinpath("config", "ivert_defaults.ini")
+    importlib.resources.files("ivert").joinpath("config", "ivert_defaults.ini"),
 )
 
 ivert_config = None
@@ -41,10 +39,11 @@ class Config:
     """
 
     def __init__(
-        self, configfile: str = ivert_default_configfile, ignore_errors: bool = False
+        self,
+        configfile: str = ivert_default_configfile,
+        ignore_errors: bool = False,
     ):
         """Initializes a new instance of the Config class."""
-
         self._configfile = os.path.abspath(os.path.realpath(configfile))
         self._config = configparser.ConfigParser()
         self.is_aws = is_aws.is_aws()
@@ -66,7 +65,7 @@ class Config:
 
         # If loading the defaults config, overlay any user-local overrides on top.
         if os.path.basename(self._configfile) == os.path.basename(
-            ivert_default_configfile
+            ivert_default_configfile,
         ):
             self._apply_user_config()
 
@@ -84,7 +83,8 @@ class Config:
 
         In this project, absolute paths are relative to the location of the
         configfile. In this case. join them with the path to the Config file and
-        return an absolute path rather than a relative path."""
+        return an absolute path rather than a relative path.
+        """
         # If we've specified to do this only if the path doesn't exist in its current location,
         # and the path does exist in its current location (either the filename, or the parent directory),
         # then just return the path as-is
@@ -192,7 +192,7 @@ class Config:
                         self,
                         key,
                         self._abspath(
-                            os.path.join(os.path.dirname(self._configfile), value)
+                            os.path.join(os.path.dirname(self._configfile), value),
                         ),
                     )
                 return
@@ -211,7 +211,7 @@ class Config:
                         self,
                         key,
                         self._abspath(
-                            os.path.join(os.path.dirname(self._configfile), value)
+                            os.path.join(os.path.dirname(self._configfile), value),
                         ),
                     )
                 return
