@@ -19,11 +19,11 @@ Class codes (current convention):
     41 = bathy surface (water surface)
 """
 
-import argparse
 import os
 import glob
 import sys
 
+import click
 import numpy as np
 import pandas as pd
 import matplotlib
@@ -440,106 +440,127 @@ def plot_beam(
     print(f"  Saved {outpath}")
 
 
-def main():
-    parser = argparse.ArgumentParser(
-        description="Plot classified ICESat-2 photon curtains."
-    )
-    parser.add_argument(
-        "input_file",
-        help="Path to the .nc granule file, or an ATL03 .h5 file "
-        "(automatically enables --h5-only).",
-    )
-    parser.add_argument(
-        "--laser",
-        "-b",
-        default=None,
-        help="Laser/beam to plot (e.g. gt2l). Default: plot all beams.",
-    )
-    parser.add_argument(
-        "--outdir",
-        "-o",
-        default=None,
-        help="Output directory for images (default: same dir as input file).",
-    )
-    parser.add_argument(
-        "--zmin",
-        type=float,
-        default=None,
-        help="Minimum elevation to display (m). Data outside [-1e5, 1e5] is "
-        "always filtered regardless.",
-    )
-    parser.add_argument(
-        "--zmax", type=float, default=None, help="Maximum elevation to display (m)."
-    )
-    parser.add_argument(
-        "--xmin",
-        type=float,
-        default=None,
-        help="Minimum along-track distance to display (km).",
-    )
-    parser.add_argument(
-        "--xmax",
-        type=float,
-        default=None,
-        help="Maximum along-track distance to display (km).",
-    )
-    parser.add_argument(
-        "--classes",
-        default=None,
-        help="Slash-separated class codes to highlight (e.g. '1/40/41'). "
-        "Photons not in the list are reclassified as noise and shown "
-        "in grey. Default: show all classes. Pass '' to show all "
-        "photons as noise.",
-    )
-    parser.add_argument(
-        "--h5",
-        nargs="?",
-        const=True,
-        default=None,
-        help="ATL03 .h5 file to use as noise background. Supply a path, or "
-        "omit the path to search the IVERT cache for a file whose name "
-        "starts with the same granule ID as the .nc file.",
-    )
-    parser.add_argument(
-        "--h5-only",
-        action="store_true",
-        default=False,
-        help="Plot only the ATL03 .h5 photons (all as noise); ignore the "
-        ".nc classifications entirely. Automatically enabled when the "
-        "input file is an .h5.",
-    )
-    parser.add_argument(
-        "--dem",
-        nargs="+",
-        default=None,
-        metavar="DEM",
-        help="One or more DEM raster files to profile along the laser track. "
-        "Each overlapping DEM is plotted as a line at its sampled elevations.",
-    )
-    parser.add_argument(
-        "--vdatum",
-        "-V",
-        default=None,
-        help="Target vertical datum for photons and DEMs (e.g. 'navd88', "
-        "'egm2008', 'EPSG:5703'). Transforms ICESat-2 photons from "
-        "EGM2008 and DEM elevations to the given datum so both are "
-        "on the same vertical reference. Default: EGM2008 (no transform).",
-    )
-    args = parser.parse_args()
+# Sentinel flag_value for --h5 given without a path.
+_H5_SEARCH_CACHE = "__SEARCH_CACHE__"
+
+
+@click.command(help="Plot classified ICESat-2 photon curtains.")
+@click.argument("input_file")
+@click.option(
+    "--laser",
+    "-b",
+    default=None,
+    help="Laser/beam to plot (e.g. gt2l). Default: plot all beams.",
+)
+@click.option(
+    "--outdir",
+    "-o",
+    default=None,
+    help="Output directory for images (default: same dir as input file).",
+)
+@click.option(
+    "--zmin",
+    type=float,
+    default=None,
+    help="Minimum elevation to display (m). Data outside [-1e5, 1e5] is "
+    "always filtered regardless.",
+)
+@click.option(
+    "--zmax", type=float, default=None, help="Maximum elevation to display (m)."
+)
+@click.option(
+    "--xmin",
+    type=float,
+    default=None,
+    help="Minimum along-track distance to display (km).",
+)
+@click.option(
+    "--xmax",
+    type=float,
+    default=None,
+    help="Maximum along-track distance to display (km).",
+)
+@click.option(
+    "--classes",
+    "classes_str",
+    default=None,
+    help="Slash-separated class codes to highlight (e.g. '1/40/41'). "
+    "Photons not in the list are reclassified as noise and shown "
+    "in grey. Default: show all classes. Pass '' to show all "
+    "photons as noise.",
+)
+@click.option(
+    "--h5",
+    "h5_arg",
+    is_flag=False,
+    flag_value=_H5_SEARCH_CACHE,
+    default=None,
+    help="ATL03 .h5 file to use as noise background. Supply a path, or "
+    "omit the path to search the IVERT cache for a file whose name "
+    "starts with the same granule ID as the .nc file.",
+)
+@click.option(
+    "--h5-only",
+    is_flag=True,
+    default=False,
+    help="Plot only the ATL03 .h5 photons (all as noise); ignore the "
+    ".nc classifications entirely. Automatically enabled when the "
+    "input file is an .h5.",
+)
+@click.option(
+    "--dem",
+    multiple=True,
+    metavar="DEM",
+    help="A DEM raster file to profile along the laser track. May be given "
+    "multiple times. Each overlapping DEM is plotted as a line at its "
+    "sampled elevations.",
+)
+@click.option(
+    "--vdatum",
+    "-V",
+    default=None,
+    help="Target vertical datum for photons and DEMs (e.g. 'navd88', "
+    "'egm2008', 'EPSG:5703'). Transforms ICESat-2 photons from "
+    "EGM2008 and DEM elevations to the given datum so both are "
+    "on the same vertical reference. Default: EGM2008 (no transform).",
+)
+def main(
+    input_file,
+    laser,
+    outdir,
+    zmin,
+    zmax,
+    xmin,
+    xmax,
+    classes_str,
+    h5_arg,
+    h5_only,
+    dem,
+    vdatum,
+):
+    """Plot classified ICESat-2 photon curtains.
+
+    INPUT_FILE is the path to the .nc granule file, or an ATL03 .h5 file
+    (automatically enables --h5-only).
+    """
+    # --h5 is tri-state: True means "search the cache", a string is an
+    # explicit path, None means the option was absent.
+    h5_arg = True if h5_arg == _H5_SEARCH_CACHE else h5_arg
+    dem = list(dem) if dem else None
 
     # Resolve vertical datum --------------------------------------------------
     target_vert_epsg_int = None
     ylabel = "Elevation / depth (m, EGM2008 geoid)"
-    if args.vdatum:
+    if vdatum:
         import ivert.vdatum_lookup
 
         try:
-            vdatum_str = ivert.vdatum_lookup.resolve_vdatum(args.vdatum)
+            vdatum_str = ivert.vdatum_lookup.resolve_vdatum(vdatum)
         except ImportError:
-            vdatum_str = args.vdatum if ":" in args.vdatum else f"EPSG:{args.vdatum}"
+            vdatum_str = vdatum if ":" in vdatum else f"EPSG:{vdatum}"
         if vdatum_str is None:
             sys.exit(
-                f"Unknown vertical datum: {args.vdatum!r}. "
+                f"Unknown vertical datum: {vdatum!r}. "
                 "Use an EPSG code or common name (e.g. 'navd88', 'egm2008')."
             )
         try:
@@ -556,38 +577,38 @@ def main():
     except Exception:
         cache_dir = None
 
-    input_path = os.path.abspath(args.input_file)
+    input_path = os.path.abspath(input_file)
     if not os.path.exists(input_path):
         sys.exit(f"File not found: {input_path}")
 
     zlim = None
-    if args.zmin is not None or args.zmax is not None:
-        zlim = (args.zmin, args.zmax)
+    if zmin is not None or zmax is not None:
+        zlim = (zmin, zmax)
 
     dlim = None
-    if args.xmin is not None or args.xmax is not None:
-        dlim = (args.xmin, args.xmax)
+    if xmin is not None or xmax is not None:
+        dlim = (xmin, xmax)
 
-    if args.classes is None:
+    if classes_str is None:
         classes = None
-    elif args.classes == "":
+    elif classes_str == "":
         classes = set()
     else:
-        classes = {int(c) for c in args.classes.split("/")}
+        classes = {int(c) for c in classes_str.split("/")}
 
     # ------------------------------------------------------------------ h5-only
-    h5_only = args.h5_only or input_path.lower().endswith(".h5")
+    h5_only = h5_only or input_path.lower().endswith(".h5")
 
     if h5_only:
         # Resolve the h5 file to use
         if input_path.lower().endswith(".h5"):
             h5_path = input_path
-        elif args.h5 is True:
+        elif h5_arg is True:
             h5_path = _find_h5(input_path)
             if h5_path is None:
                 sys.exit("--h5-only: no matching .h5 found in cache.")
-        elif args.h5:
-            h5_path = os.path.abspath(args.h5)
+        elif h5_arg:
+            h5_path = os.path.abspath(h5_arg)
             if not os.path.exists(h5_path):
                 sys.exit(f".h5 file not found: {h5_path}")
         else:
@@ -595,13 +616,13 @@ def main():
             if h5_path is None:
                 sys.exit("--h5-only: no matching .h5 found in cache.")
 
-        outdir = args.outdir or os.path.dirname(h5_path)
+        outdir = outdir or os.path.dirname(h5_path)
         os.makedirs(outdir, exist_ok=True)
         h5_stem = os.path.splitext(os.path.basename(h5_path))[0]
 
         print(f"H5-only: {os.path.basename(h5_path)}", flush=True)
         beam_dts = _beam_delta_times(h5_path)
-        beams_to_plot = [args.laser] if args.laser else list(beam_dts.keys())
+        beams_to_plot = [laser] if laser else list(beam_dts.keys())
 
         for beam in beams_to_plot:
             if beam not in beam_dts:
@@ -616,7 +637,7 @@ def main():
                 df_plot = _apply_vdatum_to_df(df_plot, target_vert_epsg_int, cache_dir)
             _dlons, _dlats, _datm = _positions_for_dem_sampling(df_plot, dlim)
             dem_profiles = _collect_dem_profiles(
-                args.dem, _dlons, _dlats, _datm, target_vert_epsg_int, cache_dir
+                dem, _dlons, _dlats, _datm, target_vert_epsg_int, cache_dir
             )
             outpath = os.path.join(outdir, f"{h5_stem}_{beam}.png")
             plot_beam(
@@ -633,7 +654,7 @@ def main():
 
     # ------------------------------------------------------------------ nc + optional h5
     nc_path = input_path
-    outdir = args.outdir or os.path.dirname(nc_path)
+    outdir = outdir or os.path.dirname(nc_path)
     os.makedirs(outdir, exist_ok=True)
 
     print(f"Loading {os.path.basename(nc_path)} ...", flush=True)
@@ -641,12 +662,12 @@ def main():
     nc_stem = os.path.splitext(os.path.basename(nc_path))[0]
 
     # Resolve .h5 path for beam splitting and noise background
-    if args.h5 is True:
+    if h5_arg is True:
         h5_path = _find_h5(nc_path)
         if h5_path is None:
             print("Warning: --h5 given but no matching .h5 found in cache.", flush=True)
-    elif args.h5:
-        h5_path = os.path.abspath(args.h5)
+    elif h5_arg:
+        h5_path = os.path.abspath(h5_arg)
         if not os.path.exists(h5_path):
             sys.exit(f".h5 file not found: {h5_path}")
     else:
@@ -655,7 +676,7 @@ def main():
     if h5_path:
         print(f"Found .h5: {os.path.basename(h5_path)}", flush=True)
         beam_dts = _beam_delta_times(h5_path)
-        beams_to_plot = [args.laser] if args.laser else list(beam_dts.keys())
+        beams_to_plot = [laser] if laser else list(beam_dts.keys())
 
         for beam in beams_to_plot:
             if beam not in beam_dts:
@@ -700,7 +721,7 @@ def main():
                 df_plot = _apply_vdatum_to_df(df_plot, target_vert_epsg_int, cache_dir)
             _dlons, _dlats, _datm = _positions_for_dem_sampling(df_plot, dlim)
             dem_profiles = _collect_dem_profiles(
-                args.dem, _dlons, _dlats, _datm, target_vert_epsg_int, cache_dir
+                dem, _dlons, _dlats, _datm, target_vert_epsg_int, cache_dir
             )
             outpath = os.path.join(outdir, f"{nc_stem}_{beam}.png")
             plot_beam(
@@ -717,7 +738,7 @@ def main():
         # No .h5 — use laser/along_track_m from the nc file directly if present.
         if "laser" in df.columns:
             beams_in_nc = sorted(df["laser"].unique())
-            beams_to_plot_noh5 = [args.laser] if args.laser else beams_in_nc
+            beams_to_plot_noh5 = [laser] if laser else beams_in_nc
             for beam in beams_to_plot_noh5:
                 df_beam = df[df["laser"] == beam].copy()
                 if df_beam.empty:
@@ -734,7 +755,7 @@ def main():
                     )
                 _dlons, _dlats, _datm = _positions_for_dem_sampling(df_beam, dlim)
                 dem_profiles = _collect_dem_profiles(
-                    args.dem, _dlons, _dlats, _datm, target_vert_epsg_int, cache_dir
+                    dem, _dlons, _dlats, _datm, target_vert_epsg_int, cache_dir
                 )
                 outpath = os.path.join(outdir, f"{nc_stem}_{beam}.png")
                 plot_beam(

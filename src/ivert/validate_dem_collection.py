@@ -4,8 +4,8 @@
 Code for validating and summarizing an entire list or directory of DEMs.
 """
 
-import argparse
 import ast
+import click
 import multiprocessing as mp
 import numpy
 import os
@@ -415,203 +415,190 @@ def validate_list_of_dems(
     return files_to_export
 
 
-def define_and_parse_args():
-    parser = argparse.ArgumentParser(
-        description="Tool for validating a list or directory of DEMs against ICESat-2 photon data."
-    )
+@click.command(
+    help="Tool for validating a list or directory of DEMs against ICESat-2 photon data."
+)
+@click.argument("directory_or_files", type=str, nargs=-1, required=True)
+@click.option(
+    "--fname_filter",
+    "-ff",
+    type=str,
+    default=r"\.tif\Z",
+    help=r"A regex string to search for in all DEM file names, to use as a filter. Defaults to "
+    "r'\\.tif\\Z', indicating .tif at the end of the file name. Helps elimiate files that "
+    "shouldn't be considered.",
+)
+@click.option(
+    "--fname_omit",
+    "-fo",
+    type=str,
+    default=None,
+    help="A regex string to search for and OMIT if it contains a match in the file name. Useful "
+    "for avoiding derived datasets (such as converted DEMs) in the folder.",
+)
+@click.option(
+    "--output_dir",
+    "-od",
+    type=str,
+    default=None,
+    help="Directory to output results. Default to the a sub-directory named 'icesat2' within the "
+    "input directory.",
+)
+@click.option(
+    "--input_vdatum",
+    "-ivd",
+    default="egm2008",
+    help="The vertical datum of the input DEMs. Default: 'egm2008'",
+)
+@click.option(
+    "--place_name",
+    "-name",
+    type=str,
+    default=None,
+    help="Readable name of the location being validated. Will be used in output summary plots and "
+    "validation report.",
+)
+@click.option(
+    "--overwrite",
+    "-o",
+    is_flag=True,
+    default=False,
+    help="Overwrite all files, including intermittent data files. Default: False "
+    "(skips re-computing already-computed reseults.",
+)
+@click.option(
+    "-cf",
+    "--create_folders",
+    type=yes_no.interpret_yes_no,
+    default=True,
+    help="Create folders specified in -output_dir and -data_dir, as well as the full path to "
+    "-photon_h5, if they do not already exist. Otherwise will raise errors if directories "
+    "don't already exist. Default: True.",
+)
+# @click.option("-mob", "--mask_osm_buildings",
+#               type=yes_no.interpret_yes_no, default=True,
+#               help="Whether to mask out OSM-derived building footprints in the coastline mask. "
+#                    "Must be followed by 'True', 'False', 'Yes', 'No', or any abbreviation thereof "
+#                    "(case-insensitive). (Default: True)")
+#
+# @click.option("-mbb", "--mask_bing_buildings",
+#               type=yes_no.interpret_yes_no, default=True,
+#               help="Whether to mask out Bing-derived building footprints in the coastline mask. "
+#                    "Must be followed by 'True', 'False', 'Yes', 'No', or any abbreviation thereof "
+#                    "(case-insensitive). (Default: True)")
+#
+# @click.option("-mwsf", "--mask_wsf_urban",
+#               type=yes_no.interpret_yes_no, default=False,
+#               help="Whether to mask out World-Settlement-Footprint heavy urban areas in the "
+#                    "coastline mask. Typically used instead of building footprints for coarse DEMs "
+#                    "with grid cells larger than typical buildings (~20-ish m). Must be followed by "
+#                    "'True', 'False', 'Yes', 'No', or any abbreviation thereof (case-insensitive). "
+#                    "(Default: False)")
+#
+# @click.option("-ml", "--mask_lakes",
+#               type=yes_no.interpret_yes_no, default=True,
+#               help="Whether to make out lakes, using Hydrolakes and the National Hydrologic Dataset. "
+#                    "(Default: True)")
+@click.option(
+    "-ind",
+    "--individual_results",
+    type=yes_no.interpret_yes_no,
+    default=True,
+    help="By default, a summary plot and text file are generated for the dataset. If this is "
+    "selected, they will be generated for each individual DEM as well. Files will be placed "
+    "in the -output_dir directory. Default: True",
+)
+@click.option(
+    "--include_photon_validation",
+    "-ph",
+    is_flag=True,
+    default=False,
+    help="Produce a photon database (stored in '*_photon_level_results.h5') with errors on a "
+    "photon-level (not cell-level) scale. Useful for identifying bad ICESat-2 granules.",
+)
+@click.option(
+    "--delete_datafiles",
+    "-del",
+    is_flag=True,
+    default=False,
+    help="By default, all data files generted in this process are kept. If this option is chosen, "
+    "delete them.",
+)
+@click.option(
+    "--outlier_sd_threshold",
+    default="2.5",
+    help="Number of standard-deviations away from the mean to omit outliers. Default 2.5. "
+    "May choose 'None' if no filtering is requested.",
+)
+@click.option(
+    "--measure_coverage",
+    "-mc",
+    is_flag=True,
+    default=False,
+    help="Measure the coverage %age of icesat-2 data in each of the output DEM cells.",
+)
+@click.option(
+    "-wrt",
+    "--write_result_tifs",
+    type=yes_no.interpret_yes_no,
+    default=True,
+    help="Write output geotiff with the errors in cells that have ICESat-2 photons, "
+    "NDVs elsewhere. Default: True",
+)
+@click.option(
+    "-wsc",
+    "--write_summary_csv",
+    type=yes_no.interpret_yes_no,
+    default=True,
+    help="Write a CSV with summary results of each individual DEM.",
+)
+@click.option("--quiet", "-q", is_flag=True, default=False, help="Suppress output.")
+def main(
+    directory_or_files,
+    fname_filter,
+    fname_omit,
+    output_dir,
+    input_vdatum,
+    place_name,
+    overwrite,
+    create_folders,
+    individual_results,
+    include_photon_validation,
+    delete_datafiles,
+    outlier_sd_threshold,
+    measure_coverage,
+    write_result_tifs,
+    write_summary_csv,
+    quiet,
+):
+    """Validate a list or directory of DEMs against ICESat-2 photon data.
 
-    parser.add_argument(
-        "directory_or_files",
-        type=str,
-        nargs="+",
-        help="A directory path, or a list of individual DEM tiles. Defaults to the same as the input "
-        "directory, or the directory in which the first DEM resides.",
-    )
+    DIRECTORY_OR_FILES is a directory path, or a list of individual DEM tiles.
+    """
+    directory_or_files = list(directory_or_files)
 
-    parser.add_argument(
-        "--fname_filter",
-        "-ff",
-        type=str,
-        default=r"\.tif\Z",
-        help=r"A regex string to search for in all DEM file names, to use as a filter. Defaults to "
-        "r'\\.tif\\Z', indicating .tif at the end of the file name. Helps elimiate files that "
-        "shouldn't be considered.",
-    )
-
-    parser.add_argument(
-        "--fname_omit",
-        "-fo",
-        type=str,
-        default=None,
-        help="A regex string to search for and OMIT if it contains a match in the file name. Useful "
-        "for avoiding derived datasets (such as converted DEMs) in the folder.",
-    )
-
-    parser.add_argument(
-        "--output_dir",
-        "-od",
-        type=str,
-        default=None,
-        help="Directory to output results. Default to the a sub-directory named 'icesat2' within the "
-        "input directory.",
-    )
-
-    parser.add_argument(
-        "--input_vdatum",
-        "-ivd",
-        default="egm2008",
-        help="The vertical datum of the input DEMs. Default: 'egm2008'",
-    )
-
-    parser.add_argument(
-        "--place_name",
-        "-name",
-        type=str,
-        default=None,
-        help="Readable name of the location being validated. Will be used in output summary plots and "
-        "validation report.",
-    )
-
-    parser.add_argument(
-        "--overwrite",
-        "-o",
-        action="store_true",
-        default=False,
-        help="Overwrite all files, including intermittent data files. Default: False "
-        "(skips re-computing already-computed reseults.",
-    )
-
-    parser.add_argument(
-        "-cf",
-        "--create_folders",
-        dest="create_folders",
-        type=yes_no.interpret_yes_no,
-        default=True,
-        help="Create folders specified in -output_dir and -data_dir, as well as the full path to "
-        "-photon_h5, if they do not already exist. Otherwise will raise errors if directories "
-        "don't already exist. Default: True.",
-    )
-
-    # parser.add_argument("-mob", "--mask_osm_buildings", dest="mask_osm_buildings",
-    #                     type=yes_no.interpret_yes_no, default=True,
-    #                     help="Whether to mask out OSM-derived building footprints in the coastline mask. "
-    #                          "Must be followed by 'True', 'False', 'Yes', 'No', or any abbreviation thereof "
-    #                          "(case-insensitive). (Default: True)")
-    #
-    # parser.add_argument("-mbb", "--mask_bing_buildings", dest="mask_bing_buildings",
-    #                     type=yes_no.interpret_yes_no, default=True,
-    #                     help="Whether to mask out Bing-derived building footprints in the coastline mask. "
-    #                          "Must be followed by 'True', 'False', 'Yes', 'No', or any abbreviation thereof "
-    #                          "(case-insensitive). (Default: True)")
-    #
-    # parser.add_argument("-mwsf", "--mask_wsf_urban", dest="mask_wsf_urban",
-    #                     type=yes_no.interpret_yes_no, default=False,
-    #                     help="Whether to mask out World-Settlement-Footprint heavy urban areas in the "
-    #                          "coastline mask. Typically used instead of building footprints for coarse DEMs "
-    #                          "with grid cells larger than typical buildings (~20-ish m). Must be followed by "
-    #                          "'True', 'False', 'Yes', 'No', or any abbreviation thereof (case-insensitive). "
-    #                          "(Default: False)")
-    #
-    # parser.add_argument("-ml", "--mask_lakes", dest="mask_lakes",
-    #                     type=yes_no.interpret_yes_no, default=True,
-    #                     help="Whether to make out lakes, using Hydrolakes and the National Hydrologic Dataset. "
-    #                          "(Default: True)")
-
-    parser.add_argument(
-        "-ind",
-        "--individual_results",
-        dest="individual_results",
-        type=yes_no.interpret_yes_no,
-        default=True,
-        help="By default, a summary plot and text file are generated for the dataset. If this is "
-        "selected, they will be generated for each individual DEM as well. Files will be placed "
-        "in the -output_dir directory. Default: True",
-    )
-
-    parser.add_argument(
-        "--include_photon_validation",
-        "-ph",
-        action="store_true",
-        default=False,
-        help="Produce a photon database (stored in '*_photon_level_results.h5') with errors on a "
-        "photon-level (not cell-level) scale. Useful for identifying bad ICESat-2 granules.",
-    )
-
-    parser.add_argument(
-        "--delete_datafiles",
-        "-del",
-        action="store_true",
-        default=False,
-        help="By default, all data files generted in this process are kept. If this option is chosen, "
-        "delete them.",
-    )
-
-    parser.add_argument(
-        "--outlier_sd_threshold",
-        default="2.5",
-        help="Number of standard-deviations away from the mean to omit outliers. Default 2.5. "
-        "May choose 'None' if no filtering is requested.",
-    )
-
-    parser.add_argument(
-        "--measure_coverage",
-        "-mc",
-        action="store_true",
-        default=False,
-        help="Measure the coverage %age of icesat-2 data in each of the output DEM cells.",
-    )
-
-    parser.add_argument(
-        "-wrt",
-        "--write_result_tifs",
-        dest="write_result_tifs",
-        type=yes_no.interpret_yes_no,
-        default=True,
-        help="Write output geotiff with the errors in cells that have ICESat-2 photons, "
-        "NDVs elsewhere. Default: True",
-    )
-
-    parser.add_argument(
-        "-wsc",
-        "--write_summary_csv",
-        dest="write_summary_csv",
-        type=yes_no.interpret_yes_no,
-        default=True,
-        help="Write a CSV with summary results of each individual DEM.",
-    )
-
-    parser.add_argument(
-        "--quiet", "-q", action="store_true", default=False, help="Suppress output."
-    )
-
-    return parser.parse_args()
-
-
-def main():
-    args = define_and_parse_args()
-
-    if args.output_dir is None:
+    if output_dir is None:
         # Default to data dir or directory of first data file, in the 'icesat2' sub-directory.
-        path = args.directory_or_files[0]
+        path = directory_or_files[0]
         if type(path) is str and os.path.isdir(path):
-            args.output_dir = os.path.join(path, "icesat2")
+            output_dir = os.path.join(path, "icesat2")
         else:
-            args.output_dir = os.path.join(os.path.split(path)[0], "icesat2")
+            output_dir = os.path.join(os.path.split(path)[0], "icesat2")
 
-        assert type(args.output_dir) is str
+        assert type(output_dir) is str
 
-    if (type(args.fname_filter) in (list, tuple)) and (len(args.fname_filter) == 1):
-        args.fname_filter = args.fname_filter[0]
+    if (type(fname_filter) in (list, tuple)) and (len(fname_filter) == 1):
+        fname_filter = fname_filter[0]
 
     # Check for the existence of appropriate output & data directories.
 
-    output_dir = os.path.abspath(args.output_dir)
-    if not os.path.exists(output_dir):
-        if args.create_folders:
-            os.makedirs(output_dir)
+    output_dir_abs = os.path.abspath(output_dir)
+    if not os.path.exists(output_dir_abs):
+        if create_folders:
+            os.makedirs(output_dir_abs)
         else:
             raise FileNotFoundError(
-                f"Output directory '{args.output_dir}' does not exist. "
+                f"Output directory '{output_dir}' does not exist. "
                 "Create directory or use the --create_folders flag upon execution."
             )
 
@@ -625,26 +612,26 @@ def main():
     mp.set_start_method("spawn")
 
     validate_list_of_dems(
-        args.directory_or_files,
-        fname_filter=args.fname_filter,
-        fname_omit=args.fname_omit,
-        output_dir=args.output_dir,
-        input_vdatum=args.input_vdatum,
-        overwrite=args.overwrite,
-        place_name=args.place_name,
-        create_individual_results=args.individual_results,
-        delete_datafiles=args.delete_datafiles,
-        include_photon_validation=args.include_photon_validation,
-        write_result_tifs=args.write_result_tifs,
-        # mask_osm_buildings=args.mask_osm_buildings,
-        # mask_bing_buildings=args.mask_bing_buildings,
-        # mask_wsf_urban=args.mask_wsf_urban,
-        # mask_out_lakes=args.mask_lakes,
+        directory_or_files,
+        fname_filter=fname_filter,
+        fname_omit=fname_omit,
+        output_dir=output_dir,
+        input_vdatum=input_vdatum,
+        overwrite=overwrite,
+        place_name=place_name,
+        create_individual_results=individual_results,
+        delete_datafiles=delete_datafiles,
+        include_photon_validation=include_photon_validation,
+        write_result_tifs=write_result_tifs,
+        # mask_osm_buildings=mask_osm_buildings,
+        # mask_bing_buildings=mask_bing_buildings,
+        # mask_wsf_urban=mask_wsf_urban,
+        # mask_out_lakes=mask_lakes,
         # omit_bad_granules=True,
-        measure_coverage=args.measure_coverage,
-        write_summary_csv=args.write_summary_csv,
-        outliers_sd_threshold=ast.literal_eval(args.outlier_sd_threshold),
-        verbose=not args.quiet,
+        measure_coverage=measure_coverage,
+        write_summary_csv=write_summary_csv,
+        outliers_sd_threshold=ast.literal_eval(outlier_sd_threshold),
+        verbose=not quiet,
     )
 
 

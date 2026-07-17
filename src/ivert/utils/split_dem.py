@@ -1,12 +1,12 @@
 #!python3
 """Quick utility for splitting a large DEM into sub-segments to ease processing constraints."""
 
-import argparse
 import glob
 import itertools
 import os
 import typing
 
+import click
 import rasterio
 import rasterio.windows
 
@@ -130,33 +130,29 @@ def evenly_split(N: int, factor: int) -> list:
     return batches
 
 
-def define_and_parse_args():
-    parser = argparse.ArgumentParser(
-        description="Split a DEM into sub-segments, each side split by a factor."
-    )
-    parser.add_argument(
-        "dem_name",
-        nargs="+",
-        help="The name of the DEM file. May use bash-style glob flags (*.tif) to select multiple files.",
-    )
-    parser.add_argument(
-        "-f",
-        "--factor",
-        type=int,
-        default=2,
-        help="The factor by which to split each side of the DEM. This will create f^2 files.",
-    )
-    parser.add_argument(
-        "-o",
-        "--output_dir",
-        type=str,
-        default=None,
-        help="The directory to which the sub-segments will be written. Default: will use the same directory as the input DEM.",
-    )
+@click.command(help="Split a DEM into sub-segments, each side split by a factor.")
+@click.argument("dem_name", nargs=-1, required=True)
+@click.option(
+    "-f",
+    "--factor",
+    type=int,
+    default=2,
+    help="The factor by which to split each side of the DEM. This will create f^2 files.",
+)
+@click.option(
+    "-o",
+    "--output_dir",
+    type=str,
+    default=None,
+    help="The directory to which the sub-segments will be written. Default: will use the same directory as the input DEM.",
+)
+def main(dem_name, factor, output_dir):
+    """Split a DEM into sub-segments, each side split by a factor.
 
-    return parser.parse_args()
+    DEM_NAME is the name of the DEM file. May use bash-style glob flags (*.tif) to select multiple files.
+    """
+    split(list(dem_name), factor, output_dir)
 
 
 if __name__ == "__main__":
-    args = define_and_parse_args()
-    split(args.dem_name, args.factor, args.output_dir)
+    main()

@@ -2,7 +2,7 @@
 
 import os
 
-import argparse
+import click
 
 import ivert.utils.configfile as configfile
 import ivert.s3 as s3
@@ -43,16 +43,15 @@ def write_photon_tiles_to_file(outfile: str):
     print(f"Wrote {len(fnames)} photon tiles to {outfile}.")
 
 
-def define_and_parse_args():
-    """Define and parse command line arguments."""
-    parser = argparse.ArgumentParser(
-        description="List all photon tiles in an S3 bucket and write out to a file."
-    )
-    parser.add_argument("outfile", help="The name of the output file.")
+@click.command(help="List all photon tiles in an S3 bucket and write out to a file.")
+@click.argument("outfile")
+def main(outfile):
+    """List all photon tiles in an S3 bucket and write out to a file.
 
-    return parser.parse_args()
+    OUTFILE is the name of the output file.
+    """
+    write_photon_tiles_to_file(outfile)
 
 
 if __name__ == "__main__":
-    args = define_and_parse_args()
-    write_photon_tiles_to_file(args.outfile)
+    main()

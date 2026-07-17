@@ -4,7 +4,8 @@
 
 import re
 import os
-import argparse
+
+import click
 
 
 def list_files(
@@ -49,49 +50,46 @@ def _list_files_recurse(dirname, regex_match=None, depth=-1):
     return file_list
 
 
-def define_and_parse_args():
-    parser = argparse.ArgumentParser(
-        description="A utility for recursively finding (or deleting) files in a directory and sub-directories."
-    )
-    parser.add_argument(
-        "DIR",
-        type=str,
-        default=os.getcwd(),
-        help="Directory to search within. Default: Current working directory.",
-    )
-    parser.add_argument(
-        "-text",
-        "-t",
-        type=str,
-        default=r"\A[\.\-\w]*",
-        help="Regular expression to match.",
-    )
-    parser.add_argument(
-        "-depth",
-        type=int,
-        default=-1,
-        help="Maximum directory depth to search. -1 is no limit. 0 is only the local directory. 1 or more delves that many sub-directories. Default -1.",
-    )
-    parser.add_argument(
-        "--delete",
-        "-d",
-        action="store_true",
-        default=False,
-        help="Delete the files matching the search query. NOTE: Suggest to call first without this option to see what will be deleted, then re-call with -d.",
-    )
+@click.command(
+    help="A utility for recursively finding (or deleting) files in a directory and sub-directories."
+)
+@click.argument("directory", type=str, required=False, default=None)
+@click.option(
+    "-text",
+    "-t",
+    "text",
+    type=str,
+    default=r"\A[\.\-\w]*",
+    help="Regular expression to match.",
+)
+@click.option(
+    "-depth",
+    "depth",
+    type=int,
+    default=-1,
+    help="Maximum directory depth to search. -1 is no limit. 0 is only the local directory. 1 or more delves that many sub-directories. Default -1.",
+)
+@click.option(
+    "--delete",
+    "-d",
+    is_flag=True,
+    default=False,
+    help="Delete the files matching the search query. NOTE: Suggest to call first without this option to see what will be deleted, then re-call with -d.",
+)
+def main(directory, text, depth, delete):
+    """Recursively find (or delete) files in a directory and sub-directories.
 
-    return parser.parse_args()
+    DIRECTORY is the directory to search within. Default: Current working directory.
+    """
+    if directory is None:
+        directory = os.getcwd()
 
+    fnames = list_files(directory, regex_match=text, depth=depth)
 
-if "__main__" == __name__:
-    args = define_and_parse_args()
-
-    fnames = list_files(args.DIR, regex_match=args.text, depth=args.depth)
-
-    if len(fnames) > 0 and args.delete:
+    if len(fnames) > 0 and delete:
         response = input(
             "{0} files found matching pattern '{1}' found for deletion. Do you want to proceed (y/n)? ".format(
-                len(fnames), args.text
+                len(fnames), text
             )
         )
         response = response.strip().lower()[0]
@@ -99,8 +97,12 @@ if "__main__" == __name__:
         response = None
 
     for fn in fnames:
-        if args.delete and response == "y":
+        if delete and response == "y":
             print("Removing", fn)
             os.remove(fn)
         else:
             print(fn)
+
+
+if "__main__" == __name__:
+    main()

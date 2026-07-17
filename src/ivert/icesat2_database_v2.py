@@ -1604,7 +1604,7 @@ def split_bbox_into_parts(
     return bboxes
 
 
-def _cmd_list(args):
+def _cmd_list():
     """Implementation of the 'list' subcommand."""
     import tabulate as tabulate_mod
 
@@ -1632,7 +1632,7 @@ def _cmd_list(args):
     print(f"\n{len(gdf)} granule(s)  —  db: {db.db_fname}")
 
 
-def _cmd_delete(args):
+def _cmd_delete(delete_all):
     """Implementation of the 'delete' subcommand."""
     db = IS2Database()
 
@@ -1643,7 +1643,7 @@ def _cmd_delete(args):
         else:
             print(f"Not found (skipping): {fpath}")
 
-    if args.all:
+    if delete_all:
         nc_files = (
             [
                 os.path.join(db.granules_dir, fn)
@@ -1661,7 +1661,7 @@ def _cmd_delete(args):
             print(f"No .nc files found in {db.granules_dir}")
 
 
-def _cmd_rebuild(args):
+def _cmd_rebuild():
     """Implementation of the 'rebuild' subcommand."""
     db = IS2Database()
     gdf = db.create_new_database(populate=True, overwrite=True)
@@ -1669,33 +1669,36 @@ def _cmd_rebuild(args):
 
 
 if __name__ == "__main__":
-    import argparse
+    import click
 
-    parser = argparse.ArgumentParser(
-        prog="icesat2_database_v2",
-        description="Manage the local ICESat-2 photon granule database.",
+    @click.group(
+        name="icesat2_database_v2",
+        help="Manage the local ICESat-2 photon granule database.",
     )
-    sub = parser.add_subparsers(dest="command", metavar="COMMAND")
-    sub.required = True
+    def _cli():
+        pass
 
-    list_p = sub.add_parser("list", help="List granules currently in the database.")
-    list_p.set_defaults(func=_cmd_list)
+    @_cli.command("list", help="List granules currently in the database.")
+    def _list_command():
+        _cmd_list()
 
-    delete_p = sub.add_parser(
-        "delete", help="Delete the .gpkg and .blosc database files."
+    @_cli.command("delete", help="Delete the .gpkg and .blosc database files.")
+    @click.option(
+        "--all",
+        "delete_all",
+        is_flag=True,
+        help="Also delete all .nc granule data files.",
     )
-    delete_p.add_argument(
-        "--all", action="store_true", help="Also delete all .nc granule data files."
-    )
-    delete_p.set_defaults(func=_cmd_delete)
+    def _delete_command(delete_all):
+        _cmd_delete(delete_all)
 
-    rebuild_p = sub.add_parser(
+    @_cli.command(
         "rebuild",
         help="Rebuild the database from existing .nc granule files."
         "Useful if the .nc files have been modified at all, and/or if you suspect"
         " the overview information has become inaccurate.",
     )
-    rebuild_p.set_defaults(func=_cmd_rebuild)
+    def _rebuild_command():
+        _cmd_rebuild()
 
-    parsed = parser.parse_args()
-    parsed.func(parsed)
+    _cli()

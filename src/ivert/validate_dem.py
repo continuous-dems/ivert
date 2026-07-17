@@ -6,8 +6,8 @@ Created on Tue Jun 22 16:06:21 2021
 @author: mmacferrin
 """
 
-import argparse
 import ast
+import click
 import geopandas
 import multiprocessing as mp
 import multiprocessing.shared_memory as shared_memory
@@ -2232,119 +2232,126 @@ def export_error_results(
     return exported
 
 
-def read_and_parse_args():
-    # Collect and process command-line arguments.
-    parser = argparse.ArgumentParser(
-        description="Use ICESat-2 photon data to validate a DEM and generate statistics."
-    )
-    parser.add_argument("input_dem", type=str, help="The input DEM.")
-    parser.add_argument(
-        "output_dir",
-        type=str,
-        nargs="?",
-        default="",
-        help="Directory to write output results. Default: Will put in the same directory as input filename",
-    )
-    parser.add_argument(
-        "--classes",
-        "-c",
-        type=str,
-        default="1/6/40",
-        help="ICESat-2 photon classes to include in validation, separated by slashes. Default '1/6/40',"
-        "which are 'ground', 'land_ice', and 'bathy_floor'.",
-    )
-    parser.add_argument(
-        "--input_vdatum",
-        "-ivd",
-        type=str,
-        default="egm2008",
-        help="Input DEM vertical datum, as a string or 'EPSG:code'. (Default: 'egm2008')",
-    )
-    parser.add_argument(
-        "--datadir",
-        type=str,
-        default="",
-        help="A scratch directory to write interim data files. Useful if user would like to save temp files elsewhere. Defaults to the output_dir directory.",
-    )
-    parser.add_argument(
-        "--band_num",
-        type=int,
-        default=1,
-        help="The band number (1-indexed) of the input_dem. (Default: 1)",
-    )
-    parser.add_argument(
-        "--place_name",
-        "-name",
-        type=str,
-        default=None,
-        help="A text name of the location, to put in the title of the plot (if --plot_results is selected)",
-    )
-    parser.add_argument(
-        "--numprocs",
-        "-np",
-        type=int,
-        default=parallel_funcs.physical_cpu_count(),
-        help="The number of sub-processes to run for this validation. Default to the maximum physical CPU count on this machine.",
-    )
-    parser.add_argument(
-        "--delete_datafiles",
-        action="store_true",
-        default=False,
-        help="Delete the interim data files generated. Reduces storage requirements. (Default: keep them all.)",
-    )
-    parser.add_argument(
-        "--measure_coverage",
-        "-mc",
-        action="store_true",
-        default=False,
-        help="Measure the coverage %age of icesat-2 data in each of the output DEM cells.",
-    )
-    parser.add_argument(
-        "--write_result_tifs",
-        action="store_true",
-        default=False,
-        help=""""Write output geotiff with the errors in cells that have ICESat-2 photons, NDVs elsewhere.""",
-    )
-    parser.add_argument(
-        "--outlier_sd_threshold",
-        default="2.5",
-        help="Number of standard-deviations away from the mean to omit outliers. Default 2.5 (standard deviations). Choose 'None' if no outlier filtering is requested.",
-    )
-    parser.add_argument(
-        "--plot_results",
-        action="store_true",
-        default=False,
-        help="Make summary plots of the validation statistics.",
-    )
-    parser.add_argument(
-        "--overwrite",
-        action="store_true",
-        default=False,
-        help="Overwrite all interim and output files, even if they already exist. Default: Use interim files to compute results, saving time.",
-    )
-    parser.add_argument(
-        "--quiet",
-        action="store_true",
-        default=False,
-        help="Suppress output messaging, including error messages (just fail quietly without errors, return status 1).",
-    )
+@click.command(
+    help="Use ICESat-2 photon data to validate a DEM and generate statistics."
+)
+@click.argument("input_dem", type=str)
+@click.argument("output_dir", type=str, required=False, default="")
+@click.option(
+    "--classes",
+    "-c",
+    type=str,
+    default="1/6/40",
+    help="ICESat-2 photon classes to include in validation, separated by slashes. Default '1/6/40',"
+    "which are 'ground', 'land_ice', and 'bathy_floor'.",
+)
+@click.option(
+    "--input_vdatum",
+    "-ivd",
+    type=str,
+    default="egm2008",
+    help="Input DEM vertical datum, as a string or 'EPSG:code'. (Default: 'egm2008')",
+)
+@click.option(
+    "--datadir",
+    type=str,
+    default="",
+    help="A scratch directory to write interim data files. Useful if user would like to save temp files elsewhere. Defaults to the output_dir directory.",
+)
+@click.option(
+    "--band_num",
+    type=int,
+    default=1,
+    help="The band number (1-indexed) of the input_dem. (Default: 1)",
+)
+@click.option(
+    "--place_name",
+    "-name",
+    type=str,
+    default=None,
+    help="A text name of the location, to put in the title of the plot (if --plot_results is selected)",
+)
+@click.option(
+    "--numprocs",
+    "-np",
+    type=int,
+    default=parallel_funcs.physical_cpu_count(),
+    help="The number of sub-processes to run for this validation. Default to the maximum physical CPU count on this machine.",
+)
+@click.option(
+    "--delete_datafiles",
+    is_flag=True,
+    default=False,
+    help="Delete the interim data files generated. Reduces storage requirements. (Default: keep them all.)",
+)
+@click.option(
+    "--measure_coverage",
+    "-mc",
+    is_flag=True,
+    default=False,
+    help="Measure the coverage %age of icesat-2 data in each of the output DEM cells.",
+)
+@click.option(
+    "--write_result_tifs",
+    is_flag=True,
+    default=False,
+    help="Write output geotiff with the errors in cells that have ICESat-2 photons, NDVs elsewhere.",
+)
+@click.option(
+    "--outlier_sd_threshold",
+    default="2.5",
+    help="Number of standard-deviations away from the mean to omit outliers. Default 2.5 (standard deviations). Choose 'None' if no outlier filtering is requested.",
+)
+@click.option(
+    "--plot_results",
+    is_flag=True,
+    default=False,
+    help="Make summary plots of the validation statistics.",
+)
+@click.option(
+    "--overwrite",
+    is_flag=True,
+    default=False,
+    help="Overwrite all interim and output files, even if they already exist. Default: Use interim files to compute results, saving time.",
+)
+@click.option(
+    "--quiet",
+    is_flag=True,
+    default=False,
+    help="Suppress output messaging, including error messages (just fail quietly without errors, return status 1).",
+)
+def main(
+    input_dem,
+    output_dir,
+    classes,
+    input_vdatum,
+    datadir,
+    band_num,
+    place_name,
+    numprocs,
+    delete_datafiles,
+    measure_coverage,
+    write_result_tifs,
+    outlier_sd_threshold,
+    plot_results,
+    overwrite,
+    quiet,
+):
+    """Use ICESat-2 photon data to validate a DEM and generate statistics.
 
-    return parser.parse_args()
-
-
-if __name__ == "__main__":
-    args = read_and_parse_args()
-
+    INPUT_DEM is the input DEM. OUTPUT_DIR is the directory to write output
+    results; defaults to the same directory as the input filename.
+    """
     # The output directory defaults to the input directory.
-    if not args.output_dir:
-        args.output_dir = os.path.dirname(args.input_dem)
+    if not output_dir:
+        output_dir = os.path.dirname(input_dem)
 
     # The data directory defaults to the output directory.
-    if not args.datadir:
-        args.datadir = args.output_dir
+    if not datadir:
+        datadir = output_dir
 
     try:
-        classes_list = [int(c) for c in args.classes.split("/")]
+        classes_list = [int(c) for c in classes.split("/")]
     except ValueError:
         print(
             "ERROR: 'classes' must be a list of integer values separated by forward-slashes (/)"
@@ -2356,19 +2363,23 @@ if __name__ == "__main__":
 
     # Run the validation
     validate_dem(
-        args.input_dem,
-        output_dir=args.output_dir,
+        input_dem,
+        output_dir=output_dir,
         classes=classes_list,
-        dem_vertical_datum=args.input_vdatum,
-        interim_data_dir=(None if not args.datadir else args.datadir),
-        overwrite=args.overwrite,
-        delete_datafiles=args.delete_datafiles,
-        write_result_tifs=args.write_result_tifs,
-        plot_results=args.plot_results,
-        location_name=args.place_name,
-        outliers_sd_threshold=ast.literal_eval(args.outlier_sd_threshold),
-        measure_coverage=args.measure_coverage,
-        numprocs=args.numprocs,
-        band_num=args.band_num,
-        verbose=not args.quiet,
+        dem_vertical_datum=input_vdatum,
+        interim_data_dir=(None if not datadir else datadir),
+        overwrite=overwrite,
+        delete_datafiles=delete_datafiles,
+        write_result_tifs=write_result_tifs,
+        plot_results=plot_results,
+        location_name=place_name,
+        outliers_sd_threshold=ast.literal_eval(outlier_sd_threshold),
+        measure_coverage=measure_coverage,
+        numprocs=numprocs,
+        band_num=band_num,
+        verbose=not quiet,
     )
+
+
+if __name__ == "__main__":
+    main()
