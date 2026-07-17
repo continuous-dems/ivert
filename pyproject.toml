@@ -29,7 +29,6 @@ dependencies = [
     "netCDF4",
     "numexpr",
     "numpy",
-    "packaging",
     "pandas",
     "psutil",
     "pyproj",
@@ -43,9 +42,6 @@ dependencies = [
     "globato",
     "transformez",
 ]
-
-[tool.ruff]
-extend-exclude = ["archive"]
 
 [project.urls]
 Source = "https://github.com/continuous-dems/ivert"

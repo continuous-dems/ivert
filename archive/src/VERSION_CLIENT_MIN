@@ -1,4 +1,0 @@
-# The minimum IVERT version number that the client can be running in to be compatible with this IVERT server software.
-# When a "hard upgrade" version is released requiring a new client upgrade, update this number to match the release
-# number in VERSION.
-0.6.0
