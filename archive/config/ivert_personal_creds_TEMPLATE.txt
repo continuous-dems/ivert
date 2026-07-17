@@ -1,5 +1,0 @@
-Access Key ID:
-[INSERT_ACCESS_KEY_ID_HERE]
-
-Secret Access Key:
-[INSERT_SECRET_ACCESS_KEY_HERE]
