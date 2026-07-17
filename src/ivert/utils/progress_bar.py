@@ -1,13 +1,11 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-"""
-Created on Wed Oct 14 16:32:25 2020
+"""Created on Wed Oct 14 16:32:25 2020
 
 @author: mmacferrin
 """
 
-import sys
 import os
+import sys
 
 
 def get_terminal_width(default=120):
@@ -31,8 +29,7 @@ def ProgressBar(
     fill="█",
     print_end="\r",
 ):
-    """
-    Call in a loop to create terminal progress bar
+    """Call in a loop to create terminal progress bar
     @params:
         iteration   - Required  : current iteration (Int)
         total       - Required  : total iterations (Int)
@@ -45,7 +42,7 @@ def ProgressBar(
     """
     # Only run this if we are running in a terminal.
     if not sys.stdout.isatty():
-        return
+        return None
 
     percent = ("{0:." + str(decimals) + "f}").format(100 * (iteration / float(total)))
     bar_length = width - (len(prefix) + 2 + 2 + len(percent) + 1 + len(suffix) + 2)

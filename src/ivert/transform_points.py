@@ -1,10 +1,9 @@
-import os
 import logging
+import os
+
 import numpy
 import pyproj
 import rasterio
-import typing
-
 import transformez
 
 logger = logging.getLogger(__name__)
@@ -13,17 +12,18 @@ _GRID_RESOLUTION = "3s"  # ~90 m — appropriate resolution for datum shift grid
 
 
 def transform_points(
-    x: typing.Union[list, tuple, numpy.ndarray],
-    y: typing.Union[list, tuple, numpy.ndarray],
-    z: typing.Union[list, tuple, numpy.ndarray],
-    src_epsg: typing.Union[str, int],
-    dst_epsg: typing.Union[str, int],
-    src_region: typing.Union[list, tuple, numpy.ndarray, None] = None,
-    cache_dir: typing.Optional[str] = None,
+    x: list | tuple | numpy.ndarray,
+    y: list | tuple | numpy.ndarray,
+    z: list | tuple | numpy.ndarray,
+    src_epsg: str | int,
+    dst_epsg: str | int,
+    src_region: list | tuple | numpy.ndarray | None = None,
+    cache_dir: str | None = None,
 ) -> tuple:
     """Transform a set of 3D points from one coordinate reference system to another.
 
-    Parameters:
+    Parameters
+    ----------
         x: X-coordinates (longitude or easting).
         y: Y-coordinates (latitude or northing).
         z: Z-coordinates (elevation).
@@ -40,11 +40,14 @@ def transform_points(
         Shift grid .tif files may be written to cache_dir. These are reused
         on subsequent calls covering the same datum pair and region.
 
-    Raises:
+    Raises
+    ------
         ValueError: If the vertical datum transformation cannot be built.
 
-    Returns:
+    Returns
+    -------
         A 3-tuple of (x, y, z) numpy arrays in the destination CRS.
+
     """
     src_crs = pyproj.CRS.from_user_input(src_epsg)
     dst_crs = pyproj.CRS.from_user_input(dst_epsg)
@@ -93,7 +96,7 @@ def transform_points(
 
 def _decompose_crs(
     crs: pyproj.CRS,
-) -> typing.Tuple[typing.Optional[pyproj.CRS], typing.Optional[int]]:
+) -> tuple[pyproj.CRS | None, int | None]:
     """Return (horizontal_crs, vertical_epsg) from a possibly compound CRS."""
     if crs.is_compound:
         vert = next((s for s in crs.sub_crs_list if s.is_vertical), None)
@@ -115,8 +118,8 @@ def _apply_vertical_transform(
     z: numpy.ndarray,
     src_vert_epsg: str,
     dst_vert_epsg: str,
-    src_region: typing.Union[list, tuple, numpy.ndarray, None],
-    cache_dir: typing.Optional[str],
+    src_region: list | tuple | numpy.ndarray | None,
+    cache_dir: str | None,
 ) -> numpy.ndarray:
     """Compute and apply a vertical datum shift to z via a cached transformez grid."""
     from scipy.interpolate import RegularGridInterpolator
@@ -141,8 +144,12 @@ def _apply_vertical_transform(
     )
 
     # Strip any "EPSG:" and/or any compound ("4326+4979") datum strings fed to this function.
-    src_vert_epsg = src_vert_epsg.split(":")[-1].split("+")[-1]
-    dst_vert_epsg = dst_vert_epsg.split(":")[-1].split("+")[-1]
+    src_vert_epsg = src_vert_epsg.rsplit(":", maxsplit=1)[-1].rsplit("+", maxsplit=1)[
+        -1
+    ]
+    dst_vert_epsg = dst_vert_epsg.rsplit(":", maxsplit=1)[-1].rsplit("+", maxsplit=1)[
+        -1
+    ]
 
     if not os.path.exists(grid_fn):
         shift_array = transformez.generate_grid(
@@ -157,7 +164,7 @@ def _apply_vertical_transform(
         if shift_array is None:
             raise ValueError(
                 f"Vertical transform failed: EPSG:{src_vert_epsg} → EPSG:{dst_vert_epsg} "
-                f"over region {region_bounds}."
+                f"over region {region_bounds}.",
             )
 
     with rasterio.open(grid_fn) as src:

@@ -1,9 +1,7 @@
-# -*- coding: utf-8 -*-
-
 """Function for traversing and getting all the files from a directory, including recursively into sub-directories."""
 
-import re
 import os
+import re
 
 import click
 
@@ -43,7 +41,7 @@ def _list_files_recurse(dirname, regex_match=None, depth=-1):
                     fpath,
                     regex_match=regex_match,
                     depth=(-1 if (depth == -1) else (depth - 1)),
-                )
+                ),
             )
         elif (regex_match is None) or (re.search(regex_match, entryname) is not None):
             file_list.append(fpath)
@@ -51,7 +49,7 @@ def _list_files_recurse(dirname, regex_match=None, depth=-1):
 
 
 @click.command(
-    help="A utility for recursively finding (or deleting) files in a directory and sub-directories."
+    help="A utility for recursively finding (or deleting) files in a directory and sub-directories.",
 )
 @click.argument("directory", type=str, required=False, default=None)
 @click.option(
@@ -88,9 +86,7 @@ def main(directory, text, depth, delete):
 
     if len(fnames) > 0 and delete:
         response = input(
-            "{0} files found matching pattern '{1}' found for deletion. Do you want to proceed (y/n)? ".format(
-                len(fnames), text
-            )
+            f"{len(fnames)} files found matching pattern '{text}' found for deletion. Do you want to proceed (y/n)? ",
         )
         response = response.strip().lower()[0]
     else:
@@ -104,5 +100,5 @@ def main(directory, text, depth, delete):
             print(fn)
 
 
-if "__main__" == __name__:
+if __name__ == "__main__":
     main()

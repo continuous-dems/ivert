@@ -56,3 +56,6 @@ path = "src/ivert/_version.py"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/ivert"]
+
+[tool.ruff.lint]
+select = ["ALL"]

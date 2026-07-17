@@ -1,22 +1,20 @@
-# -*- coding: utf-8 -*-
-
 """validate_dem_collection.py
 Code for validating and summarizing an entire list or directory of DEMs.
 """
 
 import ast
-import click
 import multiprocessing as mp
-import numpy
 import os
-import pandas
 import re
 import traceback
 
+import click
+import numpy
+import pandas
+
 import ivert.icesat2_database_v2
-import ivert.plot_validation_results as plot_validation_results
-import ivert.validate_dem as validate_dem
 import ivert.utils.query_yes_no as yes_no
+from ivert import plot_validation_results, validate_dem
 
 
 def write_summary_csv_file(
@@ -53,7 +51,7 @@ def write_summary_csv_file(
             temp_df = total_df[total_df["filename"] == fname]
             means[i] = temp_df["diff_mean"].mean()
             stds[i] = temp_df["diff_mean"].std()
-            rmses[i] = (sum((temp_df["diff_mean"] ** 2)) / (len(temp_df) - 1)) ** 0.5
+            rmses[i] = (sum(temp_df["diff_mean"] ** 2) / (len(temp_df) - 1)) ** 0.5
             n_cells[i] = len(temp_df)
             photons_per_cell[i] = temp_df["numphotons_intd"].mean()
             # canopy_mean[i] = temp_df['canopy_fraction'].mean()
@@ -80,7 +78,7 @@ def write_summary_csv_file(
             "mean_photons_per_cell": photons_per_cell,
             # "canopy_mean": canopy_mean,
             # "canopy_mean_gt0": canopy_mean_gt0
-        }
+        },
     )
 
     output_df.to_csv(csv_name, index=False)
@@ -117,7 +115,8 @@ def validate_list_of_dems(
     """Take a list of DEMs, presumably in a single area, and output validation files for those DEMs.
 
     DEMs should encompass a contiguous area so as to use the same set of ICESat-2 granules for
-    validation."""
+    validation.
+    """
     if output_dir is None:
         if isinstance(dem_list_or_dir, str) and os.path.isdir(dem_list_or_dir):
             stats_and_plots_dir = dem_list_or_dir
@@ -139,36 +138,33 @@ def validate_list_of_dems(
                 )
             ]
             stats_and_plots_dir = os.path.dirname(dem_list_fitting_filter[0])
+    elif os.path.isdir(output_dir):
+        stats_and_plots_dir = output_dir
+    # If the output dir appears to be a relative path, then join it with the input dir.
+    elif type(dem_list_or_dir) is str:
+        stats_and_plots_dir = os.path.join(
+            os.path.dirname(dem_list_or_dir),
+            output_dir,
+        )
     else:
-        if os.path.isdir(output_dir):
-            stats_and_plots_dir = output_dir
-        else:
-            # If the output dir appears to be a relative path, then join it with the input dir.
-            if type(dem_list_or_dir) is str:
-                stats_and_plots_dir = os.path.join(
-                    os.path.dirname(dem_list_or_dir), output_dir
+        dem_list_fitting_filter = [
+            fn
+            for fn in dem_list_or_dir
+            if (
+                (
+                    (fname_filter is None)
+                    or (re.search(fname_filter, os.path.split(fn)[1]) is not None)
                 )
-            else:
-                dem_list_fitting_filter = [
-                    fn
-                    for fn in dem_list_or_dir
-                    if (
-                        (
-                            (fname_filter is None)
-                            or (
-                                re.search(fname_filter, os.path.split(fn)[1])
-                                is not None
-                            )
-                        )
-                        and (
-                            (fname_omit is None)
-                            or (re.search(fname_omit, os.path.split(fn)[1]) is None)
-                        )
-                    )
-                ]
-                stats_and_plots_dir = os.path.join(
-                    os.path.dirname(dem_list_fitting_filter[0]), output_dir
+                and (
+                    (fname_omit is None)
+                    or (re.search(fname_omit, os.path.split(fn)[1]) is None)
                 )
+            )
+        ]
+        stats_and_plots_dir = os.path.join(
+            os.path.dirname(dem_list_fitting_filter[0]),
+            output_dir,
+        )
 
     # If a place name wasn't provided, just use "summary_results"
     if place_name is None:
@@ -215,7 +211,8 @@ def validate_list_of_dems(
         stats_and_plots_base.replace("_results", "_summary_stats") + ".txt",
     )
     plot_file_name = os.path.join(
-        stats_and_plots_dir, stats_and_plots_base.replace("_results", "_plot") + ".png"
+        stats_and_plots_dir,
+        stats_and_plots_base.replace("_results", "_plot") + ".png",
     )
     csv_name = os.path.join(
         stats_and_plots_dir,
@@ -233,7 +230,9 @@ def validate_list_of_dems(
             if verbose:
                 print(results_df, "read.")
             validate_dem.write_summary_stats_file(
-                results_df, statsfile_name, verbose=verbose
+                results_df,
+                statsfile_name,
+                verbose=verbose,
             )
 
         if not os.path.exists(plot_file_name):
@@ -242,7 +241,10 @@ def validate_list_of_dems(
                 if verbose:
                     print(results_df, "read.")
             plot_validation_results.plot_histograms_and_line(
-                results_df, plot_file_name, place_name=place_name, verbose=verbose
+                results_df,
+                plot_file_name,
+                place_name=place_name,
+                verbose=verbose,
             )
 
         if (results_df is None) and verbose:
@@ -255,7 +257,7 @@ def validate_list_of_dems(
                 "create them again.\n",
                 "Exiting.",
             )
-        return
+        return None
 
     path = dem_list_or_dir
     # If we have a one-item list here, get the item in that list.
@@ -359,7 +361,7 @@ def validate_list_of_dems(
         except Exception:
             if verbose:
                 print(
-                    f"Skipping {os.path.basename(dem_path)}: {traceback.format_exc()}"
+                    f"Skipping {os.path.basename(dem_path)}: {traceback.format_exc()}",
                 )
             continue
 
@@ -378,7 +380,7 @@ def validate_list_of_dems(
     if len(list_of_results_dfs) == 0:
         if verbose:
             print("No results dataframes generated. Aborting.")
-        return
+        return None
 
     # Generate the overall summary stats file.
     total_results_df = plot_validation_results.get_data_from_h5_or_list(
@@ -390,19 +392,27 @@ def validate_list_of_dems(
 
     if write_summary_csv:
         write_summary_csv_file(
-            total_results_df, list_of_empty_files, csv_name, verbose=verbose
+            total_results_df,
+            list_of_empty_files,
+            csv_name,
+            verbose=verbose,
         )
         files_to_export.append(csv_name)
 
     # Output the statistics summary file.
     validate_dem.write_summary_stats_file(
-        total_results_df, statsfile_name, verbose=verbose
+        total_results_df,
+        statsfile_name,
+        verbose=verbose,
     )
     files_to_export.append(statsfile_name)
 
     # Output the validation results plot.
     plot_validation_results.plot_histograms_and_line(
-        total_results_df, plot_file_name, place_name=place_name, verbose=verbose
+        total_results_df,
+        plot_file_name,
+        place_name=place_name,
+        verbose=verbose,
     )
     files_to_export.append(plot_file_name)
 
@@ -416,7 +426,7 @@ def validate_list_of_dems(
 
 
 @click.command(
-    help="Tool for validating a list or directory of DEMs against ICESat-2 photon data."
+    help="Tool for validating a list or directory of DEMs against ICESat-2 photon data.",
 )
 @click.argument("directory_or_files", type=str, nargs=-1, required=True)
 @click.option(
@@ -599,7 +609,7 @@ def main(
         else:
             raise FileNotFoundError(
                 f"Output directory '{output_dir}' does not exist. "
-                "Create directory or use the --create_folders flag upon execution."
+                "Create directory or use the --create_folders flag upon execution.",
             )
 
     # NOTE: This code assumes that if we create the directory here, it will

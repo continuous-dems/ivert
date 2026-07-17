@@ -62,6 +62,7 @@ class ICESat2RequestsCSV:
             When True (default), ignore records whose dataExpiration has passed.
         return_rows : bool
             When True, return the matching DataFrame rows instead of the JSON dict.
+
         """
         if self.df is None:
             self.open()
@@ -70,12 +71,12 @@ class ICESat2RequestsCSV:
             self.clean_csv()
 
         matching_mask = self.df["bbox"].apply(
-            lambda b: self._bbox_match(b, bbox, tolerance)
+            lambda b: self._bbox_match(b, bbox, tolerance),
         ) & (self.df["atl_dataset"] == atl_dataset.upper().strip())
 
         if only_unexpired and not auto_clean_csv:
             matching_mask = matching_mask & ~self.df["expiration_date"].apply(
-                self._is_expired
+                self._is_expired,
             )
 
         if numpy.any(matching_mask):
@@ -85,7 +86,11 @@ class ICESat2RequestsCSV:
         return None
 
     def add_record(
-        self, atl_dataset: str, query_bbox, json_dict, write_file: bool = True
+        self,
+        atl_dataset: str,
+        query_bbox,
+        json_dict,
+        write_file: bool = True,
     ):
         """Append a new Harmony job record."""
         if self.df is None:
@@ -108,8 +113,8 @@ class ICESat2RequestsCSV:
                     "expiration_date": json_dict.get("dataExpiration", ""),
                     "job_id": json_dict.get("jobID", ""),
                     "json": str(json_dict),
-                }
-            ]
+                },
+            ],
         )
 
         self.df = pandas.concat([self.df, new_row], ignore_index=True)
@@ -130,13 +135,16 @@ class ICESat2RequestsCSV:
             self.open()
 
         matching = self.find_matching_request(
-            atl_dataset, query_bbox, only_unexpired=False, return_rows=True
+            atl_dataset,
+            query_bbox,
+            only_unexpired=False,
+            return_rows=True,
         )
         if matching is None:
             if fail_quietly:
                 return None
             raise ValueError(
-                f"No matching record for '{atl_dataset}' bbox={query_bbox}"
+                f"No matching record for '{atl_dataset}' bbox={query_bbox}",
             )
 
         if isinstance(json_dict, str):
@@ -211,7 +219,7 @@ class ICESat2RequestsCSV:
                 "expiration_date",
                 "job_id",
                 "json",
-            ]
+            ],
         )
         self.export()
 
@@ -232,7 +240,7 @@ class ICESat2RequestsCSV:
         """True if the expiration date has passed."""
         try:
             ex = dateparser.parse(dt_string)
-            return datetime.datetime.now(datetime.timezone.utc) >= ex
+            return datetime.datetime.now(datetime.UTC) >= ex
         except Exception:
             return False
 

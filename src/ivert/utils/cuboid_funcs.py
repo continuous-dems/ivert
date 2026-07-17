@@ -127,8 +127,7 @@
 
 
 def subtract_cuboids(a, b, tol=1e-10, bbox_order="point"):
-    """
-    Subtract cuboid `b` from cuboid `a`, returning the list of non-overlapping cuboids
+    """Subtract cuboid `b` from cuboid `a`, returning the list of non-overlapping cuboids
     that exactly fill the remaining volume (a - b).
 
     Parameters
@@ -153,8 +152,8 @@ def subtract_cuboids(a, b, tol=1e-10, bbox_order="point"):
     list[tuple]
         List of cuboids (xmin, ymin, zmin, xmax, ymax, zmax)
         covering the entire volume of the difference without overlap.
-    """
 
+    """
     bbox_order = bbox_order.lower().strip()
     if bbox_order in ("point", "xyzxyz"):
         ax1, ay1, az1, ax2, ay2, az2 = tuple(a)
@@ -164,7 +163,7 @@ def subtract_cuboids(a, b, tol=1e-10, bbox_order="point"):
         bx1, bx2, by1, by2, bz1, bz2 = tuple(b)
     else:
         raise ValueError(
-            f"Invalid bbox_order parameter: {bbox_order}. Only 'axis' or 'point' are allowed."
+            f"Invalid bbox_order parameter: {bbox_order}. Only 'axis' or 'point' are allowed.",
         )
 
     # Make sure in each case that the points are in the correct order (that x2 is not less than x1, etc)
@@ -172,13 +171,13 @@ def subtract_cuboids(a, b, tol=1e-10, bbox_order="point"):
         raise ValueError(
             f"Invalid bounding box: {a}. "
             "The first point must be less than or equal to the second point in each dimension. "
-            "Double-check your 'bbox_order' parameter to make sure you choose the correct 'point' or 'axis' order."
+            "Double-check your 'bbox_order' parameter to make sure you choose the correct 'point' or 'axis' order.",
         )
     if (bx1 > bx2) or (by1 > by2) or (bz1 > bz2):
         raise ValueError(
             f"Invalid bounding box: {b}. "
             "The first point must be less than or equal to the second point in each dimension. "
-            "Double-check your 'bbox_order' parameter to make sure you choose the correct 'point' or 'axis' order."
+            "Double-check your 'bbox_order' parameter to make sure you choose the correct 'point' or 'axis' order.",
         )
 
     # --- Find intersection ---
@@ -229,8 +228,7 @@ def subtract_cuboids(a, b, tol=1e-10, bbox_order="point"):
 
 
 def merge_cuboids(cuboids, tol=1e-10, bbox_order="point"):
-    """
-    Merge overlapping or face-adjacent axis-aligned cuboids into a minimal set.
+    """Merge overlapping or face-adjacent axis-aligned cuboids into a minimal set.
 
     Parameters
     ----------
@@ -253,6 +251,7 @@ def merge_cuboids(cuboids, tol=1e-10, bbox_order="point"):
     -------
     list[tuple]
         Simplified list of merged cuboids.
+
     """
     cuboids = [tuple(map(float, c)) for c in cuboids]
     merged = True
@@ -269,7 +268,7 @@ def merge_cuboids(cuboids, tol=1e-10, bbox_order="point"):
         cuboids = [(x1, y1, z1, x2, y2, z2) for (x1, x2, y1, y2, z1, z2) in cuboids]
     elif bbox_order != "point":
         raise ValueError(
-            f"Invalid bbox_order: {bbox_order}. Must be 'point', 'axis', 'xyzxyz', or 'xxyyzz'."
+            f"Invalid bbox_order: {bbox_order}. Must be 'point', 'axis', 'xyzxyz', or 'xxyyzz'.",
         )
 
     def can_merge(a, b):
@@ -331,7 +330,9 @@ def merge_cuboids(cuboids, tol=1e-10, bbox_order="point"):
         ):
             # Return the polygon with the greatest volume.
             return max(
-                a, b, key=lambda c: (c[3] - c[0]) * (c[4] - c[1]) * (c[5] - c[2])
+                a,
+                b,
+                key=lambda c: (c[3] - c[0]) * (c[4] - c[1]) * (c[5] - c[2]),
             )
 
         return None
@@ -379,8 +380,7 @@ def merge_cuboids(cuboids, tol=1e-10, bbox_order="point"):
 
 
 def cuboids_intersect(c1, c2, tol=1e-10, bbox_order="point"):
-    """
-    Return True if two 3D cuboids intersect by a positive volume (not just touch).
+    """Return True if two 3D cuboids intersect by a positive volume (not just touch).
 
     Parameters
     ----------
@@ -398,6 +398,7 @@ def cuboids_intersect(c1, c2, tol=1e-10, bbox_order="point"):
     -------
     bool
         True if the cuboids intersect by nonzero volume, False otherwise.
+
     """
     bbox_order = bbox_order.lower().strip()
     if bbox_order == "xyzxyz":
@@ -413,7 +414,7 @@ def cuboids_intersect(c1, c2, tol=1e-10, bbox_order="point"):
         x2_min, x2_max, y2_min, y2_max, z2_min, z2_max = tuple(c2)
     else:
         raise ValueError(
-            f"Invalid bbox_order: {bbox_order}. Must be 'point' or 'axis'."
+            f"Invalid bbox_order: {bbox_order}. Must be 'point' or 'axis'.",
         )
 
     # Overlap along each axis (strict inequalities for positive volume)

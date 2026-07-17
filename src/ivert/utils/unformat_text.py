@@ -1,6 +1,5 @@
 import re
 
-
 # 7-bit C1 ANSI sequences
 ansi_escape = re.compile(
     r"""
@@ -30,7 +29,8 @@ def unformat(text: str) -> str:
 def delete_cr_lines(text: str) -> str:
     """Remove carriage returns and the lines preceding them if they were overwritten by new lines.
 
-    And then get rid of any remaining carriage returns."""
+    And then get rid of any remaining carriage returns.
+    """
     return cr_line_regex.sub("", text).replace("\r", "")
 
 

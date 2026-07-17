@@ -4,7 +4,6 @@
 import glob
 import itertools
 import os
-import typing
 
 import click
 import rasterio
@@ -13,14 +12,13 @@ import rasterio.windows
 
 def contains_glob_flags(fname: str) -> bool:
     """Return True if a string contains any glob-style wildcard flags."""
-
     return ("*" in fname) or ("?" in fname) or ("[" in fname and "]" in fname)
 
 
 def split(
-    dem_name: typing.Union[str, list[str]],
+    dem_name: str | list[str],
     factor: int = 2,
-    output_dir: typing.Union[str, None] = None,
+    output_dir: str | None = None,
     verbose: bool = True,
 ) -> list[str]:
     """Split a DEM into sub-segments, each side split by a factor. 2 will create 4 sub-segments.
@@ -33,6 +31,7 @@ def split(
 
     Returns:
         list[str]: The names of the new DEM files.
+
     """
     if isinstance(dem_name, str):
         dem_name = [
@@ -74,7 +73,10 @@ def split(
                         continue
 
                     window = rasterio.windows.Window(
-                        xb[0], yb[0], xb[1] - xb[0] + 1, yb[1] - yb[0] + 1
+                        xb[0],
+                        yb[0],
+                        xb[1] - xb[0] + 1,
+                        yb[1] - yb[0] + 1,
                     )
                     profile = src.profile.copy()
                     # Let GDAL pick its default tile size; the source's block layout
@@ -97,9 +99,8 @@ def split(
                         if verbose:
                             print(fn_out, "written.")
                             outfiles.append(fn_out)
-                    else:
-                        if verbose:
-                            print(fn_out, "failed.")
+                    elif verbose:
+                        print(fn_out, "failed.")
 
     return outfiles
 
