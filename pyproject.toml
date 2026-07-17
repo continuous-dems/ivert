@@ -29,7 +29,6 @@ dependencies = [
     "netCDF4",
     "numexpr",
     "numpy",
-    "packaging",
     "pandas",
     "psutil",
     "pyproj",
