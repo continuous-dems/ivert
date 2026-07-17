@@ -822,6 +822,7 @@ def _run_validate(
     outdir=None,
     ndv=None,
     export_formats=None,
+    overwrite=False,
 ):
     """Branch to validate_dem or validate_list_of_dems based on the number of input files."""
     verbose = logging.getLogger().level <= logging.INFO
@@ -904,6 +905,7 @@ def _run_validate(
             min_confidence_level=confidence_level,
             min_bathy_confidence=bathy_confidence,
             verbose=verbose,
+            overwrite=overwrite,
         )
         if vdatum != "NONE_PROVIDED":
             kwargs["dem_vertical_datum"] = vdatum
@@ -936,6 +938,7 @@ def _run_validate(
             min_confidence_level=confidence_level,
             min_bathy_confidence=bathy_confidence,
             verbose=verbose,
+            overwrite=overwrite,
         )
         if vdatum != "NONE_PROVIDED":
             kwargs["input_vdatum"] = vdatum
@@ -1094,6 +1097,17 @@ def _run_validate(
         "for this run only. Pass 'none' (or an empty string) to skip error exports."
     ),
 )
+@click.option(
+    "-ow",
+    "--overwrite",
+    is_flag=True,
+    default=False,
+    help=(
+        "Redo the validation and overwrite existing output files, even if the "
+        "validation has already completed (or partially completed) for this DEM. "
+        "Default: reuse existing interim/output files and skip work that's already done."
+    ),
+)
 def validate(
     files_or_directory,
     vdatum,
@@ -1109,6 +1123,7 @@ def validate(
     outdir,
     ndv,
     export_formats,
+    overwrite,
 ):
     """Validate one or more DEMs against ICESat-2 photon data.
 
@@ -1152,6 +1167,7 @@ def validate(
         outdir,
         ndv=ndv,
         export_formats=export_formats,
+        overwrite=overwrite,
     )
 
 
