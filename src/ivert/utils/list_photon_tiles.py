@@ -36,7 +36,7 @@ def write_photon_tiles_to_file(outfile: str):
             ],
         )
 
-    with open(outfile, "w") as f:
+    with open(outfile, "w", encoding="utf-8") as f:
         f.writelines(fn + "\n" for fn in fnames)
 
     print(f"Wrote {len(fnames)} photon tiles to {outfile}.")

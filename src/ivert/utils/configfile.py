@@ -3,7 +3,6 @@ import configparser
 import importlib.resources
 import os
 import re
-import sys
 
 from ivert.utils import is_aws, version
 
@@ -12,6 +11,24 @@ ivert_default_configfile = str(
 )
 
 ivert_config = None
+
+
+def _is_absolute_path(value):
+    """Return True if 'value' is an absolute filesystem path on any platform.
+
+    Recognizes Unix roots ("/..."), Windows drive-letter roots ("C:\\..." or
+    "C:/..."), and UNC roots ("\\\\server\\share"), independent of the OS this is
+    running on, so config files can be resolved consistently across platforms.
+    """
+    stripped = value.strip()
+    # Unix absolute path, or a UNC path written with forward slashes ("//server").
+    if stripped.startswith("/"):
+        return True
+    # Windows UNC path ("\\server\share").
+    if stripped.startswith("\\\\"):
+        return True
+    # Windows drive-letter absolute path ("C:\..." or "C:/...").
+    return bool(re.match(r"[A-Za-z]:[\\/]", stripped))
 
 
 class Config:
@@ -179,33 +196,21 @@ class Config:
                 # This is a URL (http://, https://, ftp://, s3://, etc.). Leave it as-is.
                 pass
 
-            elif sys.platform in ("linux", "cygwin", "darwin") and value.find("/") > -1:
-                # If it's an absolute path or it already exists where it is, just use it as-is
-                if value.strip().find("/") == 0:
-                    setattr(self, key, os.path.abspath(value))
-                # If it references the home directory, expand that on the local machine.
-                elif value.find("~") > -1:
+            # Treat the value as a path if it references the home directory ('~') or
+            # contains a path separator. Both '/' and '\' are recognized regardless of
+            # platform: config files are written with forward slashes (e.g. "~/.ivert"),
+            # which are valid on Windows too, so path handling must not depend on
+            # sys.platform. os.path.expanduser resolves '~' cross-platform.
+            elif ("~" in value) or ("/" in value) or ("\\" in value):
+                # If it references the home directory, expand it on the local machine.
+                if "~" in value:
                     setattr(self, key, os.path.abspath(os.path.expanduser(value)))
-                # If it's a relative path, make it relative to the _configfile's local directory.
-                else:
-                    setattr(
-                        self,
-                        key,
-                        self._abspath(
-                            os.path.join(os.path.dirname(self._configfile), value),
-                        ),
-                    )
-                return
-
-            elif sys.platform in ("win32", "win64") and value.find("\\") > -1:
-                # If it's an absolute path or it already exists where it is, just use it as-is
-                # For a base path, look for the "C:\" drive-name pattern at the start (upper- or lower-case).
-                if re.search(r"\A[A-Za-z]:\\", value.strip()) is not None:
+                # If it's already an absolute path, just use it as-is. Recognize both
+                # Unix ("/...") and Windows ("C:\...", "C:/...", or UNC "\\...") roots
+                # so shared config files resolve correctly on either platform.
+                elif _is_absolute_path(value):
                     setattr(self, key, os.path.abspath(value))
-                # If it references the home directory, expand that on the local machine.
-                elif value.find("~") > -1:
-                    setattr(self, key, os.path.abspath(os.path.expanduser(value)))
-                # If it's a relative path, make it relative to the _configfile directory.
+                # If it's a relative path, make it relative to the _configfile's directory.
                 else:
                     setattr(
                         self,

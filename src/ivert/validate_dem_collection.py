@@ -619,7 +619,8 @@ def main(
     # the program to crash when it tries to write files there. That's a user error.
 
     # Set up multiprocessing. 'spawn' is the slowest but the most reliable. Otherwise, file handlers are fucking us up.
-    mp.set_start_method("spawn")
+    # force=True avoids a RuntimeError if the start method was already set in this process.
+    mp.set_start_method("spawn", force=True)
 
     validate_list_of_dems(
         directory_or_files,

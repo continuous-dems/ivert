@@ -13,7 +13,7 @@ def is_aws():
     try:
         return (
             os.path.exists(datasource_path)
-            and "DataSourceEc2" in open(datasource_path).read()
+            and "DataSourceEc2" in open(datasource_path, encoding="utf-8").read()
         )
 
     except (NameError, FileNotFoundError):

@@ -21,6 +21,7 @@ keywords = ["Geospatial"]
 dependencies = [
     "blosc2",
     "click",
+    "colorama; platform_system == 'Windows'",
     "dateparser",
     "geopandas",
     "h5py",

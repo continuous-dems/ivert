@@ -607,7 +607,12 @@ def validate_dem(
 
         return list(shared_ret_values.values())
 
-    if abs(exitcode) == abs(signal.SIGKILL):
+    # Detect a job that was killed by the operating system (on Linux, the OOM-killer
+    # sends SIGKILL, which multiprocessing reports as a negative exitcode). Windows has
+    # no SIGKILL and no equivalent OOM-killer, so guard the attribute lookup: there the
+    # branch simply doesn't apply and we fall through to the RuntimeError below.
+    sigkill = getattr(signal, "SIGKILL", None)
+    if sigkill is not None and abs(exitcode) == abs(sigkill):
         # The job was killed by the operating system. This happens with a Memory Error. Divvy the file up and try again.
 
         # Unless we've already hit max recursion. In that case, error-out.
@@ -772,7 +777,7 @@ def validate_dem(
                 output_dir,
                 os.path.splitext(os.path.basename(dem_name))[0] + "_EMPTY.txt",
             )
-            with open(empty_fname, "w") as f:
+            with open(empty_fname, "w", encoding="utf-8") as f:
                 f.write(os.path.basename(dem_name) + " had no IVERT results.")
             shared_ret_values["empty_results_filename"] = empty_fname
 
@@ -1728,7 +1733,7 @@ def _write_validation_outputs(
         if verbose:
             print("No valid results in results dataframe. No outputs computed.")
         if mark_empty_results:
-            with open(empty_results_filename, "w") as f:
+            with open(empty_results_filename, "w", encoding="utf-8") as f:
                 f.write("No ICESat-2 data data overlapping this DEM to validate.")
             if verbose:
                 print(
@@ -1905,7 +1910,7 @@ def validate_dem_parallel(
     )
     if fetch_result is None:
         if mark_empty_results:
-            with open(empty_results_filename, "w") as f:
+            with open(empty_results_filename, "w", encoding="utf-8") as f:
                 f.write(os.path.basename(dem_name) + " had no ICESat-2 results.")
             if verbose:
                 print(
@@ -1933,7 +1938,7 @@ def validate_dem_parallel(
     )
     if overlap_result is None:
         if mark_empty_results:
-            with open(empty_results_filename, "w") as f:
+            with open(empty_results_filename, "w", encoding="utf-8") as f:
                 f.write(os.path.basename(dem_name) + " had no ICESat-2 results.")
             if verbose:
                 print(
@@ -2078,7 +2083,7 @@ def write_summary_stats_file(
     )
 
     out_text = "\n".join(lines)
-    with open(statsfile_name, "w") as outf:
+    with open(statsfile_name, "w", encoding="utf-8") as outf:
         outf.write(out_text)
 
     if verbose:
@@ -2429,7 +2434,8 @@ def main(
         sys.exit(1)
 
     # Set up multiprocessing. 'spawn' is the slowest but the most reliable. Otherwise, file handlers are fucking us up.
-    mp.set_start_method("spawn")
+    # force=True avoids a RuntimeError if the start method was already set in this process.
+    mp.set_start_method("spawn", force=True)
 
     # Run the validation
     validate_dem(
