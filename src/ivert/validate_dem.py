@@ -607,7 +607,12 @@ def validate_dem(
 
         return list(shared_ret_values.values())
 
-    if abs(exitcode) == abs(signal.SIGKILL):
+    # Detect a job that was killed by the operating system (on Linux, the OOM-killer
+    # sends SIGKILL, which multiprocessing reports as a negative exitcode). Windows has
+    # no SIGKILL and no equivalent OOM-killer, so guard the attribute lookup: there the
+    # branch simply doesn't apply and we fall through to the RuntimeError below.
+    sigkill = getattr(signal, "SIGKILL", None)
+    if sigkill is not None and abs(exitcode) == abs(sigkill):
         # The job was killed by the operating system. This happens with a Memory Error. Divvy the file up and try again.
 
         # Unless we've already hit max recursion. In that case, error-out.
