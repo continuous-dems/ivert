@@ -4,7 +4,7 @@ import importlib.resources
 import os
 import re
 
-from ivert.utils import is_aws, version
+from ivert.utils import is_aws
 
 ivert_default_configfile = str(
     importlib.resources.files("ivert").joinpath("config", "ivert_defaults.ini"),
@@ -85,10 +85,6 @@ class Config:
             ivert_default_configfile,
         ):
             self._apply_user_config()
-
-        # If 'ivert_version' is present and not already set, set it.
-        if hasattr(self, "ivert_version") and self.ivert_version is None:
-            self.ivert_version = version.__version__
 
         # If we've generated the Config object for the most-commonly-used IVERT Config file, make it globally available.
         if self._configfile == ivert_default_configfile:

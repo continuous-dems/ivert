@@ -84,7 +84,8 @@ def ivert_cli(ctx, user_config, verbosity):
 # options
 ###############################################################
 
-_OPTIONS_EXCLUDED_KEYS = {"ivert_version", "atlas_sdp_epoch", "project_base_directory"}
+# Keys that are read-only and hidden from the "ivert options" command.
+_OPTIONS_EXCLUDED_KEYS: set[str] = set()
 
 
 class _OptionsGroup(click.Group):
