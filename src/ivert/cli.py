@@ -1235,18 +1235,5 @@ def validate(
     )
 
 
-###############################################################
-# upgrade
-###############################################################
-
-
-@ivert_cli.command("upgrade")
-def upgrade():
-    """Upgrade IVERT to the latest available version."""
-    from ivert import client_upgrade
-
-    client_upgrade.upgrade()
-
-
 if __name__ == "__main__":
     ivert_cli()
