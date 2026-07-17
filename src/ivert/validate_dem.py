@@ -777,7 +777,7 @@ def validate_dem(
                 output_dir,
                 os.path.splitext(os.path.basename(dem_name))[0] + "_EMPTY.txt",
             )
-            with open(empty_fname, "w") as f:
+            with open(empty_fname, "w", encoding="utf-8") as f:
                 f.write(os.path.basename(dem_name) + " had no IVERT results.")
             shared_ret_values["empty_results_filename"] = empty_fname
 
@@ -1733,7 +1733,7 @@ def _write_validation_outputs(
         if verbose:
             print("No valid results in results dataframe. No outputs computed.")
         if mark_empty_results:
-            with open(empty_results_filename, "w") as f:
+            with open(empty_results_filename, "w", encoding="utf-8") as f:
                 f.write("No ICESat-2 data data overlapping this DEM to validate.")
             if verbose:
                 print(
@@ -1910,7 +1910,7 @@ def validate_dem_parallel(
     )
     if fetch_result is None:
         if mark_empty_results:
-            with open(empty_results_filename, "w") as f:
+            with open(empty_results_filename, "w", encoding="utf-8") as f:
                 f.write(os.path.basename(dem_name) + " had no ICESat-2 results.")
             if verbose:
                 print(
@@ -1938,7 +1938,7 @@ def validate_dem_parallel(
     )
     if overlap_result is None:
         if mark_empty_results:
-            with open(empty_results_filename, "w") as f:
+            with open(empty_results_filename, "w", encoding="utf-8") as f:
                 f.write(os.path.basename(dem_name) + " had no ICESat-2 results.")
             if verbose:
                 print(
@@ -2083,7 +2083,7 @@ def write_summary_stats_file(
     )
 
     out_text = "\n".join(lines)
-    with open(statsfile_name, "w") as outf:
+    with open(statsfile_name, "w", encoding="utf-8") as outf:
         outf.write(out_text)
 
     if verbose:

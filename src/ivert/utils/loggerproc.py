@@ -78,7 +78,7 @@ class Logger(io.TextIOWrapper):
             self.terminal_stdout = None
 
         self.filename_out = filename
-        self.log = open(self.filename_out, "a", buffering=1)
+        self.log = open(self.filename_out, "a", buffering=1, encoding="utf-8")
         # Apparently this should have a flush attribute to be compatible with stdout print(flush=True) statements.
 
     def flush(self):

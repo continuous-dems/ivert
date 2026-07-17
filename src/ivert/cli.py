@@ -157,7 +157,7 @@ def _options_set_values(assignments):
         click.echo(f"  {key} = {value}")
 
     os.makedirs(os.path.dirname(user_path), exist_ok=True)
-    with open(user_path, "w") as f:
+    with open(user_path, "w", encoding="utf-8") as f:
         user_config.write(f)
 
     click.echo(f"\nSaved to {user_path}")
