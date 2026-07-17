@@ -22,7 +22,9 @@ jobs:
     - name: "Set up Python"
       uses: "actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405"  # v6.2.0
       with:
-        python-version: "3.x"
+        # Pinned to 3.13: fiona (pulled in via globato) has no cp314 wheels yet,
+        # and building it from source requires the GDAL headers we no longer install.
+        python-version: "3.13"
 
     - name: "Install build tools"
       run: |
@@ -32,12 +34,7 @@ jobs:
     - name: "Build package"
       run: "python -m build"
 
-    - uses: "prefix-dev/setup-pixi@ba3bb36eb2066252b2363392b7739741bb777659"  # v0.8.1
-      with:
-        run-install: false
-
     - name: "Test built package"
-      shell: "pixi exec --list --spec libgdal-core -- bash -e {0}"
       run: |
         python -m pip install dist/*.whl
         cd /tmp

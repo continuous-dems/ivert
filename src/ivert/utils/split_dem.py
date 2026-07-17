@@ -5,12 +5,10 @@ import argparse
 import glob
 import itertools
 import os
-import subprocess
-import shlex
 import typing
-from osgeo import gdal
 
-gdal.UseExceptions()
+import rasterio
+import rasterio.windows
 
 
 def contains_glob_flags(fname: str) -> bool:
@@ -56,41 +54,52 @@ def split(
 
     # some bug here?
     for fname in infiles:
-        Y, X = gdal.Open(fname, gdal.GA_ReadOnly).ReadAsArray().shape
-        # How to cover all the DEM when it can't be split evenly?
-        X_steps = evenly_split(X, factor)
-        Y_steps = evenly_split(Y, factor)
+        with rasterio.open(fname) as src:
+            Y, X = src.height, src.width
+            # How to cover all the DEM when it can't be split evenly?
+            X_steps = evenly_split(X, factor)
+            Y_steps = evenly_split(Y, factor)
 
-        for xi, xb in zip(range(factor), X_steps):
-            for yj, yb in zip(range(factor), Y_steps):
-                assert len(xb) == 2
-                assert len(yb) == 2
-                fn_out = os.path.join(
-                    output_dir,
-                    f"{os.path.splitext(os.path.basename(fname))[0]}_{yj}.{xi}.tif",
-                )
+            for xi, xb in zip(range(factor), X_steps):
+                for yj, yb in zip(range(factor), Y_steps):
+                    assert len(xb) == 2
+                    assert len(yb) == 2
+                    fn_out = os.path.join(
+                        output_dir,
+                        f"{os.path.splitext(os.path.basename(fname))[0]}_{yj}.{xi}.tif",
+                    )
 
-                if os.path.exists(fn_out):
-                    print(fn_out, "already exists.")
-                    continue
+                    if os.path.exists(fn_out):
+                        print(fn_out, "already exists.")
+                        continue
 
-                gdal_cmd = f"""gdal_translate -of GTiff
-                              -srcwin {xb[0]} {yb[0]} {xb[1] - xb[0] + 1} {yb[1] - yb[0] + 1}
-                              -co COMPRESS=DEFLATE -co PREDICTOR=2 -co TILED=YES
-                              {repr(fname)} {repr(fn_out)}"""
+                    window = rasterio.windows.Window(
+                        xb[0], yb[0], xb[1] - xb[0] + 1, yb[1] - yb[0] + 1
+                    )
+                    profile = src.profile.copy()
+                    # Let GDAL pick its default tile size; the source's block layout
+                    # (e.g. strips) is usually invalid for a tiled output.
+                    profile.pop("blockxsize", None)
+                    profile.pop("blockysize", None)
+                    profile.update(
+                        driver="GTiff",
+                        width=window.width,
+                        height=window.height,
+                        transform=src.window_transform(window),
+                        compress="deflate",
+                        predictor=2,
+                        tiled=True,
+                    )
+                    with rasterio.open(fn_out, "w", **profile) as dst:
+                        dst.write(src.read(window=window))
 
-                gdal_args = shlex.split(gdal_cmd.replace("\n", " "))
-                print(" ".join(gdal_args))
-
-                subprocess.run(gdal_args)
-
-                if os.path.exists(fn_out):
-                    if verbose:
-                        print(fn_out, "written.")
-                        outfiles.append(fn_out)
-                else:
-                    if verbose:
-                        print(fn_out, "failed.")
+                    if os.path.exists(fn_out):
+                        if verbose:
+                            print(fn_out, "written.")
+                            outfiles.append(fn_out)
+                    else:
+                        if verbose:
+                            print(fn_out, "failed.")
 
     return outfiles
 

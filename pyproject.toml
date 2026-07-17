@@ -22,7 +22,6 @@ dependencies = [
     "blosc2",
     "click",
     "dateparser",
-    "gdal",
     "geopandas",
     "h5py",
     "matplotlib",

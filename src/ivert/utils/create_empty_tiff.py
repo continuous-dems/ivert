@@ -4,7 +4,7 @@
 import ivert.utils.configfile as configfile
 
 import os
-from osgeo import gdal
+import rasterio
 
 
 def create_empty_tiff():
@@ -13,7 +13,16 @@ def create_empty_tiff():
     tiff_location = ivert_config.empty_tiff
 
     if not os.path.exists(tiff_location):
-        gdal.GetDriverByName("GTiff").Create(tiff_location, 1, 1, 1, gdal.GDT_Float32)
+        with rasterio.open(
+            tiff_location,
+            "w",
+            driver="GTiff",
+            width=1,
+            height=1,
+            count=1,
+            dtype="float32",
+        ):
+            pass
 
         print(f"Created {tiff_location}, {os.path.getsize(tiff_location)} bytes")
 
