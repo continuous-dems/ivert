@@ -62,7 +62,7 @@ def process_parallel(
     proc_names=None,
     temp_working_dirs=None,
     overwrite_outfiles: bool = False,
-    max_nprocs: int = physical_cpu_count(),
+    max_nprocs: int | None = None,
     use_progress_bar_only: bool = False,
     abbreviate_outfile_names_in_stdout: bool = True,
     delete_partially_done_files: bool = True,
@@ -88,6 +88,9 @@ def process_parallel(
         verbose (bool): Print output message for each file created or process executed.
 
     """
+    # Fill in the number of procs with the default if not provided.
+    max_nprocs = physical_cpu_count() if max_nprocs is None else int(max_nprocs)
+
     # For each optional list, just supply a range of integers if we're not using it. Check for integers later down and
     # ignore them.
     if kwargs_list is None:
