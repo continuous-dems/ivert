@@ -13,10 +13,10 @@ import multiprocessing as mp
 import multiprocessing.shared_memory as shared_memory
 import numexpr
 import numpy
-from osgeo import gdal, ogr, osr
 import os
 import pandas
 import pyproj
+import rasterio
 import re
 import shapely
 import shapely.geometry
@@ -35,11 +35,6 @@ import ivert.utils.dem_geom as dem_geom
 import ivert.transform_points
 import ivert.utils.loggerproc
 
-
-# NOTE: This eliminates a Deprecation error in GDAL v3.x. In GDAL 4.0, they will use Exceptions by default and this
-# command will be unnecessary.
-gdal.UseExceptions()
-osr.UseExceptions()
 
 ivert_config = ivert.utils.configfile.Config()
 EMPTY_VAL = ivert_config.dem_default_ndv
@@ -437,8 +432,10 @@ def reset_results_indexes_after_merge(
             "sub_results_df must have columns 'i' and 'j' in columns or index."
         )
 
-    sub_geotransform = gdal.Open(sub_dem_fname).GetGeoTransform()
-    parent_geotransform = gdal.Open(parent_dem_fname).GetGeoTransform()
+    with rasterio.open(sub_dem_fname) as sub_ds:
+        sub_geotransform = sub_ds.transform.to_gdal()
+    with rasterio.open(parent_dem_fname) as parent_ds:
+        parent_geotransform = parent_ds.transform.to_gdal()
 
     x_step = sub_geotransform[1]
     y_step = sub_geotransform[5]
@@ -740,12 +737,13 @@ def validate_dem(
                 os.path.splitext(os.path.basename(dem_name))[0]
                 + "_ICESat2_error_raster.tif",
             )
-            generate_result_geotiff(
-                shared_results_df,
-                gdal.Open(dem_name, gdal.GA_ReadOnly),
-                output_fname,
-                verbose=verbose,
-            )
+            with rasterio.open(dem_name) as dem_ds_tmp:
+                generate_result_geotiff(
+                    shared_results_df,
+                    dem_ds_tmp,
+                    output_fname,
+                    verbose=verbose,
+                )
 
             shared_ret_values[common_key] = output_fname
 
@@ -825,17 +823,17 @@ def validate_dem(
 
 
 def get_dem_dataset_and_vars(dem_fn) -> tuple:
-    """Get the gdal dataset and the variables in the dataset.
+    """Get the rasterio dataset and the variables in the dataset.
 
     Return (dem_dataset, dem_array, dem_bbox, dem_step_xy)."""
-    dem_ds = gdal.Open(dem_fn, gdal.GA_ReadOnly)
-    dem_array = dem_ds.GetRasterBand(1).ReadAsArray()
-    gt = dem_ds.GetGeoTransform()
+    dem_ds = rasterio.open(dem_fn)
+    dem_array = dem_ds.read(1)
+    gt = dem_ds.transform.to_gdal()
     dem_step_xy = (gt[1], gt[5])
     dem_bbox = (
         gt[0],
-        gt[3] + (dem_ds.RasterYSize + 1) * gt[5],
-        gt[0] + (dem_ds.RasterXSize + 1) * gt[1],
+        gt[3] + (dem_ds.height + 1) * gt[5],
+        gt[0] + (dem_ds.width + 1) * gt[1],
         gt[3],
     )
 
@@ -979,7 +977,7 @@ def _check_existing_outputs(
 
         if write_result_tifs:
             if not os.path.exists(result_tif_filename):
-                dem_ds_tmp = gdal.Open(dem_name, gdal.GA_ReadOnly)
+                dem_ds_tmp = rasterio.open(dem_name)
                 if results_dataframe is None:
                     if verbose:
                         print("Reading", results_dataframe_file, "...", end="")
@@ -998,7 +996,7 @@ def _check_existing_outputs(
             )
             missing = [fn for fn in export_files if not os.path.exists(fn)]
             if missing:
-                dem_ds_tmp = gdal.Open(dem_name, gdal.GA_ReadOnly)
+                dem_ds_tmp = rasterio.open(dem_name)
                 if results_dataframe is None:
                     if verbose:
                         print("Reading", results_dataframe_file, "...", end="")
@@ -1074,8 +1072,8 @@ def _fetch_photons(
         dem_name
     )  # result unused; preserved for validation side-effects
 
-    dem_ds = gdal.Open(dem_name, gdal.GA_ReadOnly)
-    dem_array = dem_ds.GetRasterBand(band_num).ReadAsArray()
+    dem_ds = rasterio.open(dem_name)
+    dem_array = dem_ds.read(band_num)
 
     dem_horz_ref_frame, dem_vert_ref_frame = dem_geom.get_dem_reference_frame_from_file(
         dem_name
@@ -1199,7 +1197,7 @@ def _compute_photon_overlap(
                 )
             photon_df = photon_df[~excluded_mask]
 
-    xstart, xstep, _, ystart, _, ystep = dem_ds.GetGeoTransform()
+    xstart, xstep, _, ystart, _, ystep = dem_ds.transform.to_gdal()
     photon_df["i"] = numpy.floor((photon_df["dem_y"] - ystart) / ystep).astype(int)
     photon_df["j"] = numpy.floor((photon_df["dem_x"] - xstart) / xstep).astype(int)
 
@@ -1215,7 +1213,7 @@ def _compute_photon_overlap(
     if user_ndv is not None:
         dem_ndv = user_ndv
     else:
-        dem_ndv = dem_ds.GetRasterBand(1).GetNoDataValue()
+        dem_ndv = dem_ds.nodata
         if dem_ndv is None:
             dem_ndv = EMPTY_VAL
 
@@ -1722,7 +1720,7 @@ def _write_validation_outputs(
 
     if write_result_tifs:
         if dem_ds is None:
-            dem_ds = gdal.Open(dem_name, gdal.GA_ReadOnly)
+            dem_ds = rasterio.open(dem_name)
         generate_result_geotiff(
             results_dataframe, dem_ds, result_tif_filename, verbose=verbose
         )
@@ -1733,7 +1731,7 @@ def _write_validation_outputs(
         export_error_formats = ivert_config.export_error_formats
     if export_error_formats:
         if dem_ds is None:
-            dem_ds = gdal.Open(dem_name, gdal.GA_ReadOnly)
+            dem_ds = rasterio.open(dem_name)
         exported = export_error_results(
             results_dataframe,
             dem_ds,
@@ -2048,11 +2046,9 @@ def generate_result_geotiff(
     Geotiff tags will include:
         - mean_diff
     """
-    gt = dem_ds.GetGeoTransform()
-    projection = dem_ds.GetProjection()
-    xsize, ysize = dem_ds.RasterXSize, dem_ds.RasterYSize
+    xsize, ysize = dem_ds.width, dem_ds.height
     emptyval = float(EMPTY_VAL)
-    result_array = numpy.zeros([ysize, xsize], dtype=float) + emptyval
+    result_array = numpy.zeros([ysize, xsize], dtype=numpy.float32) + emptyval
 
     indices = results_dataframe.index.to_numpy()
     ivals = [idx[0] for idx in indices]
@@ -2060,23 +2056,22 @@ def generate_result_geotiff(
     # Insert the valid values.
     result_array[ivals, jvals] = results_dataframe["diff_mean"]
 
-    driver = gdal.GetDriverByName("GTiff")
-    out_ds = driver.Create(
+    with rasterio.open(
         result_tif_filename,
-        xsize=xsize,
-        ysize=ysize,
-        bands=1,
-        eType=gdal.GDT_Float32,
-        options=["COMPRESS=DEFLATE", "PREDICTOR=2", "TILED=YES"],
-    )
-    out_ds.SetProjection(projection)  # Might need to add .ExportToWkt()
-    out_ds.SetGeoTransform(gt)
-    band = out_ds.GetRasterBand(1)
-    band.WriteArray(result_array)
-    band.SetNoDataValue(emptyval)
-    band.GetStatistics(0, 1)
-    band = None
-    out_ds = None
+        "w",
+        driver="GTiff",
+        width=xsize,
+        height=ysize,
+        count=1,
+        dtype="float32",
+        crs=dem_ds.crs,
+        transform=dem_ds.transform,
+        nodata=emptyval,
+        compress="deflate",
+        predictor=2,
+        tiled=True,
+    ) as out_ds:
+        out_ds.write(result_array, 1)
     if verbose:
         print(result_tif_filename, "written.")
     return
@@ -2108,7 +2103,7 @@ def _results_cell_centers(results_dataframe, dem_ds):
     Coordinates are in the DEM's own CRS, derived from the (i, j) multi-index and the
     DEM geotransform. The 0.5 offsets place each point at the center of its pixel.
     """
-    gt = dem_ds.GetGeoTransform()
+    gt = dem_ds.transform.to_gdal()
     indices = results_dataframe.index.to_numpy()
     ivals = numpy.array([idx[0] for idx in indices], dtype=float)
     jvals = numpy.array([idx[1] for idx in indices], dtype=float)
@@ -2120,51 +2115,38 @@ def _results_cell_centers(results_dataframe, dem_ds):
 def _export_errors_vector(results_dataframe, dem_ds, out_fname, fmt, verbose=True):
     """Write one point per validated cell (at the cell center) to a GeoPackage or Shapefile."""
     driver_name = {"gpkg": "GPKG", "shp": "ESRI Shapefile"}[fmt]
-    driver = ogr.GetDriverByName(driver_name)
-    if driver is None:
-        raise RuntimeError(
-            f"OGR driver '{driver_name}' is not available in this GDAL build."
-        )
 
-    if os.path.exists(out_fname):
-        driver.DeleteDataSource(out_fname)
-
-    srs = osr.SpatialReference()
-    srs.ImportFromWkt(dem_ds.GetProjection())
-
-    data_source = driver.CreateDataSource(out_fname)
-    layer_name = os.path.splitext(os.path.basename(out_fname))[0]
-    layer = data_source.CreateLayer(layer_name, srs, ogr.wkbPoint)
+    # Remove any previous export (including shapefile sidecar files) before writing.
+    base = os.path.splitext(out_fname)[0]
+    sidecar_exts = (
+        (".shp", ".shx", ".dbf", ".prj", ".cpg") if fmt == "shp" else ("." + fmt,)
+    )
+    for ext in sidecar_exts:
+        if os.path.exists(base + ext):
+            os.remove(base + ext)
 
     fields = [
         (name, col)
         for (name, col) in _ERROR_EXPORT_FIELDS
         if col in results_dataframe.columns
     ]
+    data = {}
     for name, col in fields:
-        ftype = ogr.OFTInteger if col.startswith("numphotons") else ogr.OFTReal
-        layer.CreateField(ogr.FieldDefn(name, ftype))
+        vals = results_dataframe[col].to_numpy()
+        data[name] = (
+            vals.astype(numpy.int32)
+            if col.startswith("numphotons")
+            else vals.astype(float)
+        )
 
     x_centers, y_centers = _results_cell_centers(results_dataframe, dem_ds)
-    col_arrays = {col: results_dataframe[col].to_numpy() for _, col in fields}
-    layer_defn = layer.GetLayerDefn()
-
-    layer.StartTransaction()
-    for n in range(len(results_dataframe)):
-        feat = ogr.Feature(layer_defn)
-        for name, col in fields:
-            val = col_arrays[col][n]
-            if col.startswith("numphotons"):
-                feat.SetField(name, int(val))
-            else:
-                feat.SetField(name, float(val))
-        point = ogr.Geometry(ogr.wkbPoint)
-        point.AddPoint_2D(float(x_centers[n]), float(y_centers[n]))
-        feat.SetGeometry(point)
-        layer.CreateFeature(feat)
-        feat = None
-    layer.CommitTransaction()
-    data_source = None
+    gdf = geopandas.GeoDataFrame(
+        data,
+        geometry=geopandas.points_from_xy(x_centers, y_centers),
+        crs=dem_ds.crs,
+    )
+    layer_name = os.path.splitext(os.path.basename(out_fname))[0]
+    gdf.to_file(out_fname, driver=driver_name, layer=layer_name)
 
     if verbose:
         print(out_fname, "written.")
@@ -2219,7 +2201,7 @@ def export_error_results(
 
     Args:
         results_dataframe: validation results, (i, j)-multi-indexed, with a 'diff_mean' column.
-        dem_ds: an open gdal.Dataset for the source DEM (supplies CRS and geotransform).
+        dem_ds: an open rasterio dataset for the source DEM (supplies CRS and geotransform).
         results_dataframe_file: path to the '<dem>_results.h5' file (used to derive output names).
         formats: comma-separated string (e.g. 'tif,gpkg') or iterable of format names.
         verbose: print a line per file written.

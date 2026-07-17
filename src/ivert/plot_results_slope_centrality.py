@@ -5,7 +5,7 @@ import matplotlib.ticker as ticker
 import pandas
 import os
 import math
-from osgeo import gdal
+import rasterio
 
 ####################################3
 # Include the base /src/ directory of thie project, to add all the other modules.
@@ -60,9 +60,8 @@ def get_slopes(df, files_dirname):
             fname_slope = fnames_dict[fname]
             if not os.path.exists(fname_slope):
                 raise FileNotFoundError(fname_slope)
-            ds = gdal.Open(fname_slope, gdal.GA_ReadOnly)
-            array = ds.GetRasterBand(1).ReadAsArray()
-            ds = None
+            with rasterio.open(fname_slope) as ds:
+                array = ds.read(1)
             fn_array_dict[fname] = array
 
         slopes[idx] = array[i, j]
