@@ -807,6 +807,35 @@ def cache_delete(force):
 # validate
 ###############################################################
 
+_EXCLUDE_VECTOR_EXTENSIONS = (".shp", ".geojson", ".gpkg")
+
+
+def _parse_exclude_spec(value):
+    """Parse a single -ex/--exclude value into a (minx, miny, maxx, maxy) tuple or a file path.
+
+    Accepts either a 4-value slash-separated bounding box ("minx/miny/maxx/maxy"), in the
+    DEM's own horizontal CRS, or a path to a .shp/.geojson/.gpkg vector file of polygons.
+    """
+    parts = value.split("/")
+    if len(parts) == 4:
+        try:
+            return tuple(float(p) for p in parts)
+        except ValueError:
+            pass
+
+    if not os.path.exists(value):
+        raise click.ClickException(
+            f"Invalid --exclude value '{value}': not a 4-value bounding box "
+            "(minx/miny/maxx/maxy) and not an existing file path."
+        )
+    ext = os.path.splitext(value)[1].lower()
+    if ext not in _EXCLUDE_VECTOR_EXTENSIONS:
+        raise click.ClickException(
+            f"Invalid --exclude file '{value}': expected one of "
+            f"{', '.join(_EXCLUDE_VECTOR_EXTENSIONS)}."
+        )
+    return value
+
 
 def _run_validate(
     files_or_directory,
@@ -823,6 +852,7 @@ def _run_validate(
     ndv=None,
     export_formats=None,
     overwrite=False,
+    exclude_zones=None,
 ):
     """Branch to validate_dem or validate_list_of_dems based on the number of input files."""
     verbose = logging.getLogger().level <= logging.INFO
@@ -913,6 +943,8 @@ def _run_validate(
             kwargs["dem_ndv"] = ndv_float
         if export_error_formats is not None:
             kwargs["export_error_formats"] = export_error_formats
+        if exclude_zones:
+            kwargs["exclude_zones"] = exclude_zones
         vd_module.validate_dem(**kwargs)
     else:
         dem_input = expanded[0] if len(expanded) == 1 else expanded
@@ -946,6 +978,8 @@ def _run_validate(
             kwargs["dem_ndv"] = ndv_float
         if export_error_formats is not None:
             kwargs["export_error_formats"] = export_error_formats
+        if exclude_zones:
+            kwargs["exclude_zones"] = exclude_zones
         vdc_module.validate_list_of_dems(**kwargs)
 
 
@@ -1108,6 +1142,19 @@ def _run_validate(
         "Default: reuse existing interim/output files and skip work that's already done."
     ),
 )
+@click.option(
+    "-ex",
+    "--exclude",
+    "exclude",
+    multiple=True,
+    metavar="BBOX_OR_FILE",
+    help=(
+        "Exclude ICESat-2 photons falling within a zone before validation. Repeatable "
+        "(use multiple times to combine zones). Each use takes either a 4-value "
+        "slash-separated bounding box in the DEM's own projection (minx/miny/maxx/maxy), "
+        "or a path to a vector file (.shp, .geojson, .gpkg) containing exclusion polygon(s)."
+    ),
+)
 def validate(
     files_or_directory,
     vdatum,
@@ -1124,6 +1171,7 @@ def validate(
     ndv,
     export_formats,
     overwrite,
+    exclude,
 ):
     """Validate one or more DEMs against ICESat-2 photon data.
 
@@ -1153,6 +1201,10 @@ def validate(
     if not files_or_directory:
         raise click.UsageError("Missing argument 'FILES_OR_DIRECTORY'.")
 
+    exclude_zones = (
+        [_parse_exclude_spec(value) for value in exclude] if exclude else None
+    )
+
     _run_validate(
         files_or_directory,
         vdatum,
@@ -1168,6 +1220,7 @@ def validate(
         ndv=ndv,
         export_formats=export_formats,
         overwrite=overwrite,
+        exclude_zones=exclude_zones,
     )
 
 

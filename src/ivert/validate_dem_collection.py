@@ -111,6 +111,7 @@ def validate_list_of_dems(
     min_confidence_level: int = 1,
     min_bathy_confidence: float = 0.75,
     export_error_formats: str | list | None = None,
+    exclude_zones: list | None = None,
     verbose: bool = True,
 ):
     """Take a list of DEMs, presumably in a single area, and output validation files for those DEMs.
@@ -344,6 +345,7 @@ def validate_list_of_dems(
                 min_confidence_level=min_confidence_level,
                 min_bathy_confidence=min_bathy_confidence,
                 export_error_formats=export_error_formats,
+                exclude_zones=exclude_zones,
                 verbose=verbose,
             )
         except MemoryError:

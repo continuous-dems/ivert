@@ -8,6 +8,7 @@ Created on Tue Jun 22 16:06:21 2021
 
 import argparse
 import ast
+import geopandas
 import multiprocessing as mp
 import multiprocessing.shared_memory as shared_memory
 import numexpr
@@ -15,7 +16,10 @@ import numpy
 from osgeo import gdal, ogr, osr
 import os
 import pandas
+import pyproj
 import re
+import shapely
+import shapely.geometry
 import signal
 import sys
 import time
@@ -488,6 +492,7 @@ def validate_dem(
     min_confidence_level: int = 4,
     min_bathy_confidence: float = 0.90,
     export_error_formats: str | list | None = None,
+    exclude_zones: list | None = None,
     verbose: bool = True,
 ):
     """Validate a DEM and produce output results.
@@ -530,6 +535,11 @@ def validate_dem(
         export_error_formats (str, list, None): GIS formats to export the per-cell errors into,
             as a comma-separated string or list drawn from 'tif', 'gpkg', 'shp', 'xyz'. Defaults
             to None, which uses the 'export_error_formats' config value.
+        exclude_zones (list, None): Zones to exclude ICESat-2 photons from before validation.
+            Each item is either a 4-value (minx, miny, maxx, maxy) bounding box in the DEM's own
+            horizontal CRS, or a path to a vector file (.shp, .geojson, .gpkg) containing exclusion
+            polygon(s) in any CRS. Photons falling within any zone are dropped. Defaults to None
+            (no exclusions).
         verbose (bool): Be verbose.
     """
     if shared_ret_values is None:
@@ -564,6 +574,7 @@ def validate_dem(
         "min_confidence_level": min_confidence_level,
         "min_bathy_confidence": min_bathy_confidence,
         "export_error_formats": export_error_formats,
+        "exclude_zones": exclude_zones,
         "verbose": verbose,
     }
 
@@ -649,6 +660,7 @@ def validate_dem(
                 numprocs=numprocs,
                 min_confidence_level=min_confidence_level,
                 min_bathy_confidence=min_bathy_confidence,
+                exclude_zones=exclude_zones,
                 verbose=verbose,
                 max_subdivides=max_subdivides,
                 orig_dem_name=orig_dem_name,
@@ -1109,6 +1121,33 @@ def _fetch_photons(
     return dem_ds, dem_array, photon_df, dem_epsg_str, photon_src_epsg
 
 
+def _resolve_exclude_geometry(exclude_zones, dem_epsg_str):
+    """Resolve exclude-zone specs into a single shapely geometry in the DEM's horizontal CRS.
+
+    Each item in exclude_zones is either a 4-value (minx, miny, maxx, maxy) bounding box
+    already in the DEM's horizontal CRS, or a path to a vector file (.shp, .geojson, .gpkg)
+    containing polygon(s) in any CRS, which get reprojected into the DEM's horizontal CRS.
+
+    Returns a single (possibly multi-part) shapely geometry, or None if exclude_zones is empty.
+    """
+    dem_horz_crs = dem_geom.get_dem_reference_frame_from_user_input(dem_epsg_str, "h")
+
+    geoms = []
+    for zone in exclude_zones:
+        if isinstance(zone, (list, tuple)):
+            minx, miny, maxx, maxy = zone
+            geoms.append(shapely.geometry.box(minx, miny, maxx, maxy))
+        else:
+            gdf = geopandas.read_file(zone)
+            if gdf.crs is not None and not pyproj.CRS(gdf.crs).equals(dem_horz_crs):
+                gdf = gdf.to_crs(dem_horz_crs)
+            geoms.extend(geom for geom in gdf.geometry if geom is not None)
+
+    if not geoms:
+        return None
+    return shapely.unary_union(geoms)
+
+
 def _compute_photon_overlap(
     dem_ds,
     dem_array,
@@ -1120,6 +1159,7 @@ def _compute_photon_overlap(
     photon_src_epsg="EPSG:4326+4979",
     cache_dir=None,
     user_ndv=None,
+    exclude_zones=None,
 ):
     """Transform photon coordinates into DEM space and compute cell-level overlap.
 
@@ -1141,6 +1181,23 @@ def _compute_photon_overlap(
     except (ValueError, RuntimeError) as e:
         print("Warning: Unable to perform transformation. Using original points.")
         raise e
+
+    if exclude_zones:
+        exclude_geom = _resolve_exclude_geometry(exclude_zones, dem_epsg_str)
+        if exclude_geom is not None:
+            excluded_mask = (
+                geopandas.GeoSeries(
+                    geopandas.points_from_xy(photon_df["dem_x"], photon_df["dem_y"])
+                )
+                .within(exclude_geom)
+                .to_numpy()
+            )
+            if verbose and excluded_mask.any():
+                print(
+                    "{:,}".format(numpy.count_nonzero(excluded_mask)),
+                    "photons excluded by exclusion zone(s).",
+                )
+            photon_df = photon_df[~excluded_mask]
 
     xstart, xstep, _, ystart, _, ystep = dem_ds.GetGeoTransform()
     photon_df["i"] = numpy.floor((photon_df["dem_y"] - ystart) / ystep).astype(int)
@@ -1731,6 +1788,7 @@ def validate_dem_parallel(
     min_confidence_level: int = 4,
     min_bathy_confidence: float = 0.90,
     export_error_formats: str | list | None = None,
+    exclude_zones: list | None = None,
     verbose: bool = True,
 ):
     """Validate a single DEM.
@@ -1822,6 +1880,7 @@ def validate_dem_parallel(
         photon_src_epsg=photon_src_epsg,
         cache_dir=TRANSFORMEZ_CACHE_DIR,
         user_ndv=dem_ndv,
+        exclude_zones=exclude_zones,
     )
     if overlap_result is None:
         if mark_empty_results:
