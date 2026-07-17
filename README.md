@@ -72,4 +72,3 @@ ivert validate mydem.tif
 | [ivert database](docs/database.md) | Download and manage the local photon database |
 | [ivert cache](docs/cache.md) | View and clear the local file cache |
 | [ivert options](docs/options.md) | View and change configuration settings |
-| [ivert upgrade](docs/upgrade.md) | Upgrade IVERT to the latest version |

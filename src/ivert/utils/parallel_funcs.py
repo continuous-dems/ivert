@@ -1,10 +1,10 @@
 import multiprocessing as mp
 import os
-import subprocess
-import sys
+import shutil
 import time
 
 import numpy
+import psutil
 
 from ivert.utils import progress_bar
 
@@ -17,36 +17,17 @@ def physical_cpu_count():
     means we'll spin off twice as many processes as really helps us when we're
     multiprocessing for performance. We want the physical cores.
     """
-    if sys.platform == "linux" or sys.platform == "linux2":
-        # On linux. The "linux2" variant is no longer used but here for backward-compatibility.
-        lines = os.popen("lscpu").readlines()
-        line_with_sockets = [line for line in lines if line[0:11] == "Socket(s): "][0]
-        line_with_cps = [
-            line for line in lines if line[0:20] == "Core(s) per socket: "
-        ][0]
-
-        num_sockets = int(line_with_sockets.split()[-1])
-        num_cores_per_socket = int(line_with_cps.split()[-1])
-
-        return num_sockets * num_cores_per_socket
-
-    if sys.platform == "darwin":
-        # On a mac
-        # TODO: Flesh this out from https://stackoverflow.com/questions/12902008/python-how-to-find-out-whether-hyperthreading-is-enabled
+    # psutil.cpu_count(logical=False) is cross-platform and returns the number of
+    # physical cores. It can return None on some platforms if it can't determine the
+    # count, in which case fall back to the logical core count (better than nothing).
+    num_physical = psutil.cpu_count(logical=False)
+    if num_physical is None:
         return mp.cpu_count()
-
-    if sys.platform == "win32" or sys.platform == "win64" or sys.platform == "cygwin":
-        # On a windows machine.
-        # TODO: Flesh this out from https://stackoverflow.com/questions/12902008/python-how-to-find-out-whether-hyperthreading-is-enabled
-        return mp.cpu_count()
-
-    # If we don't know what platform they're using, just default to the cpu_count()
-    # It will only get logical cores, but it's better than nothing.
-    return mp.cpu_count()
+    return num_physical
 
 
 # A dictionary for converting numpy array dtypes into carray identifiers.
-# For integers & floats... does not hangle character/string arrays.
+# For integers & floats... does not handle character/string arrays.
 # Reference: https://docs.python.org/3/library/array.html
 dtypes_dict = {
     numpy.int8: "b",
@@ -81,7 +62,7 @@ def process_parallel(
     proc_names=None,
     temp_working_dirs=None,
     overwrite_outfiles: bool = False,
-    max_nprocs: int = physical_cpu_count(),
+    max_nprocs: int | None = None,
     use_progress_bar_only: bool = False,
     abbreviate_outfile_names_in_stdout: bool = True,
     delete_partially_done_files: bool = True,
@@ -107,6 +88,9 @@ def process_parallel(
         verbose (bool): Print output message for each file created or process executed.
 
     """
+    # Fill in the number of procs with the default if not provided.
+    max_nprocs = physical_cpu_count() if max_nprocs is None else int(max_nprocs)
+
     # For each optional list, just supply a range of integers if we're not using it. Check for integers later down and
     # ignore them.
     if kwargs_list is None:
@@ -228,8 +212,7 @@ def process_parallel(
 
                     # Delete the temporary directory if it was created.
                     if type(d_tdir) is str and os.path.exists(d_tdir):
-                        rm_cmd = ["rm", "-rf", d_tdir]
-                        subprocess.run(rm_cmd, capture_output=True)
+                        shutil.rmtree(d_tdir, ignore_errors=True)
 
                     running_procs.remove(d_proc)
                     running_outfiles.remove(d_outf)
@@ -305,8 +288,7 @@ def process_parallel(
         # Delete all the temp directories we'd created.
         for tdir in running_tempdirs:
             if type(tdir) is str and os.path.exists(tdir):
-                rm_cmd = ["rm", "-rf", tdir]
-                subprocess.run(rm_cmd, capture_output=True)
+                shutil.rmtree(tdir, ignore_errors=True)
         if delete_partially_done_files:
             for fn in running_outfiles:
                 if type(fn) is str and os.path.exists(fn):
