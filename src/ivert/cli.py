@@ -8,6 +8,7 @@ Command-line interface for the ICESat-2 Validation of Elevations Reporting Tool 
 import glob
 import logging
 import os
+from pathlib import Path
 
 # Set NUMEXPR_MAX_THREADS before any import loads NumExpr, to suppress the
 # "safe limit" warning on machines with many cores.
@@ -78,6 +79,166 @@ def ivert_cli(ctx, user_config, verbosity):
     level, fmt = _VERBOSITY_LEVELS[verbosity_key]
     logging.basicConfig(level=level, format=fmt)
     logging.getLogger().setLevel(level)
+
+
+###############################################################
+# setup
+###############################################################
+
+# NASA Earthdata Login host used for authenticating ICESat-2 data downloads.
+_EARTHDATA_MACHINE = "urs.earthdata.nasa.gov"
+
+
+def _netrc_path():
+    """Return the path to the user's .netrc file."""
+    return os.path.join(os.path.expanduser("~"), ".netrc")
+
+
+def _has_earthdata_credentials(netrc_path, machine=_EARTHDATA_MACHINE):
+    """Return True if netrc_path has a login and password for the given machine.
+
+    Parses the .netrc token stream directly rather than using the stdlib netrc
+    module, which raises on files that are group/world-readable and does not
+    tolerate some entries that are otherwise valid for our purposes.
+    """
+    if not os.path.exists(netrc_path):
+        return False
+
+    try:
+        with open(netrc_path, encoding="utf-8") as f:
+            tokens = f.read().split()
+    except OSError:
+        return False
+
+    i = 0
+    while i < len(tokens):
+        if tokens[i] == "machine" and i + 1 < len(tokens) and tokens[i + 1] == machine:
+            login = password = None
+            j = i + 2
+            # Scan this entry until the next machine/default block.
+            while j < len(tokens) and tokens[j] not in ("machine", "default"):
+                if tokens[j] in ("login", "password", "account") and j + 1 < len(
+                    tokens,
+                ):
+                    if tokens[j] == "login":
+                        login = tokens[j + 1]
+                    elif tokens[j] == "password":
+                        password = tokens[j + 1]
+                    j += 2
+                else:
+                    j += 1
+            if login and password:
+                return True
+            i = j
+            continue
+        i += 1
+    return False
+
+
+def _append_earthdata_credentials(
+    netrc_path,
+    username,
+    password,
+    machine=_EARTHDATA_MACHINE,
+):
+    """Append a machine entry for the given credentials to netrc_path.
+
+    Existing content is preserved (the file is opened in append mode). The file
+    permissions are tightened to owner-only, as .netrc requires.
+    """
+    prefix = ""
+    if os.path.exists(netrc_path):
+        with open(netrc_path, encoding="utf-8") as f:
+            existing = f.read()
+        if existing and not existing.endswith("\n"):
+            prefix = "\n"
+
+    entry = f"machine {machine}\n    login {username}\n    password {password}\n"
+    with open(netrc_path, "a", encoding="utf-8") as f:
+        f.write(prefix + entry)
+
+    # .netrc must be readable only by its owner or tools (and netrc parsers) reject it.
+    try:
+        Path(netrc_path).chmod(0o600)
+    except OSError:
+        pass
+
+
+def _setup_earthdata_credentials():
+    """Check for NASA Earthdata credentials in .netrc, offering to save them."""
+    netrc_path = _netrc_path()
+
+    if _has_earthdata_credentials(netrc_path):
+        click.echo("NASA Earthdata credentials are already set in your .netrc file.")
+        return
+
+    click.echo(
+        "No NASA Earthdata credentials were found in your .netrc file.\n"
+        "IVERT needs NASA Earthdata Login credentials to download ICESat-2 data.\n"
+        "Register for a free account at https://urs.earthdata.nasa.gov/ if you "
+        "do not have one.",
+    )
+    if not click.confirm(
+        "Would you like to enter and save your NASA Earthdata username and password now?",
+        default=False,
+    ):
+        click.echo(
+            "Skipped. Run 'ivert setup' again later to save your credentials.",
+        )
+        return
+
+    username = click.prompt("NASA Earthdata username")
+    password = click.prompt("NASA Earthdata password", hide_input=True)
+
+    _append_earthdata_credentials(netrc_path, username, password)
+    click.echo(f"Saved NASA Earthdata credentials to {netrc_path}.")
+
+
+@ivert_cli.command("setup")
+def setup():
+    """Create IVERT's local data directories and check NASA Earthdata credentials.
+
+    Run once on a new machine. Creates the ~/.ivert data directories and verifies
+    that NASA Earthdata Login credentials are stored in your ~/.netrc file, offering
+    to save them if they are not.
+    """
+    from ivert.utils.configfile import Config
+
+    config = Config()
+
+    # Directory settings, plus the parent directories of key file settings.
+    dir_attrs = (
+        "user_data_directory",
+        "cache_directory",
+        "icesat2_granules_directory",
+        "icesat2_download_directory",
+    )
+    file_attrs = (
+        "user_configfile",
+        "icesat2_granules_gpkg",
+        "icesat2_granules_blosc",
+        "icesat2_requests_csv",
+    )
+    dirs = [getattr(config, attr) for attr in dir_attrs]
+    dirs += [os.path.dirname(getattr(config, attr)) for attr in file_attrs]
+
+    # Dedupe while preserving order.
+    unique_dirs = []
+    seen = set()
+    for d in dirs:
+        if d and d not in seen:
+            seen.add(d)
+            unique_dirs.append(d)
+
+    click.echo("Setting up IVERT data directories...")
+    for d in unique_dirs:
+        existed = os.path.isdir(d)
+        os.makedirs(d, exist_ok=True)
+        status = "exists" if existed else "created"
+        click.echo(f"  [{status}] {d}")
+
+    click.echo()
+    _setup_earthdata_credentials()
 
 
 ###############################################################

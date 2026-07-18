@@ -48,19 +48,27 @@ Three dependencies — `fetchez`, `globato`, and `transformez` — are pulled au
 
 ## Quick start
 
-**1. Download ICESat-2 photon data for your area** (bounding box in W/E/S/N order):
+**1. Set up IVERT's data directories and credentials** (run once on a new machine):
+
+```bash
+ivert setup
+```
+
+This creates the local `~/.ivert` data directories and checks your `~/.netrc` for NASA Earthdata Login credentials, offering to save them if they are not already present. Earthdata credentials are required to download ICESat-2 data ([register for a free account](https://urs.earthdata.nasa.gov/)).
+
+**2. Download ICESat-2 photon data for your area** (bounding box in W/E/S/N order):
 
 ```bash
 ivert database download -- -74.0/-73.0/40.5/41.0
 ```
 
-**2. Validate your DEM:**
+**3. Validate your DEM:**
 
 ```bash
 ivert validate mydem.tif
 ```
 
-**3. Check the output directory** for `mydem_results.h5`, a validation plot (`.png`), and error exports (`.tif`, `.gpkg`).
+**4. Check the output directory** for `mydem_results.h5`, a validation plot (`.png`), and error exports (`.tif`, `.gpkg`).
 
 ---
 
@@ -68,6 +76,7 @@ ivert validate mydem.tif
 
 | Command | Description |
 |---------|-------------|
+| [ivert setup](docs/setup.md) | Create data directories and set up NASA Earthdata credentials |
 | [ivert validate](docs/validate.md) | Validate DEMs against ICESat-2 data |
 | [ivert database](docs/database.md) | Download and manage the local photon database |
 | [ivert cache](docs/cache.md) | View and clear the local file cache |
