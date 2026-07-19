@@ -20,6 +20,56 @@ ivert_config = None
 _RELATIVE_PATH_KEYS = frozenset({"ivert_results_subdir"})
 
 
+def parse_option_descriptions(configfile: str = ivert_default_configfile):
+    """Extract the descriptive comments for each option in a config .ini file.
+
+    configparser discards comments, so the human-readable descriptions written
+    above each setting in ivert_defaults.ini are parsed here directly from the
+    file text. A description is the block of contiguous "#" comment lines that
+    immediately precedes a "key = value" assignment (with no blank line in
+    between). Header/section comments separated from any key by a blank line are
+    not attached to a setting.
+
+    Returns a dict mapping lower-cased option name -> description string (the
+    comment block with leading "# " markers stripped, newlines preserved).
+    Options with no preceding comment are omitted.
+    """
+    descriptions = {}
+    comment_buffer = []
+
+    with open(configfile, encoding="utf-8") as f:
+        for raw_line in f:
+            line = raw_line.strip()
+
+            if not line:
+                # Blank line ends a comment block so headers don't leak onto keys.
+                comment_buffer = []
+                continue
+
+            if line.startswith("#"):
+                # Drop the leading "#" marker(s) and a single following space,
+                # but keep any further indentation so aligned multi-line
+                # descriptions (e.g. the verbosity option list) stay aligned.
+                content = line.lstrip("#")
+                content = content.removeprefix(" ")
+                comment_buffer.append(content.rstrip())
+                continue
+
+            if line.startswith("[") and line.endswith("]"):
+                # Section header (e.g. [DEFAULT], [AWS]).
+                comment_buffer = []
+                continue
+
+            # An assignment line: attach any accumulated comment block to the key.
+            if "=" in line:
+                key = line.split("=", 1)[0].strip().lower()
+                if key and comment_buffer:
+                    descriptions[key] = "\n".join(comment_buffer)
+            comment_buffer = []
+
+    return descriptions
+
+
 def _is_absolute_path(value):
     """Return True if 'value' is an absolute filesystem path on any platform.
 
