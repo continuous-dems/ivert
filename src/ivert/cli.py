@@ -1061,23 +1061,33 @@ def cache_delete(force):
 _EXCLUDE_VECTOR_EXTENSIONS = (".shp", ".geojson", ".gpkg")
 
 
-def _parse_exclude_spec(value):
+def _parse_exclude_spec(value, wsen=False):
     """Parse a single -ex/--exclude value into a (minx, miny, maxx, maxy) tuple or a file path.
 
-    Accepts either a 4-value slash-separated bounding box ("minx/miny/maxx/maxy"), in the
-    DEM's own horizontal CRS, or a path to a .shp/.geojson/.gpkg vector file of polygons.
+    Accepts either a 4-value slash-separated bounding box or a path to a
+    .shp/.geojson/.gpkg vector file of polygons. Bounding-box coordinates are in the
+    DEM's own horizontal CRS. By default the four values are given in W/E/S/N order
+    (minx/maxx/miny/maxy); pass wsen=True to interpret them in W/S/E/N order
+    (minx/miny/maxx/maxy). Either way, a (minx, miny, maxx, maxy) tuple is returned.
     """
     parts = value.split("/")
     if len(parts) == 4:
         try:
-            return tuple(float(p) for p in parts)
+            nums = [float(p) for p in parts]
+            if wsen:
+                # W/S/E/N → minx, miny, maxx, maxy
+                minx, miny, maxx, maxy = nums
+            else:
+                # W/E/S/N → minx, maxx, miny, maxy
+                minx, maxx, miny, maxy = nums
+            return (minx, miny, maxx, maxy)
         except ValueError:
             pass
 
     if not os.path.exists(value):
         raise click.ClickException(
             f"Invalid --exclude value '{value}': not a 4-value bounding box "
-            "(minx/miny/maxx/maxy) and not an existing file path.",
+            "and not an existing file path.",
         )
     ext = os.path.splitext(value)[1].lower()
     if ext not in _EXCLUDE_VECTOR_EXTENSIONS:
@@ -1418,8 +1428,18 @@ def _run_validate(
     help=(
         "Exclude ICESat-2 photons falling within a zone before validation. Repeatable "
         "(use multiple times to combine zones). Each use takes either a 4-value "
-        "slash-separated bounding box in the DEM's own projection (minx/miny/maxx/maxy), "
-        "or a path to a vector file (.shp, .geojson, .gpkg) containing exclusion polygon(s)."
+        "slash-separated bounding box in the DEM's own projection (W/E/S/N order, "
+        "minx/maxx/miny/maxy; use --wsen for W/S/E/N order), or a path to a vector "
+        "file (.shp, .geojson, .gpkg) containing exclusion polygon(s)."
+    ),
+)
+@click.option(
+    "--wsen",
+    is_flag=True,
+    default=False,
+    help=(
+        "Treat -ex/--exclude bounding boxes as W/S/E/N order (minx/miny/maxx/maxy). "
+        "Default order is W/E/S/N (minx/maxx/miny/maxy)."
     ),
 )
 def validate(
@@ -1440,6 +1460,7 @@ def validate(
     export_formats,
     overwrite,
     exclude,
+    wsen,
 ):
     """Validate one or more DEMs against ICESat-2 photon data.
 
@@ -1476,7 +1497,9 @@ def validate(
         )
 
     exclude_zones = (
-        [_parse_exclude_spec(value) for value in exclude] if exclude else None
+        [_parse_exclude_spec(value, wsen=wsen) for value in exclude]
+        if exclude
+        else None
     )
 
     _run_validate(
