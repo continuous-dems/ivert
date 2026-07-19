@@ -258,12 +258,18 @@ class _OptionsGroup(click.Group):
 
     def parse_args(self, ctx, args):
         if args and not args[0].startswith("-") and "=" in args[0]:
+            # Flag this as a bare key=value assignment (not a subcommand) so
+            # invoke() routes it to the group callback rather than a subcommand.
+            ctx.meta["options_passthrough"] = True
             ctx.args = list(args)
             return []
         return super().parse_args(ctx, args)
 
     def invoke(self, ctx):
-        if ctx.args:
+        # Only a key=value passthrough runs the group callback directly. A real
+        # subcommand (e.g. "info <name>") also populates ctx.args with its
+        # positional arguments, so those must route through normal dispatch.
+        if ctx.meta.get("options_passthrough"):
             click.Command.invoke(self, ctx)
             return
         super().invoke(ctx)
@@ -326,9 +332,16 @@ def _options_set_values(assignments):
 
 
 @options.command("list")
-def options_list():
+@click.option(
+    "-d",
+    "--details",
+    is_flag=True,
+    default=False,
+    help="Show a description of what each setting means.",
+)
+def options_list(details):
     """List all configurable settings and their current values."""
-    from ivert.utils.configfile import Config
+    from ivert.utils.configfile import Config, parse_option_descriptions
 
     config = Config()
     keys = [
@@ -339,26 +352,92 @@ def options_list():
         click.echo("No configurable settings found.")
         return
 
-    col_w = max(len(k) for k in keys)
-    header = click.style(f"{'Setting':<{col_w}}", bold=True)
-    click.echo(f"\n  {header}  Value")
-    click.echo("  " + "-" * (col_w + 2 + 56))
+    descriptions = parse_option_descriptions() if details else {}
 
-    for key in keys:
-        value = str(getattr(config, key, ""))
-        is_user = key in config._user_set_keys
-        colored_key = click.style(f"{key:<{col_w}}", fg="cyan")
-        source = (
-            click.style("[user]", fg="yellow")
-            if is_user
-            else click.style("[default]", fg="bright_black")
-        )
-        click.echo(f"  {colored_key}  {value:<52}  {source}")
+    if details:
+        click.echo("")
+        for key in keys:
+            value = str(getattr(config, key, ""))
+            is_user = key in config._user_set_keys
+            source = (
+                click.style("[user]", fg="yellow")
+                if is_user
+                else click.style("[default]", fg="bright_black")
+            )
+            click.echo(
+                f"  {click.style(key, fg='cyan', bold=True)}  = {value}  {source}",
+            )
+            desc = descriptions.get(key)
+            if desc:
+                for line in desc.splitlines():
+                    click.echo(f"      {line}")
+            else:
+                click.echo(
+                    click.style("      (no description available)", fg="bright_black"),
+                )
+            click.echo("")
+    else:
+        col_w = max(len(k) for k in keys)
+        header = click.style(f"{'Setting':<{col_w}}", bold=True)
+        click.echo(f"\n  {header}  Value")
+        click.echo("  " + "-" * (col_w + 2 + 56))
+
+        for key in keys:
+            value = str(getattr(config, key, ""))
+            is_user = key in config._user_set_keys
+            colored_key = click.style(f"{key:<{col_w}}", fg="cyan")
+            source = (
+                click.style("[user]", fg="yellow")
+                if is_user
+                else click.style("[default]", fg="bright_black")
+            )
+            click.echo(f"  {colored_key}  {value:<52}  {source}")
 
     click.echo(
         "\n  To change a setting:  ivert options option_name=new_value"
-        "\n  Add quotes around values containing spaces or special characters.",
+        "\n  Add quotes around values containing spaces or special characters."
+        "\n  For a description of each setting:  ivert options list --details"
+        "\n  For one setting:  ivert options info <option_name>",
     )
+
+
+@options.command("info")
+@click.argument("option_name")
+def options_info(option_name):
+    """Show a description of a single setting, its current value, and default."""
+    from ivert.utils.configfile import Config, parse_option_descriptions
+
+    config = Config()
+    key = option_name.strip().lower()
+
+    if key in _OPTIONS_EXCLUDED_KEYS or key not in config._config["DEFAULT"]:
+        raise click.UsageError(
+            f"Unknown setting '{option_name}'. "
+            "Run 'ivert options list' to see valid settings.",
+        )
+
+    value = str(getattr(config, key, ""))
+    default_value = config._config["DEFAULT"].get(key, "")
+    is_user = key in config._user_set_keys
+    descriptions = parse_option_descriptions()
+
+    click.echo("")
+    click.echo(f"  {click.style(key, fg='cyan', bold=True)}")
+    desc = descriptions.get(key)
+    if desc:
+        for line in desc.splitlines():
+            click.echo(f"      {line}")
+    else:
+        click.echo(
+            click.style("      (no description available)", fg="bright_black"),
+        )
+
+    click.echo("")
+    source = "user-set" if is_user else "default"
+    click.echo(f"  Current value: {value}  ({source})")
+    if is_user:
+        click.echo(f"  IVERT default: {default_value}")
+    click.echo(f"\n  To change it:  ivert options {key}=<new_value>")
 
 
 @options.command("reset")
