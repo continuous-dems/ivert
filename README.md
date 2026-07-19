@@ -5,14 +5,7 @@ IVERT validates Digital Elevation Models (DEMs) by comparing their elevations ag
 
 Developed by the [CIRES Coastal DEM Team](https://ciresdem.github.io). Primary authors: [Mike MacFerrin](https://github.com/mmacferrin) (IVERT) and [Matthew Love](https://github.com/matth-love) ([continuous-dems](https://github.com/continuous-dems) utilities).
 
-> **Note:** This repository will soon be ported over to the [continuous-dems](https://github.com/continuous-dems) ecosystem.
-
 ---
-
-(TODO: Add some pretty pictures here)
-
----
-
 ## Capabilities
 
 - Validate topographic, bathymetric, and coastal DEMs against ICESat-2 ATL03/ATL24 photons
