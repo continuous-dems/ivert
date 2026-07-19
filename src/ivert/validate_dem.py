@@ -486,6 +486,7 @@ def validate_dem(
     location_name: str | None = None,
     mark_empty_results: bool = True,
     measure_coverage: bool = False,
+    min_coverage_pct: float | None = None,
     max_photons_per_cell: int | None = None,
     numprocs: int = parallel_funcs.physical_cpu_count(),
     max_subdivides: int = 4,
@@ -527,6 +528,10 @@ def validate_dem(
         location_name (str): Name of the location being validated.
         mark_empty_results (bool): Mark results that are empty in an "_EMPTY.txt" file.
         measure_coverage (bool): Measure the coverage of ICESat-2 photons within each grid-cell.
+        min_coverage_pct (float): If set, drop grid cells whose measured coverage is below this
+            percentage (0-100) from the validation results, stats, and plots. Requires
+            measure_coverage=True (coverage must be measured to filter on it). Defaults to None
+            (no coverage filtering).
         max_photons_per_cell (int): Maximum number of photons per cell.
         numprocs (int): Number of processes to use for parallelized validation.
         max_subdivides (int): Maximum number of times to subdivide the DEM in quarters before giving up.
@@ -570,6 +575,7 @@ def validate_dem(
         "location_name": location_name,
         "mark_empty_results": mark_empty_results,
         "measure_coverage": measure_coverage,
+        "min_coverage_pct": min_coverage_pct,
         "max_photons_per_cell": max_photons_per_cell,
         "numprocs": numprocs,
         "min_confidence_level": min_confidence_level,
@@ -666,6 +672,7 @@ def validate_dem(
                 location_name=location_name,
                 mark_empty_results=mark_empty_results,
                 measure_coverage=measure_coverage,
+                min_coverage_pct=min_coverage_pct,
                 max_photons_per_cell=max_photons_per_cell,
                 numprocs=numprocs,
                 min_confidence_level=min_confidence_level,
@@ -1657,6 +1664,7 @@ def _write_validation_outputs(
     verbose,
     files_to_export,
     export_error_formats=None,
+    min_coverage_pct=None,
 ):
     """Concatenate results, filter outliers, and write all output files.
 
@@ -1671,6 +1679,20 @@ def _write_validation_outputs(
         & (~numpy.isnan(results_dataframe["mean"]))
         & (results_dataframe["numphotons_intd"] >= 3)
     ].copy()
+
+    # Drop cells below the requested minimum ICESat-2 coverage. Coverage is a
+    # per-cell property, so filtering here (per subset, before any outlier removal)
+    # gives the same result as filtering the merged dataframe.
+    if min_coverage_pct is not None and "coverage_frac" in results_dataframe.columns:
+        n_before = len(results_dataframe)
+        results_dataframe = results_dataframe[
+            results_dataframe["coverage_frac"] >= (min_coverage_pct / 100.0)
+        ].copy()
+        if verbose:
+            print(
+                f"{len(results_dataframe):,} of {n_before:,} DEM cells remain after applying the "
+                f"{min_coverage_pct:g}% minimum-coverage filter.",
+            )
 
     if verbose:
         print(
@@ -1788,6 +1810,7 @@ def validate_dem_parallel(
     mark_empty_results: bool = True,
     omit_bboxes: None | list[float] | tuple[float] = None,
     measure_coverage: bool = False,
+    min_coverage_pct: float | None = None,
     max_photons_per_cell: int | None = None,
     numprocs: int = parallel_funcs.physical_cpu_count(),
     min_confidence_level: int = 4,
@@ -1953,7 +1976,31 @@ def validate_dem_parallel(
         verbose,
         files_to_export,
         export_error_formats=export_error_formats,
+        min_coverage_pct=min_coverage_pct,
     )
+
+
+def _format_stat(value) -> str:
+    """Format a float for the summary stats file with reasonable precision.
+
+    Uses 2 decimal places, unless the magnitude is below 0.10 (but non-zero), in
+    which case it uses enough decimal places to show at least 2 significant digits.
+
+    Args:
+        value: the number to format.
+
+    Returns:
+        A string representation of the number.
+
+    """
+    x = float(value)
+    if not numpy.isfinite(x):
+        return str(x)
+    if x != 0 and abs(x) < 0.10:
+        # Enough decimals to show 2 significant digits for small magnitudes.
+        decimals = 1 - int(numpy.floor(numpy.log10(abs(x))))
+        return f"{x:.{decimals}f}"
+    return f"{x:.2f}"
 
 
 def write_summary_stats_file(
@@ -1994,24 +2041,18 @@ def write_summary_stats_file(
     )
     lines.append(
         "Mean number of photons used to validate each cell (photons): {0}".format(
-            results_df["numphotons_intd"].mean(),
+            _format_stat(results_df["numphotons_intd"].mean()),
         ),
     )
 
     mean_diff = results_df["diff_mean"]
 
-    lines.append(f"Mean bias error (DEM - ICESat-2) (m): {mean_diff.mean()}")
     lines.append(
-        f"RMSE (m): {numpy.sqrt(numpy.mean(numpy.power(mean_diff, 2)))}",
+        f"Mean bias error (DEM - ICESat-2) (m): {_format_stat(mean_diff.mean())}",
     )
     lines.append(
-        "== Decile ranges of errors (DEM - ICESat-2) (m) (Look for long-tails, indicating possible artifacts.) ===",
+        f"RMSE (m): {_format_stat(numpy.sqrt(numpy.mean(numpy.power(mean_diff, 2))))}",
     )
-
-    percentile_levels = [0, 1, 5, 10, 20, 30, 40, 50, 60, 70, 80, 90, 95, 99, 100]
-    percentile_values = numpy.percentile(mean_diff, percentile_levels)
-    for level, v in zip(percentile_levels, percentile_values):
-        lines.append(f"    {level:>3d} percentile error level (m): {v}")
 
     lines.append(
         "Number of cells with bathymetry photons: {0:d}".format(
@@ -2024,9 +2065,38 @@ def write_summary_stats_file(
     # lines.append("Mean canopy cover in 'wooded' cells containing >0 canopy (% cover): {0}".format(results_df[results_df["canopy_fraction"] > 0]["canopy_fraction"].mean()*100))
     lines.append(
         "Mean roughness (stddev. of photon elevations within each cell (m)): {0}".format(
-            results_df["stddev"].mean(),
+            _format_stat(results_df["stddev"].mean()),
         ),
     )
+
+    lines.append(
+        "== Decile ranges of errors (DEM - ICESat-2) (m) (Look for long-tails, indicating possible artifacts.) ===",
+    )
+
+    percentile_levels = [0, 1, 5, 10, 20, 30, 40, 50, 60, 70, 80, 90, 95, 99, 100]
+    percentile_values = numpy.percentile(mean_diff, percentile_levels)
+    for level, v in zip(percentile_levels, percentile_values):
+        lines.append(f"    {level:>3d} percentile error level (m): {_format_stat(v)}")
+
+    if "coverage_frac" in results_df.columns:
+        # Rank cells by ICESat-2 coverage and report the RMSE of the best-covered
+        # subsets. This shows how coverage (and thus sampling bias) affects the
+        # reported DEM accuracy: each line keeps only the cells whose coverage is at
+        # or above a decile threshold, from all cells (100%) to the best-covered 10%.
+        coverage_frac = results_df["coverage_frac"]
+        lines.append(
+            "== RMSE by ICESat-2 coverage decile "
+            "(how coverage/sampling bias affects reported accuracy) ===",
+        )
+        for pct_of_cells in range(100, 0, -10):
+            # The coverage threshold that retains this fraction of the best-covered cells.
+            coverage_threshold = numpy.percentile(coverage_frac, 100 - pct_of_cells)
+            mask = coverage_frac >= coverage_threshold
+            subset_diff = mean_diff[mask]
+            rmse = numpy.sqrt(numpy.mean(numpy.power(subset_diff, 2)))
+            lines.append(
+                f"    RMSE for grid cells with >{coverage_threshold * 100:0.1f}% coverage ({pct_of_cells:d}% of cells) (m): {_format_stat(rmse)}",
+            )
 
     out_text = "\n".join(lines)
     with open(statsfile_name, "w", encoding="utf-8") as outf:
@@ -2313,6 +2383,14 @@ def export_error_results(
     help="Measure the coverage %age of icesat-2 data in each of the output DEM cells.",
 )
 @click.option(
+    "--minimum_coverage_pct",
+    "-mcp",
+    type=float,
+    default=None,
+    help="Only validate DEM grid cells whose measured coverage is at or above this "
+    "percentage (0-100). Requires the -mc/--measure_coverage flag.",
+)
+@click.option(
     "--outlier_sd_threshold",
     default="2.5",
     help="Number of standard-deviations away from the mean to omit outliers. Default 2.5 (standard deviations). Choose 'None' if no outlier filtering is requested.",
@@ -2346,6 +2424,7 @@ def main(
     numprocs,
     delete_datafiles,
     measure_coverage,
+    minimum_coverage_pct,
     outlier_sd_threshold,
     plot_results,
     overwrite,
@@ -2356,6 +2435,12 @@ def main(
     INPUT_DEM is the input DEM. OUTPUT_DIR is the directory to write output
     results; defaults to the same directory as the input filename.
     """
+    if minimum_coverage_pct is not None and not measure_coverage:
+        raise click.UsageError(
+            "--minimum_coverage_pct requires the -mc/--measure_coverage flag "
+            "(coverage must be measured before it can be filtered on).",
+        )
+
     # The output directory defaults to the input directory.
     if not output_dir:
         output_dir = os.path.dirname(input_dem)
@@ -2389,6 +2474,7 @@ def main(
         location_name=place_name,
         outliers_sd_threshold=ast.literal_eval(outlier_sd_threshold),
         measure_coverage=measure_coverage,
+        min_coverage_pct=minimum_coverage_pct,
         numprocs=numprocs,
         band_num=band_num,
         verbose=not quiet,
