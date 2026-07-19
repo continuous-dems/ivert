@@ -1104,6 +1104,7 @@ def _run_validate(
     export_formats=None,
     overwrite=False,
     exclude_zones=None,
+    minimum_coverage_pct=None,
 ):
     """Branch to validate_dem or validate_list_of_dems based on the number of input files."""
     verbose = logging.getLogger().level <= logging.INFO
@@ -1184,6 +1185,7 @@ def _run_validate(
             include_photon_level_validation=include_photons,
             location_name=region_name,
             measure_coverage=measure_coverage,
+            min_coverage_pct=minimum_coverage_pct,
             min_confidence_level=confidence_level,
             min_bathy_confidence=bathy_confidence,
             verbose=verbose,
@@ -1218,6 +1220,7 @@ def _run_validate(
             place_name=region_name,
             include_photon_validation=include_photons,
             measure_coverage=measure_coverage,
+            min_coverage_pct=minimum_coverage_pct,
             outliers_sd_threshold=outlier_sd_threshold,
             min_confidence_level=confidence_level,
             min_bathy_confidence=bathy_confidence,
@@ -1291,6 +1294,18 @@ def _run_validate(
         "Measure relative photon coverage per grid cell (fraction of 15x15 "
         "sub-regions containing photons). Useful for post-processing "
         "coarse-resolution DEMs where sampling bias may matter."
+    ),
+)
+@click.option(
+    "-mcp",
+    "--minimum-coverage-pct",
+    "minimum_coverage_pct",
+    type=click.FloatRange(0, 100),
+    default=None,
+    help=(
+        "Only validate grid cells whose measured coverage is at or above this "
+        "percentage (0-100); lower-coverage cells are dropped from the results, "
+        "statistics, and plots. Requires the -mc/--measure-coverage flag."
     ),
 )
 @click.option(
@@ -1414,6 +1429,7 @@ def validate(
     region_name,
     include_photons,
     measure_coverage,
+    minimum_coverage_pct,
     band_num,
     outlier_sd_threshold,
     buildings,
@@ -1453,6 +1469,12 @@ def validate(
     if not files_or_directory:
         raise click.UsageError("Missing argument 'FILES_OR_DIRECTORY'.")
 
+    if minimum_coverage_pct is not None and not measure_coverage:
+        raise click.UsageError(
+            "--minimum-coverage-pct requires the -mc/--measure-coverage flag "
+            "(coverage must be measured before it can be filtered on).",
+        )
+
     exclude_zones = (
         [_parse_exclude_spec(value) for value in exclude] if exclude else None
     )
@@ -1473,6 +1495,7 @@ def validate(
         export_formats=export_formats,
         overwrite=overwrite,
         exclude_zones=exclude_zones,
+        minimum_coverage_pct=minimum_coverage_pct,
     )
 
 

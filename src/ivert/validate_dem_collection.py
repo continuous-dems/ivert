@@ -104,6 +104,7 @@ def validate_list_of_dems(
     include_photon_validation: bool = True,
     write_summary_csv: bool = True,
     measure_coverage: bool = False,
+    min_coverage_pct: float | None = None,
     outliers_sd_threshold: float = 2.5,
     min_confidence_level: int = 1,
     min_bathy_confidence: float = 0.75,
@@ -342,6 +343,7 @@ def validate_list_of_dems(
                 outliers_sd_threshold=outliers_sd_threshold,
                 mark_empty_results=True,
                 measure_coverage=measure_coverage,
+                min_coverage_pct=min_coverage_pct,
                 min_confidence_level=min_confidence_level,
                 min_bathy_confidence=min_bathy_confidence,
                 export_error_formats=export_error_formats,
@@ -546,6 +548,14 @@ def validate_list_of_dems(
     help="Measure the coverage %age of icesat-2 data in each of the output DEM cells.",
 )
 @click.option(
+    "--minimum_coverage_pct",
+    "-mcp",
+    type=float,
+    default=None,
+    help="Only validate DEM grid cells whose measured coverage is at or above this "
+    "percentage (0-100). Requires the -mc/--measure_coverage flag.",
+)
+@click.option(
     "-wsc",
     "--write_summary_csv",
     type=yes_no.interpret_yes_no,
@@ -567,6 +577,7 @@ def main(
     delete_datafiles,
     outlier_sd_threshold,
     measure_coverage,
+    minimum_coverage_pct,
     write_summary_csv,
     quiet,
 ):
@@ -574,6 +585,12 @@ def main(
 
     DIRECTORY_OR_FILES is a directory path, or a list of individual DEM tiles.
     """
+    if minimum_coverage_pct is not None and not measure_coverage:
+        raise click.UsageError(
+            "--minimum_coverage_pct requires the -mc/--measure_coverage flag "
+            "(coverage must be measured before it can be filtered on).",
+        )
+
     directory_or_files = list(directory_or_files)
 
     if output_dir is None:
@@ -628,6 +645,7 @@ def main(
         # mask_out_lakes=mask_lakes,
         # omit_bad_granules=True,
         measure_coverage=measure_coverage,
+        min_coverage_pct=minimum_coverage_pct,
         write_summary_csv=write_summary_csv,
         outliers_sd_threshold=ast.literal_eval(outlier_sd_threshold),
         verbose=not quiet,
