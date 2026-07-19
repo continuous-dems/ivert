@@ -12,6 +12,13 @@ ivert_default_configfile = str(
 
 ivert_config = None
 
+# Keys whose values are intentionally kept as relative paths rather than being
+# resolved to an absolute path against the configfile's location. These are
+# resolved later against a different base directory (e.g. the DEM being
+# validated), so both the attribute and "ivert options list" must show the
+# original relative string.
+_RELATIVE_PATH_KEYS = frozenset({"ivert_results_subdir"})
+
 
 def _is_absolute_path(value):
     """Return True if 'value' is an absolute filesystem path on any platform.
@@ -184,7 +191,12 @@ class Config:
         # If this is the case, return the absolute path of that file/directory *relative* to the current directory the
         # Config.ini file is contained.
         try:
-            if key[:3].lower() == "s3_":
+            if key.lower() in _RELATIVE_PATH_KEYS:
+                # This path is resolved later against a different base directory
+                # (not the configfile's location), so keep it relative as-is.
+                pass
+
+            elif key[:3].lower() == "s3_":
                 # This is an S3 key-path. Do not convert it to an absolute path.
                 pass
 
