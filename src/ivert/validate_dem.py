@@ -2053,14 +2053,6 @@ def write_summary_stats_file(
     lines.append(
         f"RMSE (m): {_format_stat(numpy.sqrt(numpy.mean(numpy.power(mean_diff, 2))))}",
     )
-    lines.append(
-        "== Decile ranges of errors (DEM - ICESat-2) (m) (Look for long-tails, indicating possible artifacts.) ===",
-    )
-
-    percentile_levels = [0, 1, 5, 10, 20, 30, 40, 50, 60, 70, 80, 90, 95, 99, 100]
-    percentile_values = numpy.percentile(mean_diff, percentile_levels)
-    for level, v in zip(percentile_levels, percentile_values):
-        lines.append(f"    {level:>3d} percentile error level (m): {_format_stat(v)}")
 
     lines.append(
         "Number of cells with bathymetry photons: {0:d}".format(
@@ -2076,6 +2068,15 @@ def write_summary_stats_file(
             _format_stat(results_df["stddev"].mean()),
         ),
     )
+
+    lines.append(
+        "== Decile ranges of errors (DEM - ICESat-2) (m) (Look for long-tails, indicating possible artifacts.) ===",
+    )
+
+    percentile_levels = [0, 1, 5, 10, 20, 30, 40, 50, 60, 70, 80, 90, 95, 99, 100]
+    percentile_values = numpy.percentile(mean_diff, percentile_levels)
+    for level, v in zip(percentile_levels, percentile_values):
+        lines.append(f"    {level:>3d} percentile error level (m): {_format_stat(v)}")
 
     if "coverage_frac" in results_df.columns:
         # Rank cells by ICESat-2 coverage and report the RMSE of the best-covered
