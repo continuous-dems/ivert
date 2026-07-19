@@ -102,7 +102,6 @@ def validate_list_of_dems(
     create_individual_results: bool = True,
     delete_datafiles: bool = False,
     include_photon_validation: bool = True,
-    write_result_tifs: bool = False,
     write_summary_csv: bool = True,
     measure_coverage: bool = False,
     outliers_sd_threshold: float = 2.5,
@@ -337,7 +336,6 @@ def validate_list_of_dems(
                 interim_data_dir=this_output_dir,
                 overwrite=overwrite,
                 delete_datafiles=delete_datafiles,
-                write_result_tifs=write_result_tifs,
                 write_summary_stats=create_individual_results,
                 include_photon_level_validation=include_photon_validation,
                 plot_results=create_individual_results,
@@ -548,14 +546,6 @@ def validate_list_of_dems(
     help="Measure the coverage %age of icesat-2 data in each of the output DEM cells.",
 )
 @click.option(
-    "-wrt",
-    "--write_result_tifs",
-    type=yes_no.interpret_yes_no,
-    default=True,
-    help="Write output geotiff with the errors in cells that have ICESat-2 photons, "
-    "NDVs elsewhere. Default: True",
-)
-@click.option(
     "-wsc",
     "--write_summary_csv",
     type=yes_no.interpret_yes_no,
@@ -577,7 +567,6 @@ def main(
     delete_datafiles,
     outlier_sd_threshold,
     measure_coverage,
-    write_result_tifs,
     write_summary_csv,
     quiet,
 ):
@@ -633,7 +622,6 @@ def main(
         create_individual_results=individual_results,
         delete_datafiles=delete_datafiles,
         include_photon_validation=include_photon_validation,
-        write_result_tifs=write_result_tifs,
         # mask_osm_buildings=mask_osm_buildings,
         # mask_bing_buildings=mask_bing_buildings,
         # mask_wsf_urban=mask_wsf_urban,

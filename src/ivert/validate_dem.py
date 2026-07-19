@@ -479,7 +479,6 @@ def validate_dem(
     interim_data_dir: str | None = None,
     overwrite: bool = False,
     delete_datafiles: bool = False,
-    write_result_tifs: bool = True,
     write_summary_stats: bool = True,
     outliers_sd_threshold: float | None = 2.5,
     include_photon_level_validation: bool = False,
@@ -521,7 +520,6 @@ def validate_dem(
         interim_data_dir (str): Output directory for intermediate data. Defaults to the same as the output_dir.
         overwrite (bool): Overwrite existing files.
         delete_datafiles (bool): Delete intermediate data files after validation is complete.
-        write_result_tifs (bool): Write result geotifs with ICESat-2 derived errors.
         write_summary_stats (bool): Write summary statistics of results to a textfile.
         outliers_sd_threshold (float): Threshold for outlier detection in errors. Defaults to 2.5.
         include_photon_level_validation (bool): Include photon level validation (not just cell-level validation).
@@ -565,7 +563,6 @@ def validate_dem(
         "delete_datafiles": delete_datafiles,
         "dates": dates,
         "classes": classes,
-        "write_result_tifs": write_result_tifs,
         "write_summary_stats": write_summary_stats,
         "outliers_sd_threshold": outliers_sd_threshold,
         "include_photon_level_validation": include_photon_level_validation,
@@ -661,8 +658,8 @@ def validate_dem(
                 delete_datafiles=delete_datafiles,
                 dates=dates,
                 classes=classes,
-                write_result_tifs=False,  # No need to write the results tifs for subsets.
                 write_summary_stats=False,  # No need to write the summary stats file for subsets.
+                export_error_formats=[],  # No need to export per-subset error files; done once after merge.
                 outliers_sd_threshold=None,  # Don't filter outliers until we get all the results back.
                 include_photon_level_validation=include_photon_level_validation,
                 plot_results=False,  # Don't bother plotting the sub-results.
@@ -744,27 +741,28 @@ def validate_dem(
             if verbose:
                 print(os.path.basename(output_fname), "written and exported.")
 
-        # Second, create the results geotiff from the dataframe.
+        # Second, export the per-cell errors from the merged dataframe.
+        if export_error_formats is None:
+            export_error_formats = ivert_config.export_error_formats
         if (
-            write_result_tifs
+            export_error_formats
             and (shared_results_df is not None)
             and subdivision_number == 0
         ):
-            common_key = "result_tif_filename"
-            output_fname = os.path.join(
+            merged_results_file = os.path.join(
                 output_dir,
-                os.path.splitext(os.path.basename(dem_name))[0]
-                + "_ICESat2_error_raster.tif",
+                os.path.splitext(os.path.basename(dem_name))[0] + "_results.h5",
             )
             with rasterio.open(dem_name) as dem_ds_tmp:
-                generate_result_geotiff(
+                exported = export_error_results(
                     shared_results_df,
                     dem_ds_tmp,
-                    output_fname,
+                    merged_results_file,
+                    export_error_formats,
                     verbose=verbose,
                 )
 
-            shared_ret_values[common_key] = output_fname
+            shared_ret_values["error_export_files"] = exported
 
         # If we're doing an empty results file, create one in the output directory if no results were returned.
         if (
@@ -865,14 +863,13 @@ def _setup_output_paths(
     interim_data_dir,
     mark_empty_results,
     write_summary_stats,
-    write_result_tifs,
     plot_results,
     verbose,
 ):
     """Create output directories and derive all output filenames.
 
     Returns (output_dir, interim_data_dir, results_dataframe_file,
-             empty_results_filename, summary_stats_filename, result_tif_filename, plot_filename).
+             empty_results_filename, summary_stats_filename, plot_filename).
     """
     if not output_dir:
         output_dir = os.path.dirname(os.path.abspath(dem_name))
@@ -906,14 +903,6 @@ def _setup_output_paths(
             results_dataframe_file,
         )
 
-    result_tif_filename = ""
-    if write_result_tifs:
-        result_tif_filename = re.sub(
-            r"_results\.h5\Z",
-            "_ICESat2_error_raster.tif",
-            results_dataframe_file,
-        )
-
     plot_filename = ""
     if plot_results:
         plot_filename = re.sub(r"_results\.h5\Z", "_plot.png", results_dataframe_file)
@@ -924,7 +913,6 @@ def _setup_output_paths(
         results_dataframe_file,
         empty_results_filename,
         summary_stats_filename,
-        result_tif_filename,
         plot_filename,
     )
 
@@ -934,10 +922,8 @@ def _check_existing_outputs(
     results_dataframe_file,
     empty_results_filename,
     summary_stats_filename,
-    result_tif_filename,
     plot_filename,
     write_summary_stats,
-    write_result_tifs,
     plot_results,
     location_name,
     overwrite,
@@ -959,7 +945,6 @@ def _check_existing_outputs(
         for fn in (
             results_dataframe_file,
             summary_stats_filename,
-            result_tif_filename,
             plot_filename,
         ):
             if fn and os.path.exists(fn):
@@ -1000,24 +985,6 @@ def _check_existing_outputs(
                 )
             files_to_export.append(summary_stats_filename)
             shared_ret_values["summary_stats_filename"] = summary_stats_filename
-
-        if write_result_tifs:
-            if not os.path.exists(result_tif_filename):
-                dem_ds_tmp = rasterio.open(dem_name)
-                if results_dataframe is None:
-                    if verbose:
-                        print("Reading", results_dataframe_file, "...", end="")
-                    results_dataframe = read_dataframe_file(results_dataframe_file)
-                    if verbose:
-                        print("done.")
-                generate_result_geotiff(
-                    results_dataframe,
-                    dem_ds_tmp,
-                    result_tif_filename,
-                    verbose=verbose,
-                )
-            files_to_export.append(result_tif_filename)
-            shared_ret_values["result_tif_filename"] = result_tif_filename
 
         if export_error_formats:
             export_files = _error_export_filenames(
@@ -1680,10 +1647,8 @@ def _write_validation_outputs(
     results_dataframe_file,
     empty_results_filename,
     summary_stats_filename,
-    result_tif_filename,
     plot_filename,
     write_summary_stats,
-    write_result_tifs,
     plot_results,
     location_name,
     outliers_sd_threshold,
@@ -1770,18 +1735,6 @@ def _write_validation_outputs(
         files_to_export.append(summary_stats_filename)
         shared_ret_values["summary_stats_filename"] = summary_stats_filename
 
-    if write_result_tifs:
-        if dem_ds is None:
-            dem_ds = rasterio.open(dem_name)
-        generate_result_geotiff(
-            results_dataframe,
-            dem_ds,
-            result_tif_filename,
-            verbose=verbose,
-        )
-        files_to_export.append(result_tif_filename)
-        shared_ret_values["result_tif_filename"] = result_tif_filename
-
     if export_error_formats is None:
         export_error_formats = ivert_config.export_error_formats
     if export_error_formats:
@@ -1827,7 +1780,6 @@ def validate_dem_parallel(
     interim_data_dir: str | None = None,
     overwrite: bool = False,
     delete_datafiles: bool = False,
-    write_result_tifs: bool = True,
     write_summary_stats: bool = True,
     outliers_sd_threshold: float = 2.5,
     include_photon_level_validation: bool = False,
@@ -1860,7 +1812,6 @@ def validate_dem_parallel(
         results_dataframe_file,
         empty_results_filename,
         summary_stats_filename,
-        result_tif_filename,
         plot_filename,
     ) = _setup_output_paths(
         dem_name,
@@ -1868,7 +1819,6 @@ def validate_dem_parallel(
         interim_data_dir,
         mark_empty_results,
         write_summary_stats,
-        write_result_tifs,
         plot_results,
         verbose,
     )
@@ -1878,10 +1828,8 @@ def validate_dem_parallel(
         results_dataframe_file,
         empty_results_filename,
         summary_stats_filename,
-        result_tif_filename,
         plot_filename,
         write_summary_stats,
-        write_result_tifs,
         plot_results,
         location_name,
         overwrite,
@@ -1995,10 +1943,8 @@ def validate_dem_parallel(
         results_dataframe_file,
         empty_results_filename,
         summary_stats_filename,
-        result_tif_filename,
         plot_filename,
         write_summary_stats,
-        write_result_tifs,
         plot_results,
         location_name,
         outliers_sd_threshold,
@@ -2367,12 +2313,6 @@ def export_error_results(
     help="Measure the coverage %age of icesat-2 data in each of the output DEM cells.",
 )
 @click.option(
-    "--write_result_tifs",
-    is_flag=True,
-    default=False,
-    help="Write output geotiff with the errors in cells that have ICESat-2 photons, NDVs elsewhere.",
-)
-@click.option(
     "--outlier_sd_threshold",
     default="2.5",
     help="Number of standard-deviations away from the mean to omit outliers. Default 2.5 (standard deviations). Choose 'None' if no outlier filtering is requested.",
@@ -2406,7 +2346,6 @@ def main(
     numprocs,
     delete_datafiles,
     measure_coverage,
-    write_result_tifs,
     outlier_sd_threshold,
     plot_results,
     overwrite,
@@ -2446,7 +2385,6 @@ def main(
         interim_data_dir=(None if not datadir else datadir),
         overwrite=overwrite,
         delete_datafiles=delete_datafiles,
-        write_result_tifs=write_result_tifs,
         plot_results=plot_results,
         location_name=place_name,
         outliers_sd_threshold=ast.literal_eval(outlier_sd_threshold),
