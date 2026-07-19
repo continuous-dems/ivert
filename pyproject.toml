@@ -36,6 +36,7 @@ dependencies = [
     "scipy",
     "shapely",
     "six",
+    "tables",
     "tabulate",
     "xarray",
     "fetchez",
