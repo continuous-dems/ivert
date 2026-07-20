@@ -37,18 +37,6 @@ import pandas as pd
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
-CLASS_NAMES = {
-    0: "noise",
-    1: "ground",
-    2: "canopy",
-    3: "canopy_top",
-    6: "ice_surface",
-    7: "building",
-    40: "bathy_floor",
-    41: "bathy_surface",
-    42: "inland_water_surface",
-}
-
 SUPPORTED_FORMATS = {
     "gpkg": ("GPKG", ".gpkg"),
     "shp": ("ESRI Shapefile", ".shp"),
@@ -73,6 +61,10 @@ def nc_to_geodataframe(nc_path: str, classes: list = None) -> geopandas.GeoDataF
         If given, keep only photons whose class_code is in this list.
 
     """
+    from ivert.photon_classes import class_names as _class_names
+
+    class_names = _class_names()
+
     with netCDF4.Dataset(nc_path) as ds:
 
         def _arr(name):
@@ -104,7 +96,7 @@ def nc_to_geodataframe(nc_path: str, classes: list = None) -> geopandas.GeoDataF
             "z": z,
             "class_code": class_code,
             "class_name": pd.array(
-                [CLASS_NAMES.get(c, f"class_{c}") for c in class_code],
+                [class_names.get(c, f"class_{c}") for c in class_code],
                 dtype="string",
             ),
             "confidence": confidence,

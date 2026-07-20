@@ -10,13 +10,8 @@ If the matching ATL03 .h5 file is available (searched in the same directory and
 in the ivert cache), it splits photons by beam and plots one curtain per beam.
 Without the .h5, all photons are plotted together sorted by latitude.
 
-Class codes (current convention):
-     1 = ground/land
-     2 = canopy
-     3 = canopy top
-     7 = built structure
-    40 = bathy floor (seafloor)
-    41 = bathy surface (water surface)
+Photon class codes and their meanings come from globato's ATL03 reader; run
+'ivert classes' (or see ivert.photon_classes) for the authoritative list.
 """
 
 import glob
@@ -32,20 +27,24 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import netCDF4
 
+from ivert.photon_classes import class_labels
+
 # ---------------------------------------------------------------------------
 # Style
 # ---------------------------------------------------------------------------
+# Visual attributes only; legend labels come from ivert.photon_classes so they
+# stay in sync with the globato classifier.
 CLASS_STYLE = {
-    0: dict(color="grey", label="Noise", zorder=0.5, alpha=0.5, s=1),
-    1: dict(color="saddlebrown", label="Ground", zorder=2, alpha=1.0, s=3),
-    2: dict(color="limegreen", label="Canopy", zorder=1, alpha=0.8, s=2),
-    3: dict(color="forestgreen", label="Canopy Top", zorder=2, alpha=0.9, s=2),
-    7: dict(color="red", label="Built Structure", zorder=2, alpha=0.8, s=2),
-    40: dict(color="darkorange", label="Bathy Floor", zorder=3, alpha=1.0, s=3),
-    41: dict(color="dodgerblue", label="Water Surface", zorder=1, alpha=0.6, s=1),
-    42: dict(color="dodgerblue", label="Inland Water", zorder=1, alpha=0.6, s=1),
+    0: dict(color="grey", zorder=0.5, alpha=0.5, s=1),
+    1: dict(color="saddlebrown", zorder=2, alpha=1.0, s=3),
+    2: dict(color="limegreen", zorder=1, alpha=0.8, s=2),
+    3: dict(color="forestgreen", zorder=2, alpha=0.9, s=2),
+    7: dict(color="red", zorder=2, alpha=0.8, s=2),
+    40: dict(color="darkorange", zorder=3, alpha=1.0, s=3),
+    41: dict(color="dodgerblue", zorder=1, alpha=0.6, s=1),
+    42: dict(color="dodgerblue", zorder=1, alpha=0.6, s=1),
 }
-DEFAULT_STYLE = dict(color="lightgrey", label="Other", zorder=0, alpha=0.3, s=1)
+DEFAULT_STYLE = dict(color="lightgrey", zorder=0, alpha=0.3, s=1)
 
 DEM_COLORS = ["dimgrey", "purple", "darkcyan", "darkmagenta", "darkgoldenrod"]
 
@@ -411,14 +410,16 @@ def plot_beam(
 
     fig, ax = plt.subplots(figsize=(12, 4))
 
+    labels = class_labels()
     for code in np.unique(cc):
         mask = cc == code
         style = CLASS_STYLE.get(int(code), DEFAULT_STYLE)
+        label = labels.get(int(code), "Other")
         ax.scatter(
             along_track[mask],
             z[mask],
             c=style["color"],
-            label=f"{style['label']} (n={mask.sum():,})",
+            label=f"{label} (n={mask.sum():,})",
             zorder=style["zorder"],
             alpha=style["alpha"],
             s=style["s"],

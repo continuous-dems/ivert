@@ -194,6 +194,44 @@ def _setup_earthdata_credentials():
     click.echo(f"Saved NASA Earthdata credentials to {netrc_path}.")
 
 
+@ivert_cli.command("classes")
+def classes():
+    """List the ICESat-2 photon classification codes and their meanings.
+
+    These are the class codes assigned to ICESat-2 photons during
+    classification and used when filtering photons for validation (e.g. the
+    ``--classes`` option of ``ivert database download``). Definitions come from
+    the globato ICESat-2 reader so they always match the classifier.
+    """
+    from ivert.photon_classes import photon_classes
+
+    try:
+        classes_list = photon_classes()
+    except ImportError:
+        raise click.ClickException(
+            "Could not import globato to read photon class definitions. "
+            "Ensure the globato package is installed.",
+        )
+
+    if not classes_list:
+        click.echo("No photon class definitions found.")
+        return
+
+    code_w = max(len("Code"), *(len(str(c)) for c, _ in classes_list))
+    header = click.style(f"{'Code':>{code_w}}  Description", bold=True)
+    click.echo(f"\n  {header}")
+    click.echo("  " + "-" * (code_w + 2 + 40))
+
+    for code, desc in classes_list:
+        colored_code = click.style(f"{code:>{code_w}}", fg="cyan", bold=True)
+        click.echo(f"  {colored_code}  {desc}")
+
+    click.echo(
+        "\n  These codes are used with the --classes option of "
+        "'ivert database download'.",
+    )
+
+
 @ivert_cli.command("setup")
 def setup():
     """Create IVERT's local data directories and check NASA Earthdata credentials.
@@ -760,13 +798,11 @@ def database_size():
 @click.option(
     "-c",
     "--classes",
-    default="1/6/7/9/40/41/42",
+    default="1/6/7/40/41/42/44",
     show_default=True,
     help=(
         "ICESat-2 photon classes to download, slash-separated. "
-        "-1=unclassified, 0=noise, 1=ground, 2=canopy, 3=canopy-top, "
-        "6=land-ice, 7=buildings, 9=inland-water, 40=bathy-floor, "
-        "41=bathy-surface, 42=lake-surface."
+        "Run 'ivert classes' for the full list of codes and their meanings."
     ),
 )
 @click.option(
