@@ -3,36 +3,44 @@
 
 IVERT validates Digital Elevation Models (DEMs) by comparing their elevations against ICESat-2 satellite photon data. It supports topographic, bathymetric, and mixed coastal DEMs, runs fully offline on any machine, and handles vertical datum conversions automatically.
 
-Developed by the [CIRES Coastal DEM Team](https://ciresdem.github.io). Primary authors: [Mike MacFerrin](https://github.com/mmacferrin) (IVERT) and [Matthew Love](https://github.com/matth-love) ([continuous-dems](https://github.com/continuous-dems) utilities).
+Developed by the [continuous-dems team](https://github.com/continuous-dems). Primary authors: [Mike MacFerrin](https://github.com/mmacferrin) (IVERT) and [Matthew Love](https://github.com/matth-love) ([continuous-dems](https://github.com/continuous-dems) utilities).
 
 ---
 ## Capabilities
 
-- Validate topographic, bathymetric, and coastal DEMs against ICESat-2 ATL03/ATL24 photons
-- Combines [ATL03](https://nsidc.org/data/atl03/)/[ATL08](https://nsidc.org/data/atl08/)/[ATL13](https://nsidc.org/data/atl13/)/[ATL24](https://nsidc.org/data/atl24/) for photon-level classifications, plus external datasets (such as the [Global Buildings Atlas](https://tubvsig-so2sat-vm1.srv.mwn.de/)) to classify built structures.
-- Additional coastline filtering to minimize false-positive ATL08 "ground" photons appearing offshore over water, and unreasonably-shallow "bathy floor" photons with large errors over deep water.
-- Automatic vertical datum conversions (NAVD88, EGM2008, MLLW, and many more)
-- Configurable photon confidence and quality filtering
-- Statistical outputs: bias, RMSE, NMAD, per-cell error maps
-- Automatically-generated plots of DEM accuracies compared to ICESat-2.
-- Export errors to GeoTIFF, GeoPackage, Shapefile, or XYZ text
-- Local photon database management — download once, validate many times
-- Export classified photons from the database to GeoPackage, Shapefile, or XYZ text
+- Validate topographic, bathymetric, and mixed coastal DEMs against ICESat-2 photons — a single DEM, or a whole directory/glob of DEMs with combined collection-level summaries.
+- Classifies photons by surface type — ground, canopy, land ice, buildings, seafloor, and water surfaces — by combining multiple ICESat-2 products ([ATL03](https://nsidc.org/data/atl03/), [ATL06](https://nsidc.org/data/atl06/), [ATL08](https://nsidc.org/data/atl08/), [ATL12](https://nsidc.org/data/atl12/), [ATL13](https://nsidc.org/data/atl13/), [ATL24](https://nsidc.org/data/atl24/)) with a Bing-derived building-footprint mask to flag built structures.
+- Coastline/water filtering to minimize false-positive "ground" photons appearing offshore over water and unreasonably-shallow "bathy floor" photons with large errors over deep water.
+- Automatic vertical datum conversion (NAVD88, EGM2008, MLLW, ellipsoid, and many more, by EPSG code or short name) — no manual reprojection needed.
+- Configurable photon filtering at both download and validation: signal confidence, bathymetry confidence, photon class selection, and outlier rejection.
+- Statistical outputs: mean bias, RMSE, standard deviation, a full percentile breakdown of per-cell errors, and optional per-cell photon coverage.
+- Automatically-generated validation plots (per-DEM and collection-wide).
+- Export per-cell errors to GeoTIFF, GeoPackage, Shapefile, or XYZ text.
+- Local, spatially-indexed photon database — download once, validate many times — with commands to list, size, rebuild, and delete cached data.
+- Export classified photons from the database to GeoPackage, Shapefile, or XYZ text.
+- Runs fully offline on any machine, with configurable data directories and per-project config profiles.
 
 ---
 
 ## Installation
 
+Available on [PyPI](https://pypi.org/project/ivert/):
+
 ```bash
 pip install ivert
 ```
-(^ coming soon)
+
+or on [conda-forge](https://anaconda.org/conda-forge/ivert):
+
+```bash
+conda install ivert
+```
 
 For development (editable install from this repo):
 
 ```bash
-git clone https://github.com/ciresdem/IVERT.git
-cd IVERT
+git clone https://github.com/continuous-dems/ivert.git
+cd ivert
 pip install -e .
 ```
 
