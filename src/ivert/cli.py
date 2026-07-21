@@ -976,6 +976,372 @@ def database_download(
     )
 
 
+# Formats offered by 'ivert database export' (a subset of export_vector's
+# SUPPORTED_FORMATS; csv is intentionally omitted in favour of the GIS formats).
+_EXPORT_FORMATS = ("gpkg", "shp", "xyz")
+
+# Wide YYYYMMDD bounds used to select every granule when no date range is given.
+_EXPORT_DATE_MIN = 19000101
+_EXPORT_DATE_MAX = 99991231
+
+# Estimated-photon-count threshold above which 'ivert database export' prompts
+# for confirmation (unless -f/--force is given).
+_EXPORT_WARN_PHOTON_THRESHOLD = 25_000_000
+
+# Vector-file extensions whose extent can define an export region.
+_EXPORT_REGION_VECTOR_EXTENSIONS = (
+    ".shp",
+    ".geojson",
+    ".json",
+    ".gpkg",
+    ".gml",
+    ".kml",
+)
+
+
+def _wgs84_bbox_from_file(path):
+    """Return a WGS84 (xmin, xmax, ymin, ymax) bbox from a raster or polygon-vector file."""
+    ext = os.path.splitext(path)[1].lower()
+    if ext in _EXPORT_REGION_VECTOR_EXTENSIONS:
+        import geopandas
+
+        gdf = geopandas.read_file(path)
+        if gdf.crs is not None and gdf.crs.to_epsg() != 4326:
+            gdf = gdf.to_crs(epsg=4326)
+        minx, miny, maxx, maxy = (float(v) for v in gdf.total_bounds)
+        return (minx, maxx, miny, maxy)
+
+    # Otherwise treat it as a raster; the CRS is read from the file header.
+    from ivert.utils import dem_geom
+
+    return dem_geom.get_wgs84_bounding_box(path)
+
+
+def _region_to_wgs84_bbox(tokens, projection, wsen):
+    """Parse export-region tokens into a WGS84 (xmin, xmax, ymin, ymax) bbox.
+
+    Returns None when no tokens are given (i.e. export the entire database).
+    Tokens are either a 4-value slash-separated bounding box or a single path to
+    a georeferenced raster or polygon-vector file.
+    """
+    if not tokens:
+        return None
+
+    # Flatten slash-separated tokens into a flat list of values.
+    values = []
+    for token in tokens:
+        values.extend(token.split("/"))
+
+    # Try a 4-value numeric bounding box first.
+    if len(values) == 4:
+        try:
+            nums = [float(v) for v in values]
+        except ValueError:
+            nums = None
+
+        if nums is not None:
+            if wsen:
+                # W/S/E/N → xmin, ymin, xmax, ymax
+                xmin, ymin, xmax, ymax = nums
+            else:
+                # W/E/S/N → xmin, xmax, ymin, ymax
+                xmin, xmax, ymin, ymax = nums
+
+            if projection.upper() in ("EPSG:4326", "4326"):
+                return (xmin, xmax, ymin, ymax)
+
+            from ivert.utils import dem_geom
+
+            return dem_geom.get_wgs84_bounding_box(
+                (xmin, xmax, ymin, ymax),
+                dem_horz_reference_frame=projection,
+            )
+
+    # Otherwise the region must be a single georeferenced file.
+    if len(tokens) != 1:
+        raise click.ClickException(
+            "Region must be a 4-value bounding box or a single georeferenced file.",
+        )
+
+    path = tokens[0]
+    if not os.path.exists(path):
+        raise click.ClickException(
+            f"Region '{path}' is neither a valid 4-value bounding box nor an existing file.",
+        )
+
+    try:
+        return _wgs84_bbox_from_file(path)
+    except Exception as exc:
+        raise click.ClickException(
+            f"Could not read a bounding box from '{path}': {exc}",
+        ) from exc
+
+
+@database.command("export")
+@click.argument("bbox_or_file", nargs=-1, required=False)
+@click.option(
+    "-of",
+    "--output-format",
+    "output_format",
+    default="gpkg",
+    show_default=True,
+    metavar="FORMATS",
+    help=(
+        "Vector format(s) to export, drawn from 'gpkg', 'shp', 'xyz'. Pass a single "
+        "format or a comma-separated combination (e.g. 'gpkg,shp')."
+    ),
+)
+@click.option(
+    "-o",
+    "--output",
+    "output",
+    default=None,
+    metavar="PATH",
+    help=(
+        "Output file path. The correct extension is added per format, so multiple "
+        "formats share this base name. Default: 'ivert_photons' in the current directory."
+    ),
+)
+@click.option(
+    "-c",
+    "--classes",
+    "classes",
+    default=None,
+    metavar="CLASSES",
+    help=(
+        "Slash-separated photon class codes to include (e.g. '1/40/41'). "
+        "Default: all classes. Run 'ivert classes' for the full list of codes."
+    ),
+)
+@click.option(
+    "-ds",
+    "--start-date",
+    "--start_date",
+    "date_start",
+    default=None,
+    metavar="DATE",
+    help=(
+        "Only export photons on or after this date. Accepts any format supported by "
+        "Python's dateparser library (e.g. '2023.01.01', '1 year ago'). "
+        "Default: no lower date bound."
+    ),
+)
+@click.option(
+    "-de",
+    "--end-date",
+    "--end_date",
+    "date_end",
+    default=None,
+    metavar="DATE",
+    help=(
+        "Only export photons before this date. Accepts any format supported by "
+        "Python's dateparser library. Default: no upper date bound."
+    ),
+)
+@click.option(
+    "-p",
+    "--projection",
+    default="EPSG:4326",
+    show_default=True,
+    help="Horizontal projection (EPSG code) that the bounding-box coordinates are in.",
+)
+@click.option(
+    "--wsen",
+    is_flag=True,
+    default=False,
+    help=(
+        "Treat the bounding box as W/S/E/N order (lower-left, upper-right). "
+        "Default order is W/E/S/N (Xmin/Xmax/Ymin/Ymax)."
+    ),
+)
+@click.option(
+    "-ow",
+    "--overwrite",
+    is_flag=True,
+    default=False,
+    help="Overwrite existing output files. Default: skip formats whose file already exists.",
+)
+@click.option(
+    "-f",
+    "--force",
+    is_flag=True,
+    default=False,
+    help="Skip the confirmation prompt when the export is estimated to be large.",
+)
+def database_export(
+    bbox_or_file,
+    output_format,
+    output,
+    classes,
+    date_start,
+    date_end,
+    projection,
+    wsen,
+    overwrite,
+    force,
+):
+    """Export IVERT ICESat-2 photons to GIS vector formats.
+
+    BBOX_OR_FILE (optional) restricts the export to one geographic area: either a
+    4-value bounding box in W/E/S/N order (slash-separated, e.g. -74/-73/40.5/41),
+    or a path to a georeferenced raster or polygon-vector file whose extent defines
+    the region. With no region given, the entire database is exported.
+
+    Each output carries the same per-photon fields as 'ivert database' stores
+    (x, y, z, class_code, class_name, confidence, delta_time, granule_id, and
+    bathy_confidence where present).
+
+    Examples:
+        ivert database export
+
+        ivert database export -of gpkg,shp -o bahamas_photons
+
+        ivert database export -- -74/-73/40.5/41 -c 40/41 -ds 2023.01.01 -de 2024.01.01
+
+        ivert database export coastline.gpkg -of xyz
+
+    (Note: Use the '--' delimiter to end command-line options if coordinates begin
+    with a negative '-')
+
+    """
+    from ivert import export_vector as ev
+    from ivert import icesat2_database_v2 as is2db_mod
+    from ivert.icesat2_database_v2 import _yyyymmdd_to_delta_time
+
+    verbose = logging.getLogger().level <= logging.INFO
+
+    # --- Parse output formats. ---
+    try:
+        fmt_keys = ev.normalize_format_keys(output_format, allowed=_EXPORT_FORMATS)
+    except ValueError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+    # --- Parse class filter. ---
+    class_list = None
+    if classes:
+        try:
+            class_list = [
+                int(c) for c in classes.replace(",", "/").split("/") if c != ""
+            ]
+        except ValueError as exc:
+            raise click.ClickException(
+                f"Invalid --classes value '{classes}': {exc}",
+            ) from exc
+
+    # --- Parse region. ---
+    bbox = _region_to_wgs84_bbox(list(bbox_or_file), projection, wsen)
+
+    # --- Open the database index. ---
+    db = is2db_mod.IS2Database()
+    gdf_index = db.open_gdf(verbose=False)
+    if gdf_index is None or len(gdf_index) == 0:
+        raise click.ClickException(
+            f"No IVERT database found (or it is empty) at: {db.db_fname}\n"
+            "Run 'ivert database download <bbox>' to create one.",
+        )
+
+    # --- Parse the optional date range. ---
+    date_filtering = date_start is not None or date_end is not None
+    tmin, tmax = _EXPORT_DATE_MIN, _EXPORT_DATE_MAX
+    if date_filtering:
+        try:
+            if date_start is not None:
+                tmin = db.convert_date_to_yyyymmdd(date_start)
+            if date_end is not None:
+                tmax = db.convert_date_to_yyyymmdd(date_end)
+        except Exception as exc:
+            raise click.ClickException(f"Could not parse date: {exc}") from exc
+        if tmin >= tmax:
+            raise click.ClickException(
+                f"--start-date ({tmin}) must be before --end-date ({tmax}).",
+            )
+
+    # --- Select the granules to read. ---
+    if bbox is None and not date_filtering:
+        granule_rows = gdf_index
+    else:
+        spatial = bbox if bbox is not None else (-180.0, 180.0, -90.0, 90.0)
+        bbox6 = (spatial[0], spatial[1], spatial[2], spatial[3], tmin, tmax)
+        granule_rows = db.query_granules(bbox6)
+        if granule_rows is None:
+            granule_rows = gdf_index.iloc[0:0]
+
+    if len(granule_rows) == 0:
+        raise click.ClickException(
+            "No granules found matching the requested region and/or date range.",
+        )
+
+    # --- Warn on large exports. ---
+    est_photons = (
+        int(granule_rows["numphotons"].sum())
+        if "numphotons" in granule_rows.columns
+        else 0
+    )
+    if est_photons >= _EXPORT_WARN_PHOTON_THRESHOLD and not force:
+        scope = "the entire database" if bbox is None else "the requested region"
+        click.echo(
+            f"WARNING: Exporting {scope} covers {len(granule_rows):,} granule(s) with up "
+            f"to ~{est_photons:,} photons. This may produce very large output file(s) and "
+            f"take a while.",
+            err=True,
+        )
+        if not click.confirm("\nContinue with the export anyway?", default=False):
+            raise click.Abort()
+
+    # --- Read, subset, and merge granules. ---
+    import geopandas
+    import pandas
+
+    dt_min = _yyyymmdd_to_delta_time(tmin) if date_filtering else None
+    dt_max = _yyyymmdd_to_delta_time(tmax) if date_filtering else None
+
+    total = len(granule_rows)
+    click.echo(f"Reading {total:,} granule(s) ...")
+
+    gdfs = []
+    photon_count = 0
+    for i, (_, row) in enumerate(granule_rows.iterrows(), start=1):
+        fpath = os.path.join(db.granules_dir, row["filename"])
+        if not os.path.exists(fpath):
+            click.echo(f"  Skipping missing granule file: {row['filename']}", err=True)
+            continue
+
+        gdf = ev.nc_to_geodataframe(fpath, classes=class_list)
+        if bbox is not None:
+            gdf = ev.subset_gdf_to_bbox(gdf, bbox)
+        if date_filtering:
+            gdf = ev.subset_gdf_to_date_range(gdf, dt_min, dt_max)
+
+        if len(gdf) > 0:
+            gdfs.append(gdf)
+            photon_count += len(gdf)
+
+        if verbose:
+            click.echo(f"  [{i}/{total}] {row['filename']}: {len(gdf):,} photons")
+
+    if not gdfs:
+        raise click.ClickException("No photons found to export after filtering.")
+
+    merged = geopandas.GeoDataFrame(
+        pandas.concat(gdfs, ignore_index=True),
+        crs=ev.WGS84_EPSG,
+    )
+
+    # --- Write the requested format(s). ---
+    out_base = output or os.path.join(os.getcwd(), "ivert_photons")
+    written = ev.write_vector_multi(merged, out_base, fmt_keys, overwrite=overwrite)
+
+    if not written:
+        click.echo(
+            "\nNo files written (all target files already exist; use -ow to overwrite).",
+        )
+        return
+
+    click.echo(f"\nExported {len(merged):,} photons to {len(written)} file(s):")
+    for path in written:
+        click.echo(f"  {path}")
+
+
 ###############################################################
 # cache
 ###############################################################
