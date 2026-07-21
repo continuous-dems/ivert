@@ -7,6 +7,7 @@ Manage the local IVERT ICESat-2 photon database. IVERT stores downloaded photon 
 ## Subcommands
 
 - [`ivert database download`](#download) — download new ICESat-2 data
+- [`ivert database export`](#export) — export photons to GIS vector formats
 - [`ivert database list`](#list) — list what's already downloaded
 - [`ivert database size`](#size) — check disk usage
 - [`ivert database rebuild`](#rebuild) — rebuild the index from existing files
@@ -89,6 +90,62 @@ Photon class codes:
 | `-p, --projection TEXT` | Horizontal CRS of the bounding box (default: `EPSG:4326`) |
 | `-r, --replace` | Replace any previously downloaded data overlapping this region |
 | `-f, --force` | Skip the interactive prompt when the date range extends beyond the ATL24 data cutoff |
+
+---
+
+## export
+
+Export photons from the database to common GIS vector formats. Each exported photon carries its full set of fields: `x`, `y`, `z`, `class_code`, `class_name`, `confidence`, `delta_time`, `granule_id`, and (where present) `bathy_confidence`.
+
+```
+ivert database export [BBOX_OR_FILE] [OPTIONS]
+```
+
+### Choosing what to export
+
+With no region argument, the **entire database** is exported. Optionally restrict the export to one geographic area — either a bounding box or a georeferenced file (a raster or a polygon-vector file) whose extent defines the region:
+
+```
+# Export the whole database (default output: ./ivert_photons.gpkg)
+ivert database export
+
+# Restrict to a bounding box: W/E/S/N (default order)
+ivert database export -- -74.0/-73.0/40.5/41.0
+
+# Use --wsen if your numbers are in W/S/E/N order
+ivert database export --wsen -- -74.0/40.5/-73.0/41.0
+
+# Use the extent of a raster or polygon-vector file
+ivert database export mydem.tif
+ivert database export coastline.gpkg
+```
+
+> **Note:** Because the region argument is variable-length, put any options *before* a `--` delimiter when the bounding box begins with a negative number (e.g. `ivert database export -c 40/41 -- -74.0/-73.0/40.5/41.0`).
+
+### Output format options
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `-of, --output-format FORMATS` | `gpkg` | Vector format(s): `gpkg`, `shp`, `xyz`, or a comma-separated combination (e.g. `gpkg,shp`) |
+| `-o, --output PATH` | `./ivert_photons` | Output file path. The correct extension is added per format, so multiple formats share this base name |
+| `-ow, --overwrite` | | Overwrite existing output files (otherwise formats whose file already exists are skipped) |
+
+Shapefiles (`shp`) drop the `class_name` and `granule_id` fields, which exceed the format's field-name/length limits; `gpkg` and `xyz` retain all fields.
+
+### Filtering options
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `-c, --classes TEXT` | all classes | Slash-separated photon class codes to include (e.g. `40/41`). See [class codes](#photon-class-options) above, or run `ivert classes` |
+| `-ds, --start-date TEXT` | no lower bound | Only export photons on or after this date. Accepts dateparser formats: `2023-01-01`, `"1 year ago"`, `20230101` |
+| `-de, --end-date TEXT` | no upper bound | Only export photons before this date |
+
+### Other options
+
+| Flag | Description |
+|------|-------------|
+| `-p, --projection TEXT` | Horizontal CRS of the bounding box (default: `EPSG:4326`) |
+| `-f, --force` | Skip the confirmation prompt when the export is estimated to be large |
 
 ---
 
@@ -177,4 +234,14 @@ ivert database download mydem.tif
 ```
 ivert database list
 ivert database size
+```
+
+**Export bathymetry photons for a region to GeoPackage and Shapefile:**
+```
+ivert database export -of gpkg,shp -c 40/41 -o bahamas_bathy -- -78.5/-77.0/24.0/25.5
+```
+
+**Export the whole database (all photons) to an XYZ text file:**
+```
+ivert database export -of xyz -o all_photons
 ```

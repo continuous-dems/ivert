@@ -1,34 +1,15 @@
 #!/usr/bin/env python3
-"""ivert_output_vector.py — convert IVERT ICESat-2 .nc granule files to GIS vector formats.
+"""export_vector — convert IVERT ICESat-2 .nc granule files to GIS vector formats.
 
-Reads one or more .nc files produced by IS2Database._process_h5_to_nc() and
-writes them as geolocated point vector files (GeoPackage, Shapefile, or CSV/XYZ).
+Reads .nc files produced by IS2Database._process_h5_to_nc() and writes them as
+geolocated point vector files (GeoPackage, Shapefile, or CSV/XYZ).
 
-Usage
------
-    python ivert_output_vector.py <nc_file_or_dir> [<nc_file_or_dir> ...] [options]
-
-Examples
---------
-    # Single file to GeoPackage (default)
-    python ivert_output_vector.py granule.nc
-
-    # All .nc files in a directory, output as Shapefile alongside inputs
-    python ivert_output_vector.py ~/.ivert/icesat2/granules/ -of shp
-
-    # Filter to bathy photons only, send to a specific directory
-    python ivert_output_vector.py granule.nc --classes 40,41 -d /tmp/out/
-
-    # Merge all inputs into one output file
-    python ivert_output_vector.py granules/ --merge -o merged_bahamas.gpkg
-
+This module is the library backing the 'ivert database export' command; it has
+no command-line interface of its own.
 """
 
-import glob
 import os
-import sys
 
-import click
 import geopandas
 import netCDF4
 import numpy as np
@@ -128,7 +109,7 @@ def write_vector(
     if os.path.exists(outpath):
         if not overwrite:
             print(
-                f"  Skipping existing {os.path.basename(outpath)} (use -w to overwrite).",
+                f"  Skipping existing {os.path.basename(outpath)} (use -ow to overwrite).",
             )
             return
         os.remove(outpath)
@@ -150,137 +131,113 @@ def write_vector(
 
 
 # ---------------------------------------------------------------------------
-# File discovery
+# Multi-format helpers (used by 'ivert database export')
 # ---------------------------------------------------------------------------
-def collect_nc_files(paths: list) -> list:
-    """Expand a list of file/directory paths into a flat list of .nc files."""
-    found = []
-    for p in paths:
-        if os.path.isdir(p):
-            found.extend(sorted(glob.glob(os.path.join(p, "*.nc"))))
-        elif os.path.isfile(p) and p.endswith(".nc"):
-            found.append(p)
-        else:
-            # Treat as glob pattern
-            matches = sorted(glob.glob(p))
-            found.extend(m for m in matches if m.endswith(".nc"))
-    return found
+def normalize_format_keys(output_format: str, allowed=None) -> list:
+    """Parse a comma-separated output-format string into a validated list of format keys.
 
+    Parameters
+    ----------
+    output_format : str
+        One format key or a comma-separated combination (e.g. "gpkg,shp,xyz").
+    allowed : iterable of str, optional
+        Restrict which format keys are accepted. Defaults to every key in
+        SUPPORTED_FORMATS.
 
-# ---------------------------------------------------------------------------
-# CLI
-# ---------------------------------------------------------------------------
-@click.command(
-    help="Convert IVERT ICESat-2 .nc granule files to GIS vector formats.",
-    epilog=__doc__,
-)
-@click.argument("inputs", nargs=-1, required=True)
-@click.option(
-    "-of",
-    "--output_format",
-    default="gpkg",
-    type=click.Choice(list(SUPPORTED_FORMATS.keys())),
-    help="Output format. Default: gpkg",
-)
-@click.option(
-    "-d",
-    "--output_dir",
-    default=None,
-    help="Output directory. Default: same directory as each input file.",
-)
-@click.option(
-    "-o",
-    "--output",
-    default=None,
-    help="Explicit output filename (only valid with --merge or a single input).",
-)
-@click.option(
-    "--merge",
-    is_flag=True,
-    default=False,
-    help="Merge all input granules into a single output file.",
-)
-@click.option(
-    "--classes",
-    "classes_str",
-    default=None,
-    help="Comma-separated class codes to include (e.g. '1,40,41'). "
-    "Default: all classes.",
-)
-@click.option(
-    "-w",
-    "--overwrite",
-    is_flag=True,
-    default=False,
-    help="Overwrite existing output files.",
-)
-def main(inputs, output_format, output_dir, output, merge, classes_str, overwrite):
-    """Convert IVERT ICESat-2 .nc granule files to GIS vector formats.
+    Returns
+    -------
+    list of str
+        The format keys in the order given, with duplicates removed.
 
-    INPUTS is one or more .nc file(s) or director(y/ies) containing .nc files.
+    Raises
+    ------
+    ValueError
+        If no format is given or an unsupported format is requested.
+
     """
-    fmt_key = output_format.lower().lstrip(".")
+    allowed = tuple(SUPPORTED_FORMATS) if allowed is None else tuple(allowed)
+
+    keys = []
+    for token in str(output_format).split(","):
+        key = token.strip().lower().lstrip(".")
+        if not key:
+            continue
+        if key not in allowed:
+            raise ValueError(
+                f"Unsupported output format '{token.strip()}'. "
+                f"Choose from: {', '.join(allowed)}.",
+            )
+        if key not in keys:
+            keys.append(key)
+
+    if not keys:
+        raise ValueError("No output format specified.")
+    return keys
+
+
+def subset_gdf_to_bbox(gdf: geopandas.GeoDataFrame, bbox) -> geopandas.GeoDataFrame:
+    """Return the subset of a photon GeoDataFrame whose points fall within a bbox.
+
+    bbox is (xmin, xmax, ymin, ymax) in the GeoDataFrame's own CRS. The maximum
+    edges are exclusive, matching the IS2Database photon-query convention.
+    """
+    if gdf.empty:
+        return gdf
+    xmin, xmax, ymin, ymax = bbox
+    x = gdf["x"]
+    y = gdf["y"]
+    mask = (x >= xmin) & (x < xmax) & (y >= ymin) & (y < ymax)
+    return gdf[mask].reset_index(drop=True)
+
+
+def subset_gdf_to_date_range(
+    gdf: geopandas.GeoDataFrame,
+    dt_min: float,
+    dt_max: float,
+) -> geopandas.GeoDataFrame:
+    """Return the subset of a photon GeoDataFrame within a delta_time range.
+
+    dt_min and dt_max are ICESat-2 delta_time values (seconds since 2018-01-01).
+    The upper bound is exclusive, matching IS2Database.read_granule().
+    """
+    if gdf.empty or "delta_time" not in gdf.columns:
+        return gdf
+    dt = gdf["delta_time"]
+    mask = (dt >= dt_min) & (dt < dt_max)
+    return gdf[mask].reset_index(drop=True)
+
+
+def output_path_for_format(out_base: str, fmt_key: str) -> str:
+    """Build the output path for a format by giving out_base the format's extension.
+
+    Any recognized vector extension already on out_base is stripped first, so a
+    base of 'photons.gpkg' combined with the 'shp' format yields 'photons.shp'.
+    """
     _, ext = SUPPORTED_FORMATS[fmt_key]
+    stem = out_base
+    for _driver, known_ext in SUPPORTED_FORMATS.values():
+        if stem.lower().endswith(known_ext):
+            stem = stem[: -len(known_ext)]
+            break
+    return stem + ext
 
-    classes = None
-    if classes_str:
-        classes = [int(c.strip()) for c in classes_str.split(",")]
 
-    nc_files = collect_nc_files(list(inputs))
-    if not nc_files:
-        sys.exit("No .nc files found.")
+def write_vector_multi(
+    gdf: geopandas.GeoDataFrame,
+    out_base: str,
+    fmt_keys,
+    overwrite: bool = False,
+) -> list:
+    """Write a GeoDataFrame to one or more vector formats.
 
-    if output_dir and not os.path.isdir(output_dir):
-        sys.exit(f"Output directory does not exist: {output_dir}")
-
-    # ------------------------------------------------------------------
-    # Merged mode: combine all granules into one output file
-    # ------------------------------------------------------------------
-    if merge:
-        gdfs = []
-        for nc_path in nc_files:
-            print(f"Reading {os.path.basename(nc_path)} ...", flush=True)
-            gdf = nc_to_geodataframe(nc_path, classes=classes)
-            print(f"  {len(gdf):,} photons")
-            gdfs.append(gdf)
-
-        if not gdfs:
-            sys.exit("No photons found after filtering.")
-
-        merged = geopandas.GeoDataFrame(
-            pd.concat(gdfs, ignore_index=True),
-            crs=WGS84_EPSG,
-        )
-
-        if output:
-            outpath = output
-        else:
-            outdir = output_dir or os.path.dirname(nc_files[0])
-            outpath = os.path.join(outdir, "merged" + ext)
-
-        write_vector(merged, outpath, fmt_key, overwrite=overwrite)
-        return
-
-    # ------------------------------------------------------------------
-    # Per-file mode
-    # ------------------------------------------------------------------
-    if output and len(nc_files) > 1:
-        sys.exit("--output requires exactly one input file (or use --merge).")
-
-    for nc_path in nc_files:
-        print(f"\n{os.path.basename(nc_path)}", flush=True)
-        gdf = nc_to_geodataframe(nc_path, classes=classes)
-        print(f"  {len(gdf):,} photons")
-
-        if output:
-            outpath = output
-        else:
-            stem = os.path.splitext(os.path.basename(nc_path))[0]
-            outdir = output_dir or os.path.dirname(nc_path)
-            outpath = os.path.join(outdir, stem + ext)
-
+    Returns the list of file paths written (skipped existing files are omitted).
+    """
+    written = []
+    for fmt_key in fmt_keys:
+        outpath = output_path_for_format(out_base, fmt_key)
+        existed = os.path.exists(outpath)
         write_vector(gdf, outpath, fmt_key, overwrite=overwrite)
-
-
-if __name__ == "__main__":
-    main()
+        # write_vector() skips silently when the file exists and overwrite is False.
+        if not existed or overwrite:
+            written.append(outpath)
+    return written

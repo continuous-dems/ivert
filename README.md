@@ -17,6 +17,7 @@ Developed by the [CIRES Coastal DEM Team](https://ciresdem.github.io). Primary a
 - Automatically-generated plots of DEM accuracies compared to ICESat-2.
 - Export errors to GeoTIFF, GeoPackage, Shapefile, or XYZ text
 - Local photon database management — download once, validate many times
+- Export classified photons from the database to GeoPackage, Shapefile, or XYZ text
 
 ---
 
@@ -71,6 +72,7 @@ ivert validate mydem.tif
 |---------|-------------|
 | [ivert setup](docs/setup.md) | Create data directories and set up NASA Earthdata credentials |
 | [ivert validate](docs/validate.md) | Validate DEMs against ICESat-2 data |
-| [ivert database](docs/database.md) | Download and manage the local photon database |
+| [ivert database](docs/database.md) | Download, export, and manage the local photon database |
+| [ivert classes](docs/classes.md) | List the ICESat-2 photon classification codes |
 | [ivert cache](docs/cache.md) | View and clear the local file cache |
 | [ivert options](docs/options.md) | View and change configuration settings |
