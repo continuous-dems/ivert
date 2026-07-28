@@ -1014,7 +1014,7 @@ class IS2Database:
             except ValueError:
                 # If it isn't a YYYYMMDD string, parse it with dateparser.
                 return int(dateparser.parse(date).strftime("%Y%m%d"))
-        elif isinstance(date, datetime.datetime) or isinstance(date, datetime.date):
+        elif isinstance(date, (datetime.datetime, datetime.date)):
             return int(date.strftime("%Y%m%d"))
         else:
             raise ValueError(
