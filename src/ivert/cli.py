@@ -248,13 +248,12 @@ def setup():
     dir_attrs = (
         "user_data_directory",
         "cache_directory",
-        "icesat2_granules_directory",
+        "ivert_database_directory",
         "icesat2_download_directory",
     )
     file_attrs = (
         "user_configfile",
-        "icesat2_granules_gpkg",
-        "icesat2_granules_blosc",
+        "ivert_database_index",
         "icesat2_requests_csv",
     )
     dirs = [getattr(config, attr) for attr in dir_attrs]
@@ -566,7 +565,10 @@ def database_list(show_all, boxes):
             s = str(int(d))
             return f"{s[:4]}.{s[4:6]}.{s[6:]}"
 
-        unique_boxes = sorted(set(tuple(b) for b in gdf["query_bbox"]))
+        qcols = list(db._bbox_cols("query_bbox"))
+        unique_boxes = sorted(
+            {tuple(r) for r in gdf[qcols].itertuples(index=False)},
+        )
         rows = [b[:4] + (_fmt_date(b[4]), _fmt_date(b[5])) for b in unique_boxes]
         headers = ["Xmin", "Xmax", "Ymin", "Ymax", "Date Start", "Date End"]
         click.echo(tabulate_mod.tabulate(rows, headers=headers, tablefmt="simple"))
@@ -629,7 +631,7 @@ def database_rebuild():
     help="Skip confirmation prompt and delete immediately.",
 )
 def database_delete(delete_all, yes):
-    """Delete the .gpkg and .blosc database index files.
+    """Delete the NetCDF database index file.
 
     The downloaded .nc granule files are kept unless --all is specified.
     """
@@ -639,9 +641,7 @@ def database_delete(delete_all, yes):
     db = is2db_mod.IS2Database()
 
     # Collect what will actually be deleted before touching anything.
-    index_files = [
-        f for f in (db.db_fname, db.db_fname_compressed) if os.path.exists(f)
-    ]
+    index_files = [f for f in (db.db_fname,) if os.path.exists(f)]
 
     nc_files = []
     if delete_all and os.path.isdir(db.granules_dir):
@@ -691,26 +691,13 @@ def database_size():
 
     rows = []
 
-    # .gpkg index
+    # NetCDF index
     if os.path.exists(db.db_fname):
         rows.append(
-            ("gpkg index", 1, sizeof_fmt(os.path.getsize(db.db_fname)), db.db_fname),
+            ("index", 1, sizeof_fmt(os.path.getsize(db.db_fname)), db.db_fname),
         )
     else:
-        rows.append(("gpkg index", 0, "—", db.db_fname))
-
-    # .blosc index
-    if os.path.exists(db.db_fname_compressed):
-        rows.append(
-            (
-                "blosc index",
-                1,
-                sizeof_fmt(os.path.getsize(db.db_fname_compressed)),
-                db.db_fname_compressed,
-            ),
-        )
-    else:
-        rows.append(("blosc index", 0, "—", db.db_fname_compressed))
+        rows.append(("index", 0, "—", db.db_fname))
 
     # .nc granule files
     nc_files = (

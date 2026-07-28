@@ -10,17 +10,14 @@ import dateparser
 import fetchez
 import fetchez.core
 import fetchez.spatial
-import geopandas
 import globato
 import numpy
 import pandas
-import shapely
 import xarray
 from fetchez.modules.earthdata import IceSat2 as _FetchezIceSat2
 
 import ivert.utils.configfile
 import ivert.utils.cuboid_funcs
-import ivert.utils.pickle_blosc
 from ivert.icesat2_requests import ICESat2RequestsCSV
 
 logger = logging.getLogger(__name__)
@@ -46,6 +43,82 @@ def _delta_time_to_yyyymmdd(delta_time: float) -> int:
 
 
 class IS2Database:
+    # Column groups describing how the index is serialized to the NetCDF file.
+    # Every column becomes a plain 1-D numeric or string variable over the
+    # "record" dimension, so the index reads back as an ordinary DataFrame with
+    # no shapely geometry to reconstruct. The bounding boxes are stored exploded
+    # into scalar columns (query_bbox_xmin, ..._tmax, data_bbox_xmin, ...) so
+    # spatial lookups are vectorized numpy comparisons rather than per-row
+    # shapely/geometry work. The polygon footprint is not stored: it is always
+    # box(data_bbox), trivially rebuilt from the data_bbox_* columns if needed.
+    _INDEX_STR_COLS = (
+        "granule_id",
+        "filename",
+        "source_granule",
+        "laser_name",
+        "horizontal_datum",
+        "vertical_datum",
+    )
+    _INDEX_INT_COLS = (
+        "numphotons",
+        "numphotons_unclassified",
+        "numphotons_noise",
+        "numphotons_ground",
+        "numphotons_canopy",
+        "numphotons_canopy_top",
+        "numphotons_ice_surface",
+        "numphotons_bathy_floor",
+        "numphotons_bathy_surface",
+        "numphotons_buildings",
+        "numphotons_inland_water_surface",
+        "downloaded_on",
+    )
+    # Bounding-box bases and per-axis suffixes. xmin/xmax/ymin/ymax are floats;
+    # tmin/tmax are YYYYMMDD ints (the box's date range).
+    _BBOX_BASES = ("query_bbox", "data_bbox")
+    _INDEX_BBOX_FLOAT_COLS = (
+        "query_bbox_xmin",
+        "query_bbox_xmax",
+        "query_bbox_ymin",
+        "query_bbox_ymax",
+        "data_bbox_xmin",
+        "data_bbox_xmax",
+        "data_bbox_ymin",
+        "data_bbox_ymax",
+    )
+    _INDEX_BBOX_INT_COLS = (
+        "query_bbox_tmin",
+        "query_bbox_tmax",
+        "data_bbox_tmin",
+        "data_bbox_tmax",
+    )
+    _INDEX_ZBOUNDS_COLS = ("zbounds_zmin", "zbounds_zmax")
+
+    @staticmethod
+    def _bbox_cols(base: str) -> tuple[str, ...]:
+        """Return the six scalar column names for a bbox base, in canonical order."""
+        return (
+            f"{base}_xmin",
+            f"{base}_xmax",
+            f"{base}_ymin",
+            f"{base}_ymax",
+            f"{base}_tmin",
+            f"{base}_tmax",
+        )
+
+    @classmethod
+    def _bbox_to_cols(cls, base: str, bbox) -> dict:
+        """Explode a 6-element [xmin, xmax, ymin, ymax, tmin, tmax] bbox to scalars."""
+        c = cls._bbox_cols(base)
+        return {
+            c[0]: float(bbox[0]),
+            c[1]: float(bbox[1]),
+            c[2]: float(bbox[2]),
+            c[3]: float(bbox[3]),
+            c[4]: int(bbox[4]),
+            c[5]: int(bbox[5]),
+        }
+
     def __init__(self, ivert_config: ivert.utils.configfile.Config | None = None):
         # Define the structure of the object.
         if ivert_config is None:
@@ -53,8 +126,7 @@ class IS2Database:
         else:
             self.config = ivert_config
 
-        self.db_fname = self.config.icesat2_granules_gpkg
-        self.db_fname_compressed = self.config.icesat2_granules_blosc
+        self.db_fname = self.config.ivert_database_index
         self.gdf = None
         self.last_gdf_bbox = None
         self.last_gdf_date_range = None
@@ -64,14 +136,14 @@ class IS2Database:
         # Can experiment with other coordinate systems later.
         self.crs = "EPSG:4326+3855"
 
-        self.granules_dir = self.config.icesat2_granules_directory
+        self.granules_dir = self.config.ivert_database_directory
         self.icesat2_download_dir = self.config.icesat2_download_directory
 
     def create_new_database(
         self,
         populate: bool = True,
         overwrite: bool = False,
-    ) -> geopandas.GeoDataFrame:
+    ) -> pandas.DataFrame:
         """Create a new database from scratch.
 
         Parameters
@@ -87,19 +159,13 @@ class IS2Database:
 
         Returns
         -------
-        geopandas.GeoDataFrame containing the photon tiles from the database.
+        pandas.DataFrame containing the granule records from the database.
 
         """
         if overwrite:
-            removed = []
             if os.path.exists(self.db_fname):
-                removed.append(os.path.basename(self.db_fname))
+                logger.info("Removing old %s", os.path.basename(self.db_fname))
                 os.remove(self.db_fname)
-            if os.path.exists(self.db_fname_compressed):
-                removed.append(os.path.basename(self.db_fname_compressed))
-                os.remove(self.db_fname_compressed)
-            if removed:
-                logger.info("Removing old %s", " and ".join(removed))
 
         elif os.path.exists(self.db_fname):
             raise OSError(
@@ -122,22 +188,17 @@ class IS2Database:
                     records.append(meta)
 
             if records:
-                gdf = geopandas.GeoDataFrame(records, crs=self.crs, geometry="geometry")
+                gdf = pandas.DataFrame(records)[list(self._empty_db_dict().keys())]
             else:
-                gdf = geopandas.GeoDataFrame(
-                    self._empty_db_dict(),
-                    crs=self.crs,
-                    geometry="geometry",
-                ).drop(labels=0, axis="rows")
+                gdf = pandas.DataFrame(self._empty_db_dict()).drop(
+                    labels=0,
+                    axis="rows",
+                )
 
         else:
-            gdf = geopandas.GeoDataFrame(
-                self._empty_db_dict(),
-                crs=self.crs,
-                geometry="geometry",
-            ).drop(labels=0, axis="rows")
+            gdf = pandas.DataFrame(self._empty_db_dict()).drop(labels=0, axis="rows")
 
-        gdf.to_file(self.db_fname, driver="GPKG")
+        self._write_index(gdf)
         if os.path.exists(self.db_fname):
             logger.info(
                 "Created %s with %d records.",
@@ -147,125 +208,86 @@ class IS2Database:
         else:
             raise OSError("Failed to create", os.path.basename(self.db_fname))
 
-        if len(gdf) > 0:
-            ivert.utils.pickle_blosc.write(gdf, self.db_fname_compressed)
-            if os.path.exists(self.db_fname_compressed):
-                logger.info(
-                    "Created compressed %s with %d records.",
-                    os.path.basename(self.db_fname_compressed),
-                    len(gdf),
-                )
-            else:
-                logger.warning(
-                    "Failed to create compressed %s.",
-                    os.path.basename(self.db_fname_compressed),
-                )
-
         # This becomes the new database for this object.
         self.gdf = gdf
 
         return gdf
 
-    @staticmethod
-    def _empty_db_dict() -> dict:
-        """Return a single-row dict suitable for constructing a blank GeoDataFrame."""
-        return {
+    @classmethod
+    def _empty_db_dict(cls) -> dict:
+        """Return a single-row dict defining the index schema and canonical column order.
+
+        Used to construct a blank DataFrame and as the single source of truth for
+        column ordering (its key order) throughout the index read/write code.
+        """
+        d = {
             "granule_id": ["placeholder"],
             "filename": ["placeholder"],
             "source_granule": ["placeholder"],
             "laser_name": ["all"],
-            "query_bbox": [[0.0, 0.0, 0.0, 0.0, 0, 0]],
-            "data_bbox": [[0.0, 0.0, 0.0, 0.0, 0, 0]],
-            "zbounds": [[0.0, 0.0]],
-            "numphotons": [0],
-            "numphotons_unclassified": [0],
-            "numphotons_noise": [0],
-            "numphotons_ground": [0],
-            "numphotons_canopy": [0],
-            "numphotons_canopy_top": [0],
-            "numphotons_ice_surface": [0],
-            "numphotons_bathy_floor": [0],
-            "numphotons_bathy_surface": [0],
-            "numphotons_buildings": [0],
-            "numphotons_inland_water_surface": [0],
-            "downloaded_on": [0],
-            "horizontal_datum": ["EPSG:4326"],
-            "vertical_datum": ["EPSG:4979"],
-            "geometry": [shapely.box(0.0, 0.0, 1.0, 1.0)],
         }
+        for base in cls._BBOX_BASES:
+            for col in cls._bbox_cols(base):
+                d[col] = [0]
+        d["zbounds_zmin"] = [0.0]
+        d["zbounds_zmax"] = [0.0]
+        for col in cls._INDEX_INT_COLS:
+            d[col] = [0]
+        d["horizontal_datum"] = ["EPSG:4326"]
+        d["vertical_datum"] = ["EPSG:4979"]
+        return d
 
-    @staticmethod
-    def _read_nc_metadata(nc_fn: str) -> dict | None:
+    @classmethod
+    def _index_record_from_attrs(cls, attrs: dict, filename: str) -> dict:
+        """Build a scalar-column index record from a granule's (list-form) attrs.
+
+        `attrs` holds granule metadata in the same shape as the .nc granule-file
+        global attributes: query_bbox / data_bbox as 6-element sequences and
+        zbounds as a 2-element sequence. The result is a flat dict of scalar
+        values matching the index schema (see _empty_db_dict). The polygon
+        footprint is omitted; it is always box(data_bbox).
+        """
+        record = {
+            "granule_id": str(
+                attrs.get("granule_id", os.path.splitext(filename)[0]),
+            ),
+            "filename": filename,
+            "source_granule": str(
+                attrs.get(
+                    "source_granule",
+                    cls._source_granule_from_filename(filename),
+                ),
+            ),
+            "laser_name": str(attrs.get("laser_name", "all")),
+        }
+        record.update(
+            cls._bbox_to_cols(
+                "query_bbox",
+                attrs.get("query_bbox", [0.0, 0.0, 0.0, 0.0, 0, 0]),
+            ),
+        )
+        record.update(cls._bbox_to_cols("data_bbox", attrs["data_bbox"]))
+        zb = attrs.get("zbounds", [float("nan"), float("nan")])
+        record["zbounds_zmin"] = float(zb[0])
+        record["zbounds_zmax"] = float(zb[1])
+        for col in cls._INDEX_INT_COLS:
+            record[col] = int(attrs.get(col, 0))
+        record["horizontal_datum"] = str(attrs.get("horizontal_datum", ""))
+        record["vertical_datum"] = str(attrs.get("vertical_datum", ""))
+        return record
+
+    @classmethod
+    def _read_nc_metadata(cls, nc_fn: str) -> dict | None:
         """Read metadata attrs from a NetCDF granule file without loading photon arrays.
 
         This is deliberately fast: xarray reads only the file header, not the data.
+        Returns a scalar-column index record (see _index_record_from_attrs), or
+        None if the file's metadata can't be read.
         """
         try:
             with xarray.open_dataset(nc_fn) as ds:
                 attrs = dict(ds.attrs)
-
-            def _bbox(raw):
-                b = list(raw)
-                return [
-                    float(b[0]),
-                    float(b[1]),
-                    float(b[2]),
-                    float(b[3]),
-                    int(b[4]),
-                    int(b[5]),
-                ]
-
-            data_bbox = _bbox(attrs["data_bbox"])
-            return {
-                "granule_id": str(
-                    attrs.get(
-                        "granule_id",
-                        os.path.splitext(os.path.basename(nc_fn))[0],
-                    ),
-                ),
-                "filename": os.path.basename(nc_fn),
-                "source_granule": str(
-                    attrs.get(
-                        "source_granule",
-                        IS2Database._source_granule_from_filename(
-                            os.path.basename(nc_fn),
-                        ),
-                    ),
-                ),
-                "laser_name": str(attrs.get("laser_name", "all")),
-                "query_bbox": _bbox(
-                    attrs.get("query_bbox", [0.0, 0.0, 0.0, 0.0, 0, 0]),
-                ),
-                "data_bbox": data_bbox,
-                "zbounds": [
-                    float(v) for v in attrs.get("zbounds", [float("nan"), float("nan")])
-                ],
-                "numphotons": int(attrs.get("numphotons", 0)),
-                "numphotons_unclassified": int(attrs.get("numphotons_unclassified", 0)),
-                "numphotons_noise": int(attrs.get("numphotons_noise", 0)),
-                "numphotons_ground": int(attrs.get("numphotons_ground", 0)),
-                "numphotons_canopy": int(attrs.get("numphotons_canopy", 0)),
-                "numphotons_canopy_top": int(attrs.get("numphotons_canopy_top", 0)),
-                "numphotons_ice_surface": int(attrs.get("numphotons_ice_surface", 0)),
-                "numphotons_bathy_floor": int(attrs.get("numphotons_bathy_floor", 0)),
-                "numphotons_bathy_surface": int(
-                    attrs.get("numphotons_bathy_surface", 0),
-                ),
-                "numphotons_buildings": int(attrs.get("numphotons_buildings", 0)),
-                "numphotons_inland_water_surface": int(
-                    attrs.get("numphotons_inland_water_surface", 0),
-                ),
-                "downloaded_on": int(attrs.get("downloaded_on", 0)),
-                "horizontal_datum": str(attrs.get("horizontal_datum", "")),
-                "vertical_datum": str(attrs.get("vertical_datum", "")),
-                # shapely.box(xmin, ymin, xmax, ymax)
-                "geometry": shapely.box(
-                    data_bbox[0],
-                    data_bbox[2],
-                    data_bbox[1],
-                    data_bbox[3],
-                ),
-            }
+            return cls._index_record_from_attrs(attrs, os.path.basename(nc_fn))
         except Exception as e:
             logger.warning(
                 "Could not read metadata from %s: %s",
@@ -579,82 +601,134 @@ class IS2Database:
             f"{metadata_attrs['numphotons_bathy_floor']:,}",
         )
 
-        db_record = dict(metadata_attrs)
-        db_record["filename"] = os.path.basename(nc_fn)
-        db_record["geometry"] = shapely.box(xmin, ymin, xmax, ymax)
-        return db_record
+        return self._index_record_from_attrs(
+            metadata_attrs,
+            os.path.basename(nc_fn),
+        )
 
-    @staticmethod
-    def _normalize_bbox_columns(gdf: geopandas.GeoDataFrame) -> geopandas.GeoDataFrame:
-        """Parse bbox columns that GPKG round-trips as JSON strings back into lists of numbers."""
-        import json
+    def _write_index(self, df) -> None:
+        """Serialize the index DataFrame to the single NetCDF index file.
 
-        for col in ("query_bbox", "data_bbox", "zbounds"):
-            if (
-                col in gdf.columns
-                and len(gdf) > 0
-                and isinstance(gdf[col].iloc[0], str)
-            ):
-                gdf[col] = gdf[col].apply(json.loads)
-        return gdf
+        Every column is written as a plain 1-D variable over the "record"
+        dimension (strings as object arrays, everything else as int64/float64),
+        and the numeric variables are zlib-compressed. No geometry is stored: the
+        footprint is always box(data_bbox) and is rebuilt from the data_bbox_*
+        columns if ever needed. This layout lets the index read straight back
+        into a DataFrame with no shapely reconstruction.
+        """
+        n = len(df)
+        data_vars = {}
+
+        for col in self._INDEX_STR_COLS:
+            values = (
+                numpy.array(
+                    ["" if v is None else str(v) for v in df[col]],
+                    dtype=object,
+                )
+                if n
+                else numpy.array([], dtype=object)
+            )
+            data_vars[col] = ("record", values)
+
+        int_cols = (*self._INDEX_INT_COLS, *self._INDEX_BBOX_INT_COLS)
+        for col in int_cols:
+            values = (
+                numpy.asarray(df[col].to_list(), dtype="int64")
+                if n
+                else numpy.array([], dtype="int64")
+            )
+            data_vars[col] = ("record", values)
+
+        float_cols = (*self._INDEX_BBOX_FLOAT_COLS, *self._INDEX_ZBOUNDS_COLS)
+        for col in float_cols:
+            values = (
+                numpy.asarray(df[col].to_list(), dtype="float64")
+                if n
+                else numpy.array([], dtype="float64")
+            )
+            data_vars[col] = ("record", values)
+
+        ds = xarray.Dataset(data_vars)
+        ds.attrs["crs"] = self.crs
+
+        # Compress the numeric variables. Variable-length string variables can't
+        # take zlib under the netCDF4 engine, and there is nothing to chunk when
+        # the index is empty.
+        encoding = {}
+        if n:
+            for col in (*int_cols, *float_cols):
+                encoding[col] = {"zlib": True, "complevel": 4}
+
+        os.makedirs(
+            os.path.dirname(self.db_fname) if os.path.dirname(self.db_fname) else ".",
+            exist_ok=True,
+        )
+        ds.to_netcdf(self.db_fname, encoding=encoding)
+
+    def _read_index(self):
+        """Read the NetCDF index file back into a plain pandas DataFrame.
+
+        Returns None if the index file does not exist. Every column comes back as
+        a numpy array with no per-row Python loops and no geometry reconstruction,
+        which is what makes this read fast; spatial filtering is done downstream
+        with vectorized bbox comparisons on the data_bbox_* / query_bbox_* columns.
+        """
+        if not os.path.exists(self.db_fname):
+            return None
+
+        with xarray.open_dataset(self.db_fname) as ds:
+            ds = ds.load()
+
+        data = {}
+        for col in self._INDEX_STR_COLS:
+            data[col] = ds[col].values.astype(str)
+        for col in (
+            *self._INDEX_INT_COLS,
+            *self._INDEX_BBOX_INT_COLS,
+            *self._INDEX_BBOX_FLOAT_COLS,
+            *self._INDEX_ZBOUNDS_COLS,
+        ):
+            data[col] = ds[col].values
+
+        df = pandas.DataFrame(data)
+        # Restore the canonical column order used elsewhere in the codebase.
+        return df[list(self._empty_db_dict().keys())]
 
     def open_gdf(
         self,
-        read_compressed: str | bool = "only_if_newer",
         force_reread: bool = False,
         verbose: bool = True,
-    ) -> geopandas.GeoDataFrame | None:
-        """Get a GeoDataFrame from the database.
+    ):
+        """Get the index DataFrame from the database.
 
         Parameters
         ----------
         force_reread : bool
             If True, read the file again even if we've already read the database into memory.
-        read_compressed: bool or string
-            If True, read the compressed version of the databse if it exists.
-            If False, read the uncompressed version of the database.
-            If "only_if_newer", read the compressed version of the database if it exists and is newer than the uncompressed version.
         verbose: bool
             Output text if the file was read.
 
         Returns
         -------
-        geopandas.GeoDataFrame containing the photon tiles from the database that fix the bounding box and date range.
-            None if no current database file exists locally.
+        pandas.DataFrame of the granule records in the database (bounding boxes
+        held as the scalar query_bbox_* / data_bbox_* columns; no geometry).
+        None if no current database file exists locally.
 
         """
         if self.gdf is not None and not force_reread:
             return self.gdf
 
-        if read_compressed == "only_if_newer":
-            read_compressed = (
-                os.path.exists(self.db_fname_compressed)
-                and os.path.exists(self.db_fname)
-                and os.path.getmtime(self.db_fname_compressed)
-                > os.path.getmtime(self.db_fname)
+        gdf = self._read_index()
+        if gdf is None:
+            return None
+
+        self.gdf = gdf
+        if verbose:
+            logger.info(
+                "Loaded %s with %d records.",
+                os.path.basename(self.db_fname),
+                len(self.gdf),
             )
-        elif read_compressed:
-            read_compressed = os.path.exists(self.db_fname_compressed)
-
-        if read_compressed:
-            self.gdf = ivert.utils.pickle_blosc.read(self.db_fname_compressed)
-            if verbose:
-                logger.info(
-                    "Loaded %s with %d records.",
-                    os.path.basename(self.db_fname_compressed),
-                    len(self.gdf),
-                )
-        else:
-            if not os.path.exists(self.db_fname):
-                return None
-
-            self.gdf = self._normalize_bbox_columns(geopandas.read_file(self.db_fname))
-            if verbose:
-                logger.info(
-                    "Loaded %s with %d records.",
-                    os.path.basename(self.db_fname),
-                    len(self.gdf),
-                )
 
         return self.gdf
 
@@ -663,30 +737,37 @@ class IS2Database:
         bbox: list | tuple | None = None,
         date_range: list | tuple | None = None,
     ):
-        """Read the master database into a GeoDataFrame.
+        """Read the master database into a DataFrame.
 
         Subset list of granules by bounding box and date range of the data (not the query box).
 
         Return the subset of the database read off of disk.
         """
-        if os.path.exists(self.db_fname):
-            gdf_subset = self._normalize_bbox_columns(
-                geopandas.read_file(self.db_fname, bbox=bbox),
-            )
+        gdf_subset = self._read_index()
+        if gdf_subset is None:
+            return None
 
-            if date_range is not None:
-                date_range = self.convert_date_range(date_range)
-                gdf_subset = gdf_subset[
-                    (gdf_subset["start_date_YYYYMMDD"] >= date_range[0])
-                    & (gdf_subset["end_date_YYYYMMDD"] <= date_range[1])
-                ]  # TODO: Look at this again
+        if bbox is not None:
+            # bbox is (xmin, ymin, xmax, ymax); keep granules whose data bbox overlaps.
+            xmin, ymin, xmax, ymax = bbox
+            gdf_subset = gdf_subset[
+                (gdf_subset["data_bbox_xmin"] <= xmax)
+                & (gdf_subset["data_bbox_xmax"] >= xmin)
+                & (gdf_subset["data_bbox_ymin"] <= ymax)
+                & (gdf_subset["data_bbox_ymax"] >= ymin)
+            ]
 
-            self.last_gdf_date_range = date_range
-            self.last_gdf_bbox = tuple(bbox)
+        if date_range is not None:
+            date_range = self.convert_date_range(date_range)
+            gdf_subset = gdf_subset[
+                (gdf_subset["data_bbox_tmin"] >= date_range[0])
+                & (gdf_subset["data_bbox_tmax"] <= date_range[1])
+            ]
 
-            return gdf_subset
+        self.last_gdf_date_range = date_range
+        self.last_gdf_bbox = tuple(bbox) if bbox is not None else None
 
-        return None
+        return gdf_subset
 
     @staticmethod
     def omit_photons_from_exclusion_bbox(
@@ -950,17 +1031,20 @@ class IS2Database:
             int(bbox[5]),
         )
 
-        # Add 1 to each
-        int_mask = gdf["data_bbox"].apply(
-            lambda b: ivert.utils.cuboid_funcs.cuboids_intersect(
-                b,
-                bbox,
-                bbox_order="axis",
-            ),
+        # Vectorized bbox-overlap test (x, y, and time) on the scalar data_bbox_*
+        # columns — same semantics as the per-row cuboids_intersect it replaces.
+        int_mask = ivert.utils.cuboid_funcs.cuboids_intersect_vectorized(
+            gdf["data_bbox_xmin"].to_numpy(),
+            gdf["data_bbox_xmax"].to_numpy(),
+            gdf["data_bbox_ymin"].to_numpy(),
+            gdf["data_bbox_ymax"].to_numpy(),
+            gdf["data_bbox_tmin"].to_numpy(),
+            gdf["data_bbox_tmax"].to_numpy(),
+            bbox,
+            bbox_order="axis",
         )
 
         # Return the subset of the dataframe of granules whose data bounding-box intersects the query bounding box.
-        # return gdf[intersect_func(data_bboxes)]
         return gdf[int_mask]
 
     def get_photon_src_epsg(self) -> str:
@@ -1216,7 +1300,7 @@ class IS2Database:
 
             use_external_masks = True
 
-            existing_gdf = self.open_gdf(read_compressed=False, verbose=False)
+            existing_gdf = self.open_gdf(verbose=False)
             existing_filenames = (
                 set(existing_gdf["filename"].values)
                 if existing_gdf is not None
@@ -1257,11 +1341,7 @@ class IS2Database:
             if not new_records:
                 continue
 
-            new_gdf = geopandas.GeoDataFrame(
-                new_records,
-                crs=self.crs,
-                geometry="geometry",
-            )
+            new_gdf = pandas.DataFrame(new_records)[list(self._empty_db_dict().keys())]
             if existing_gdf is None or len(existing_gdf) == 0:
                 self.gdf = new_gdf
             else:
@@ -1289,12 +1369,18 @@ class IS2Database:
                     # granule but a non-overlapping query bbox are legitimately distinct data
                     # (e.g. a different date range or region) and must not be dropped, since
                     # doing so would discard original data rather than de-duplicate it.
-                    bbox_overlaps = existing_gdf["query_bbox"].apply(
-                        lambda qb: ivert.utils.cuboid_funcs.cuboids_intersect(
-                            qb,
+                    bbox_overlaps = pandas.Series(
+                        ivert.utils.cuboid_funcs.cuboids_intersect_vectorized(
+                            existing_gdf["query_bbox_xmin"].to_numpy(),
+                            existing_gdf["query_bbox_xmax"].to_numpy(),
+                            existing_gdf["query_bbox_ymin"].to_numpy(),
+                            existing_gdf["query_bbox_ymax"].to_numpy(),
+                            existing_gdf["query_bbox_tmin"].to_numpy(),
+                            existing_gdf["query_bbox_tmax"].to_numpy(),
                             sbbox,
                             bbox_order="axis",
                         ),
+                        index=existing_gdf.index,
                     )
                     is_replaced = same_granule & bbox_overlaps
                     n_replaced = int(is_replaced.sum())
@@ -1308,23 +1394,14 @@ class IS2Database:
                             if os.path.exists(old_fpath):
                                 os.remove(old_fpath)
                         existing_gdf = existing_gdf[~is_replaced]
-                self.gdf = geopandas.GeoDataFrame(
-                    pandas.concat([existing_gdf, new_gdf], ignore_index=True),
-                    crs=self.crs,
-                    geometry="geometry",
+                self.gdf = pandas.concat(
+                    [existing_gdf, new_gdf],
+                    ignore_index=True,
                 )
 
             logger.info("Created %d new record(s).", len(new_records))
 
-            # If we have logging set to "info", the geopandas "to_file()" call will print an annoying info message.
-            # Temporarily set logging to "WARNING" to suppress that, then set it back to its previous value afterward.
-            root_logger = logging.getLogger()
-            _prev_level = root_logger.level
-            root_logger.setLevel(logging.WARNING)
-            try:
-                self.gdf.to_file(self.db_fname, driver="GPKG")
-            finally:
-                root_logger.setLevel(_prev_level)
+            self._write_index(self.gdf)
 
             if os.path.exists(self.db_fname):
                 logger.info(
@@ -1333,20 +1410,7 @@ class IS2Database:
                     len(self.gdf),
                 )
             else:
-                if os.path.exists(self.db_fname_compressed):
-                    os.remove(self.db_fname_compressed)
                 raise OSError(f"Failed to write {os.path.basename(self.db_fname)}")
-
-            if os.path.exists(self.db_fname_compressed):
-                os.remove(self.db_fname_compressed)
-            if len(self.gdf) > 0:
-                ivert.utils.pickle_blosc.write(self.gdf, self.db_fname_compressed)
-                if os.path.exists(self.db_fname_compressed):
-                    logger.info(
-                        "Updated compressed %s with %d total records.",
-                        os.path.basename(self.db_fname_compressed),
-                        len(self.gdf),
-                    )
 
     def bounds(self, axis: str, data_or_query: str = "data") -> tuple | None:
         """Return the min, max bounds of each entry in the database, on the axis requested ('x', 'y', or 't').
@@ -1376,9 +1440,9 @@ class IS2Database:
 
         data_or_query = data_or_query.lower().strip()
         if data_or_query == "data":
-            bboxes = gdf["data_bbox"]
+            base = "data_bbox"
         elif data_or_query == "query":
-            bboxes = gdf["query_bbox"]
+            base = "query_bbox"
         else:
             raise ValueError(
                 "Invalid data_or_query parameter. Must be one of 'data' or 'query'.",
@@ -1386,14 +1450,14 @@ class IS2Database:
 
         axis = axis.lower().strip()
         if axis == "x":
-            mins = bboxes.apply(lambda x: x[0])
-            maxs = bboxes.apply(lambda x: x[1])
+            mins = gdf[f"{base}_xmin"]
+            maxs = gdf[f"{base}_xmax"]
         elif axis == "y":
-            mins = bboxes.apply(lambda x: x[2])
-            maxs = bboxes.appyl(lambda x: x[3])
+            mins = gdf[f"{base}_ymin"]
+            maxs = gdf[f"{base}_ymax"]
         elif axis == "t":
-            mins = bboxes.apply(lambda x: x[4]).astype(int)
-            maxs = bboxes.apply(lambda x: x[5]).astype(int)
+            mins = gdf[f"{base}_tmin"].astype(int)
+            maxs = gdf[f"{base}_tmax"].astype(int)
         else:
             raise ValueError("Invalid axis parameter. Must be one of 'x', 'y', or 't'.")
 
@@ -1401,7 +1465,7 @@ class IS2Database:
 
     def unique_bboxes(
         self,
-        gdf: geopandas.GeoDataFrame | None = None,
+        gdf: pandas.DataFrame | None = None,
         data_or_query: str = "query",
     ) -> list | None:
         """Return a numpy array of unique query bounding boxes in the database.
@@ -1434,19 +1498,30 @@ class IS2Database:
 
         data_or_query = data_or_query.lower().strip()
         if data_or_query == "data":
-            field = "data_bbox"
+            base = "data_bbox"
         elif data_or_query == "query":
-            field = "query_bbox"
+            base = "query_bbox"
         else:
             raise ValueError(
                 "Invalid data_or_query parameter. Must be one of 'data' or 'query'.",
             )
 
-        # Create a tuple from each bbox, make a set of those (unique values), turn back into a list and a numpy array
-        bboxes = sorted(list(set([tuple(x) for x in gdf[field]])))
-        # For each of the bboxes, turn the last two numbers (tmin, tmax) into integers.
-        for i, bb in enumerate(bboxes):
-            bboxes[i] = bb[:-2] + (int(bb[-2]), int(bb[-1]))
+        # Build a (xmin, xmax, ymin, ymax, tmin, tmax) tuple per row from the
+        # scalar bbox columns, keep the unique ones, and cast the dates to int.
+        cols = list(self._bbox_cols(base))
+        bboxes = sorted(
+            {
+                (
+                    float(r[0]),
+                    float(r[1]),
+                    float(r[2]),
+                    float(r[3]),
+                    int(r[4]),
+                    int(r[5]),
+                )
+                for r in gdf[cols].itertuples(index=False)
+            },
+        )
 
         # Return it as a list of bbox tuples.
         return bboxes
@@ -1688,12 +1763,11 @@ def _cmd_delete(delete_all):
     """Implementation of the 'delete' subcommand."""
     db = IS2Database()
 
-    for fpath in (db.db_fname, db.db_fname_compressed):
-        if os.path.exists(fpath):
-            os.remove(fpath)
-            print(f"Deleted {fpath}")
-        else:
-            print(f"Not found (skipping): {fpath}")
+    if os.path.exists(db.db_fname):
+        os.remove(db.db_fname)
+        print(f"Deleted {db.db_fname}")
+    else:
+        print(f"Not found (skipping): {db.db_fname}")
 
     if delete_all:
         nc_files = (
@@ -1734,7 +1808,7 @@ if __name__ == "__main__":
     def _list_command():
         _cmd_list()
 
-    @_cli.command("delete", help="Delete the .gpkg and .blosc database files.")
+    @_cli.command("delete", help="Delete the NetCDF database index file.")
     @click.option(
         "--all",
         "delete_all",
