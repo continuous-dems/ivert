@@ -77,7 +77,6 @@ ignore = [
     "BLE001",   # blind-except
     "C401",     # unnecessary-generator-set
     "C403",     # unnecessary-list-comprehension-set
-    "C404",     # unnecessary-list-comprehension-dict
     "C414",     # unnecessary-double-cast-or-process
     "C901",     # complex-structure
     "D100",     # undocumented-public-module
@@ -110,7 +109,6 @@ ignore = [
     "N806",     # non-lowercase-variable-in-function
     "PD002",    # pandas-use-of-inplace-argument
     "PD011",    # pandas-use-of-dot-values
-    "PERF401",  # vmanual-list-comprehension
     "PLC0415",  # import-outside-top-level
     "PLR0912",  # too-many-branches
     "PLR0913",  # too-many-arguments
@@ -139,14 +137,10 @@ ignore = [
     "PTH204",   # os-path-getmtime
     "PTH207",   # glob
     "PTH208",   # os-listdir
-    "RET503",   # implicit-return
     "RET504",   # unnecessary-assign
     "RUF001",   # ambiguous-unicode-character-string
     "RUF002",   # ambiguous-unicode-character-docstring
-    "RUF012",   # mutable-class-default
-    "RUF013",   # implicit-optional
     "RUF015",   # unnecessary-iterable-allocation-for-first-element
-    "RUF059",   # unused-unpacked-variable
     "S101",     # assert
     "S110",     # try-except-pass
     "S301",     # suspicious-pickle-usage
@@ -156,8 +150,6 @@ ignore = [
     "SIM102",   # collapsible-if
     "SIM105",   # suppressible-exception
     "SIM115",   # open-file-with-context-handler
-    "SIM118",   # in-dict-keys
-    "SIM212",   # if-expr-with-twisted-arms
     "SLF001",   # private-member-access
     "T201",     # print
     "TD002",    # missing-todo-author
@@ -165,5 +157,4 @@ ignore = [
     "TRY003",   # raise-vanilla-args
     "TRY004",   # type-check-without-type-error
     "TRY300",   # try-consider-else
-    "UP031",    # printf-string-formatting
 ]

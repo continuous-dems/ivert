@@ -1728,7 +1728,7 @@ def _write_validation_outputs(
             shared_ret_values["empty_results_filename"] = empty_results_filename
         return files_to_export
 
-    base, ext = os.path.splitext(results_dataframe_file)
+    _base, ext = os.path.splitext(results_dataframe_file)
     ext = ext.lower().strip()
     if ext in (".txt", ".csv"):
         results_dataframe.to_csv(results_dataframe_file)
@@ -2463,7 +2463,7 @@ def main(
         output_dir=output_dir,
         classes=classes_list,
         dem_vertical_datum=input_vdatum,
-        interim_data_dir=(None if not datadir else datadir),
+        interim_data_dir=(datadir or None),
         overwrite=overwrite,
         delete_datafiles=delete_datafiles,
         plot_results=plot_results,

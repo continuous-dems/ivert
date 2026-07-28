@@ -45,9 +45,7 @@ def add_lat_lons(df):
 def get_slopes(df, files_dirname):
     fnames = [os.path.join(files_dirname, fn) for fn in df.filename.unique()]
     slope_fnames = [fn.replace("_results.h5", "_slope.tif") for fn in fnames]
-    fnames_dict = dict(
-        [(os.path.basename(fn), sfn) for fn, sfn in zip(fnames, slope_fnames)],
-    )
+    fnames_dict = {os.path.basename(fn): sfn for fn, sfn in zip(fnames, slope_fnames)}
 
     fn_array_dict = {}
     slopes = numpy.empty((len(df),), dtype=float)
