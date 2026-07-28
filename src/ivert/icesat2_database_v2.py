@@ -583,7 +583,7 @@ class IS2Database:
         xr_ds.attrs = metadata_attrs
 
         os.makedirs(
-            os.path.dirname(nc_fn) if os.path.dirname(nc_fn) else ".",
+            os.path.dirname(nc_fn) or ".",
             exist_ok=True,
         )
         xr_ds.to_netcdf(nc_fn)
@@ -660,7 +660,7 @@ class IS2Database:
                 encoding[col] = {"zlib": True, "complevel": 4}
 
         os.makedirs(
-            os.path.dirname(self.db_fname) if os.path.dirname(self.db_fname) else ".",
+            os.path.dirname(self.db_fname) or ".",
             exist_ok=True,
         )
         ds.to_netcdf(self.db_fname, encoding=encoding)
