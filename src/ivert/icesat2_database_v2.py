@@ -665,34 +665,43 @@ class IS2Database:
         )
         ds.to_netcdf(self.db_fname, encoding=encoding)
 
-    def _read_index(self):
-        """Read the NetCDF index file back into a plain pandas DataFrame.
+    @classmethod
+    def read_index_file(cls, index_fname: str) -> pandas.DataFrame:
+        """Read any IVERT NetCDF index file into a plain pandas DataFrame.
 
-        Returns None if the index file does not exist. Every column comes back as
-        a numpy array with no per-row Python loops and no geometry reconstruction,
-        which is what makes this read fast; spatial filtering is done downstream
-        with vectorized bbox comparisons on the data_bbox_* / query_bbox_* columns.
+        Every column comes back as a numpy array with no per-row Python loops and
+        no geometry reconstruction, which is what makes this read fast; spatial
+        filtering is done downstream with vectorized bbox comparisons on the
+        data_bbox_* / query_bbox_* columns. Columns are in the canonical order
+        given by _empty_db_dict().
         """
-        if not os.path.exists(self.db_fname):
-            return None
-
-        with xarray.open_dataset(self.db_fname) as ds:
+        with xarray.open_dataset(index_fname) as ds:
             ds = ds.load()
 
         data = {}
-        for col in self._INDEX_STR_COLS:
+        for col in cls._INDEX_STR_COLS:
             data[col] = ds[col].values.astype(str)
         for col in (
-            *self._INDEX_INT_COLS,
-            *self._INDEX_BBOX_INT_COLS,
-            *self._INDEX_BBOX_FLOAT_COLS,
-            *self._INDEX_ZBOUNDS_COLS,
+            *cls._INDEX_INT_COLS,
+            *cls._INDEX_BBOX_INT_COLS,
+            *cls._INDEX_BBOX_FLOAT_COLS,
+            *cls._INDEX_ZBOUNDS_COLS,
         ):
             data[col] = ds[col].values
 
         df = pandas.DataFrame(data)
         # Restore the canonical column order used elsewhere in the codebase.
-        return df[list(self._empty_db_dict().keys())]
+        return df[list(cls._empty_db_dict().keys())]
+
+    def _read_index(self):
+        """Read this database's index file back into a plain pandas DataFrame.
+
+        Returns None if the index file does not exist.
+        """
+        if not os.path.exists(self.db_fname):
+            return None
+
+        return self.read_index_file(self.db_fname)
 
     def open_gdf(
         self,

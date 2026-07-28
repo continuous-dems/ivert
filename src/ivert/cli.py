@@ -8,6 +8,7 @@ Command-line interface for the ICESat-2 Validation of Elevations Reporting Tool 
 import glob
 import logging
 import os
+import typing
 from pathlib import Path
 
 # Set NUMEXPR_MAX_THREADS before any import loads NumExpr, to suppress the
@@ -986,33 +987,66 @@ _EXPORT_REGION_VECTOR_EXTENSIONS = (
 )
 
 
-def _wgs84_bbox_from_file(path):
-    """Return a WGS84 (xmin, xmax, ymin, ymax) bbox from a raster or polygon-vector file."""
+class _ExportTarget(typing.NamedTuple):
+    """What the positional argument of 'ivert database export' resolved to.
+
+    kind is "all" (the whole database), "region" (a bounding box and/or a set of
+    polygons), "granule" (one IVERT .nc photon granule file), or "index" (the
+    IVERT database index .nc file).
+    """
+
+    kind: str
+    # WGS84 (xmin, xmax, ymin, ymax), or None.
+    bbox: tuple | None
+    # A shapely (Multi)Polygon in WGS84 to clip photons to, or None.
+    geometry: object | None
+    # The input file, for the "granule" and "index" kinds.
+    path: str | None
+
+
+def _region_from_vector_file(path):
+    """Return (bbox, geometry) for a polygon-vector file defining an export region.
+
+    The bbox is the file's WGS84 total extent; the geometry is the union of the
+    file's polygons (None if the file holds no polygonal geometry, in which case
+    the extent alone defines the region).
+    """
+    import geopandas
+
+    gdf = geopandas.read_file(path)
+    if gdf.crs is not None and gdf.crs.to_epsg() != 4326:
+        gdf = gdf.to_crs(epsg=4326)
+
+    minx, miny, maxx, maxy = (float(v) for v in gdf.total_bounds)
+    bbox = (minx, maxx, miny, maxy)
+
+    polygons = gdf[gdf.geom_type.isin(("Polygon", "MultiPolygon"))]
+    geometry = polygons.geometry.union_all() if len(polygons) > 0 else None
+    return bbox, geometry
+
+
+def _region_from_file(path):
+    """Return (bbox, geometry) for a raster or polygon-vector file."""
     ext = os.path.splitext(path)[1].lower()
     if ext in _EXPORT_REGION_VECTOR_EXTENSIONS:
-        import geopandas
-
-        gdf = geopandas.read_file(path)
-        if gdf.crs is not None and gdf.crs.to_epsg() != 4326:
-            gdf = gdf.to_crs(epsg=4326)
-        minx, miny, maxx, maxy = (float(v) for v in gdf.total_bounds)
-        return (minx, maxx, miny, maxy)
+        return _region_from_vector_file(path)
 
     # Otherwise treat it as a raster; the CRS is read from the file header.
     from ivert.utils import dem_geom
 
-    return dem_geom.get_wgs84_bounding_box(path)
+    return dem_geom.get_wgs84_bounding_box(path), None
 
 
-def _region_to_wgs84_bbox(tokens, projection, wsen):
-    """Parse export-region tokens into a WGS84 (xmin, xmax, ymin, ymax) bbox.
+def _resolve_export_target(tokens, projection, wsen):
+    """Resolve the positional argument of 'ivert database export' to an _ExportTarget.
 
-    Returns None when no tokens are given (i.e. export the entire database).
-    Tokens are either a 4-value slash-separated bounding box or a single path to
-    a georeferenced raster or polygon-vector file.
+    Tokens are one of: nothing (export the entire database), a 4-value
+    slash-separated bounding box, or a single path to an IVERT .nc file (a photon
+    granule or the database index, auto-detected by content) or to a georeferenced
+    raster or polygon-vector file whose area defines the region to export.
     """
     if not tokens:
-        return None
+        return _ExportTarget("all", None, None, None)
 
     # Flatten slash-separated tokens into a flat list of values.
     values = []
@@ -1035,33 +1069,125 @@ def _region_to_wgs84_bbox(tokens, projection, wsen):
                 xmin, xmax, ymin, ymax = nums
 
             if projection.upper() in ("EPSG:4326", "4326"):
-                return (xmin, xmax, ymin, ymax)
+                bbox = (xmin, xmax, ymin, ymax)
+            else:
+                from ivert.utils import dem_geom
 
-            from ivert.utils import dem_geom
+                bbox = dem_geom.get_wgs84_bounding_box(
+                    (xmin, xmax, ymin, ymax),
+                    dem_horz_reference_frame=projection,
+                )
 
-            return dem_geom.get_wgs84_bounding_box(
-                (xmin, xmax, ymin, ymax),
-                dem_horz_reference_frame=projection,
-            )
+            return _ExportTarget("region", bbox, None, None)
 
-    # Otherwise the region must be a single georeferenced file.
+    # Otherwise the argument must be a single file.
     if len(tokens) != 1:
         raise click.ClickException(
-            "Region must be a 4-value bounding box or a single georeferenced file.",
+            "Region must be a 4-value bounding box or a single file.",
         )
 
     path = tokens[0]
     if not os.path.exists(path):
         raise click.ClickException(
-            f"Region '{path}' is neither a valid 4-value bounding box nor an existing file.",
+            f"'{path}' is neither a valid 4-value bounding box nor an existing file.",
+        )
+
+    # An IVERT .nc file is exported directly; which kind it is comes from its contents.
+    if os.path.splitext(path)[1].lower() == ".nc":
+        from ivert import export_vector as ev
+
+        kind = ev.detect_nc_kind(path)
+        if kind == ev.KIND_INDEX:
+            return _ExportTarget("index", None, None, path)
+        if kind == ev.KIND_PHOTONS:
+            return _ExportTarget("granule", None, None, path)
+        raise click.ClickException(
+            f"'{path}' is not an IVERT photon granule or database index file.",
         )
 
     try:
-        return _wgs84_bbox_from_file(path)
+        bbox, geometry = _region_from_file(path)
     except Exception as exc:
         raise click.ClickException(
-            f"Could not read a bounding box from '{path}': {exc}",
+            f"Could not read an export region from '{path}': {exc}",
         ) from exc
+
+    return _ExportTarget("region", bbox, geometry, None)
+
+
+def _echo_export_summary(written, count, noun):
+    """Report the files an export wrote (or that it wrote none)."""
+    if not written:
+        click.echo(
+            "\nNo files written (all target files already exist; use -ow to overwrite).",
+        )
+        return
+
+    click.echo(f"\nExported {count:,} {noun} to {len(written)} file(s):")
+    for path in written:
+        click.echo(f"  {path}")
+
+
+def _export_database_index(index_path, fmt_keys, output, overwrite, filters_given):
+    """Export an IVERT database index file as a polygon layer of granule footprints."""
+    from ivert import export_vector as ev
+
+    point_formats = [key for key in fmt_keys if key in ("xyz", "csv")]
+    if point_formats:
+        raise click.ClickException(
+            "The database index holds bounding-box polygons rather than points, so it "
+            f"cannot be exported as '{', '.join(point_formats)}'. Use 'gpkg' and/or "
+            "'shp' instead.",
+        )
+
+    if filters_given:
+        click.echo(
+            "Note: the --classes and date options filter photons, so they do not apply "
+            "to a database-index export. Exporting the whole index.",
+            err=True,
+        )
+
+    gdf = ev.index_to_geodataframe(index_path)
+    if len(gdf) == 0:
+        raise click.ClickException(f"The database index is empty: {index_path}")
+
+    out_base = output or os.path.join(os.getcwd(), "ivert_database_index")
+    written = ev.write_vector_multi(
+        gdf,
+        out_base,
+        fmt_keys,
+        overwrite=overwrite,
+        kind=ev.KIND_INDEX,
+    )
+    _echo_export_summary(written, len(gdf), "granule footprints")
+
+
+def _export_single_granule(
+    nc_path,
+    fmt_keys,
+    output,
+    overwrite,
+    class_list,
+    delta_time_range,
+):
+    """Export one IVERT .nc photon granule file in its entirety."""
+    from ivert import export_vector as ev
+
+    gdf = ev.nc_to_geodataframe(nc_path, classes=class_list)
+    if delta_time_range is not None:
+        gdf = ev.subset_gdf_to_date_range(gdf, *delta_time_range)
+
+    if len(gdf) == 0:
+        raise click.ClickException(
+            f"No photons left to export from {os.path.basename(nc_path)} after filtering.",
+        )
+
+    out_base = output or os.path.join(
+        os.getcwd(),
+        os.path.splitext(os.path.basename(nc_path))[0],
+    )
+    written = ev.write_vector_multi(gdf, out_base, fmt_keys, overwrite=overwrite)
+    _echo_export_summary(written, len(gdf), "photons")
 
 
 @database.command("export")
@@ -1086,7 +1212,8 @@ def _region_to_wgs84_bbox(tokens, projection, wsen):
     metavar="PATH",
     help=(
         "Output file path. The correct extension is added per format, so multiple "
-        "formats share this base name. Default: 'ivert_photons' in the current directory."
+        "formats share this base name. Default: 'ivert_photons' in the current "
+        "directory, or the input file's name when exporting a single .nc file."
     ),
 )
 @click.option(
@@ -1169,14 +1296,25 @@ def database_export(
 ):
     """Export IVERT ICESat-2 photons to GIS vector formats.
 
-    BBOX_OR_FILE (optional) restricts the export to one geographic area: either a
-    4-value bounding box in W/E/S/N order (slash-separated, e.g. -74/-73/40.5/41),
-    or a path to a georeferenced raster or polygon-vector file whose extent defines
-    the region. With no region given, the entire database is exported.
+    BBOX_OR_FILE (optional) says what to export. It is one of:
 
-    Each output carries the same per-photon fields as 'ivert database' stores
+    \b
+      * nothing — export every photon in the database
+      * a 4-value bounding box in W/E/S/N order (slash-separated,
+        e.g. -74/-73/40.5/41)
+      * a georeferenced raster file, whose extent defines the region
+      * a polygon-vector file, whose polygon(s) define the area(s) to export
+      * a single IVERT .nc photon granule, exported in its entirety
+      * the IVERT database index .nc file, exported as a polygon layer of
+        granule footprints (one rectangle per granule, from its data_bbox)
+
+    The last two are auto-detected from the contents of the .nc file.
+
+    Photon outputs carry the same per-photon fields as 'ivert database' stores
     (x, y, z, class_code, class_name, confidence, delta_time, granule_id, and
-    bathy_confidence where present).
+    bathy_confidence where present). The database index exports every field it
+    holds per granule, and cannot be written as 'xyz' since it holds polygons
+    rather than points.
 
     Examples:
         ivert database export
@@ -1186,6 +1324,10 @@ def database_export(
         ivert database export -- -74/-73/40.5/41 -c 40/41 -ds 2023.01.01 -de 2024.01.01
 
         ivert database export coastline.gpkg -of xyz
+
+        ivert database export granules/ATL24_20230101_x-74y40.nc
+
+        ivert database export granules/_ivert_database_index.nc -of gpkg,shp
 
     (Note: Use the '--' delimiter to end command-line options if coordinates begin
     with a negative '-')
@@ -1215,17 +1357,11 @@ def database_export(
                 f"Invalid --classes value '{classes}': {exc}",
             ) from exc
 
-    # --- Parse region. ---
-    bbox = _region_to_wgs84_bbox(list(bbox_or_file), projection, wsen)
+    # --- Work out what was asked for. ---
+    target = _resolve_export_target(list(bbox_or_file), projection, wsen)
+    bbox = target.bbox
 
-    # --- Open the database index. ---
     db = is2db_mod.IS2Database()
-    gdf_index = db.open_gdf(verbose=False)
-    if gdf_index is None or len(gdf_index) == 0:
-        raise click.ClickException(
-            f"No IVERT database found (or it is empty) at: {db.db_fname}\n"
-            "Run 'ivert database download <bbox>' to create one.",
-        )
 
     # --- Parse the optional date range. ---
     date_filtering = date_start is not None or date_end is not None
@@ -1242,6 +1378,40 @@ def database_export(
             raise click.ClickException(
                 f"--start-date ({tmin}) must be before --end-date ({tmax}).",
             )
+
+    # --- A single .nc file is read straight off disk, with no database lookup. ---
+    if target.kind == "index":
+        _export_database_index(
+            target.path,
+            fmt_keys,
+            output,
+            overwrite,
+            filters_given=bool(classes) or date_filtering,
+        )
+        return
+
+    if target.kind == "granule":
+        _export_single_granule(
+            target.path,
+            fmt_keys,
+            output,
+            overwrite,
+            class_list,
+            (
+                (_yyyymmdd_to_delta_time(tmin), _yyyymmdd_to_delta_time(tmax))
+                if date_filtering
+                else None
+            ),
+        )
+        return
+
+    # --- Open the database index. ---
+    gdf_index = db.open_gdf(verbose=False)
+    if gdf_index is None or len(gdf_index) == 0:
+        raise click.ClickException(
+            f"No IVERT database found (or it is empty) at: {db.db_fname}\n"
+            "Run 'ivert database download <bbox>' to create one.",
+        )
 
     # --- Select the granules to read. ---
     if bbox is None and not date_filtering:
@@ -1286,7 +1456,6 @@ def database_export(
     click.echo(f"Reading {total:,} granule(s) ...")
 
     gdfs = []
-    photon_count = 0
     for i, (_, row) in enumerate(granule_rows.iterrows(), start=1):
         fpath = os.path.join(db.granules_dir, row["filename"])
         if not os.path.exists(fpath):
@@ -1296,12 +1465,13 @@ def database_export(
         gdf = ev.nc_to_geodataframe(fpath, classes=class_list)
         if bbox is not None:
             gdf = ev.subset_gdf_to_bbox(gdf, bbox)
+        if target.geometry is not None:
+            gdf = ev.subset_gdf_to_geometry(gdf, target.geometry)
         if date_filtering:
             gdf = ev.subset_gdf_to_date_range(gdf, dt_min, dt_max)
 
         if len(gdf) > 0:
             gdfs.append(gdf)
-            photon_count += len(gdf)
 
         if verbose:
             click.echo(f"  [{i}/{total}] {row['filename']}: {len(gdf):,} photons")
@@ -1317,16 +1487,7 @@ def database_export(
     # --- Write the requested format(s). ---
     out_base = output or os.path.join(os.getcwd(), "ivert_photons")
     written = ev.write_vector_multi(merged, out_base, fmt_keys, overwrite=overwrite)
-
-    if not written:
-        click.echo(
-            "\nNo files written (all target files already exist; use -ow to overwrite).",
-        )
-        return
-
-    click.echo(f"\nExported {len(merged):,} photons to {len(written)} file(s):")
-    for path in written:
-        click.echo(f"  {path}")
+    _echo_export_summary(written, len(merged), "photons")
 
 
 ###############################################################
