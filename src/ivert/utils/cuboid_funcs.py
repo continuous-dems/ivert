@@ -1,4 +1,5 @@
-# import numpy as np
+import numpy
+
 # from itertools import product
 
 # def decompose_axis_aligned_polyhedron_general(vertices, faces, tol=1e-9):
@@ -423,6 +424,73 @@ def cuboids_intersect(c1, c2, tol=1e-10, bbox_order="point"):
     overlap_z = (z1_min < z2_max - tol) and (z1_max > z2_min + tol)
 
     return overlap_x and overlap_y and overlap_z
+
+
+def cuboids_intersect_vectorized(
+    xmin,
+    xmax,
+    ymin,
+    ymax,
+    zmin,
+    zmax,
+    query,
+    tol=1e-10,
+    bbox_order="axis",
+):
+    """Vectorized form of cuboids_intersect: test many cuboids against one query.
+
+    Parameters
+    ----------
+    xmin, xmax, ymin, ymax, zmin, zmax : array-like
+        Per-cuboid bounds, all the same length (one entry per candidate cuboid).
+        For the IVERT granule index the "z" axis carries time (tmin/tmax), but
+        the math is identical for any third axis.
+    query : tuple
+        A single cuboid to test every candidate against, in `bbox_order` layout.
+    tol : float
+        Small tolerance for floating-point comparisons.
+    bbox_order : str
+        Layout of `query` (see cuboids_intersect): 'axis'/'xxyyzz' (default) is
+        (xmin, xmax, ymin, ymax, zmin, zmax); 'point'/'xyzxyz' is
+        (xmin, ymin, zmin, xmax, ymax, zmax).
+
+    Returns
+    -------
+    numpy.ndarray
+        Boolean mask, True wherever the candidate intersects `query` by positive
+        volume (same strict-inequality, tolerance-based test as cuboids_intersect).
+
+    """
+    bbox_order = bbox_order.lower().strip()
+    if bbox_order == "xyzxyz":
+        bbox_order = "point"
+    elif bbox_order == "xxyyzz":
+        bbox_order = "axis"
+
+    if bbox_order == "point":
+        qxmin, qymin, qzmin, qxmax, qymax, qzmax = tuple(query)
+    elif bbox_order == "axis":
+        qxmin, qxmax, qymin, qymax, qzmin, qzmax = tuple(query)
+    else:
+        raise ValueError(
+            f"Invalid bbox_order: {bbox_order}. Must be 'point' or 'axis'.",
+        )
+
+    xmin = numpy.asarray(xmin)
+    xmax = numpy.asarray(xmax)
+    ymin = numpy.asarray(ymin)
+    ymax = numpy.asarray(ymax)
+    zmin = numpy.asarray(zmin)
+    zmax = numpy.asarray(zmax)
+
+    return (
+        (xmin < qxmax - tol)
+        & (xmax > qxmin + tol)
+        & (ymin < qymax - tol)
+        & (ymax > qymin + tol)
+        & (zmin < qzmax - tol)
+        & (zmax > qzmin + tol)
+    )
 
 
 #################################################################################

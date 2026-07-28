@@ -28,7 +28,6 @@ import ivert.plot_validation_results
 import ivert.transform_points
 import ivert.utils.configfile
 import ivert.utils.loggerproc
-import ivert.utils.pickle_blosc
 import ivert.utils.split_dem
 from ivert.utils import dem_geom, parallel_funcs, progress_bar
 
@@ -53,11 +52,9 @@ def read_dataframe_file(df_filename: str) -> pandas.DataFrame:
         dataframe = pandas.read_csv(df_filename)
     elif ext == ".feather":
         dataframe = pandas.read_feather(df_filename)
-    elif ext == ".blosc2":
-        dataframe = ivert.utils.pickle_blosc.read(df_filename)
     else:
         raise NotImplementedError(
-            f"ERROR: Unknown dataframe file extension '{ext}'. (Currently supporting .pickle, .h5, .hdf, .csv, .txt, .feather, or .blosc2)",
+            f"ERROR: Unknown dataframe file extension '{ext}'. (Currently supporting .pickle, .h5, .hdf, .csv, .txt, or .feather)",
         )
 
     return dataframe

@@ -1,6 +1,6 @@
 # ivert database
 
-Manage the local IVERT ICESat-2 photon database. IVERT stores downloaded photon data as NetCDF granule files (`.nc`) indexed by a GeoPackage (`.gpkg`) for fast spatial lookup. The database location is set by `icesat2_granules_directory` in your config (see [ivert options](options.md)).
+Manage the local IVERT ICESat-2 photon database. IVERT stores downloaded photon data as NetCDF granule files (`.nc`) indexed by a single NetCDF index file (`.nc`) for fast spatial lookup. The database location is set by `ivert_database_directory` (and the index file by `ivert_database_index`) in your config (see [ivert options](options.md)).
 
 ---
 
@@ -174,7 +174,7 @@ Report the number of files and disk space used by each part of the database.
 ivert database size
 ```
 
-Output shows: GeoPackage index (`.gpkg`), blosc index, and raw granule files (`.nc`).
+Output shows: the NetCDF index file (`.nc`) and the raw granule files (`.nc`).
 
 ---
 
@@ -186,7 +186,7 @@ Reconstruct the database index by scanning existing `.nc` granule files on disk.
 ivert database rebuild
 ```
 
-Use this if the index (`.gpkg` / blosc files) becomes corrupted or out of sync with the granule files — for example after an interrupted download.
+Use this if the index file becomes corrupted or out of sync with the granule files — for example after an interrupted download.
 
 ---
 
@@ -204,7 +204,7 @@ ivert database delete --all
 | `-a, --all` | Also delete all `.nc` granule data files (full removal) |
 | `-y, --yes` | Skip the confirmation prompt |
 
-Without `--all`, only the index (`.gpkg` and blosc files) is deleted; the granule `.nc` files remain on disk and can be re-indexed with `ivert database rebuild`.
+Without `--all`, only the index file is deleted; the granule `.nc` files remain on disk and can be re-indexed with `ivert database rebuild`.
 
 ---
 

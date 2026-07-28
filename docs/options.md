@@ -44,7 +44,7 @@ ivert options user_data_directory=/mnt/external/ivert
 You can set multiple values at once:
 
 ```
-ivert options cache_directory=/fast_ssd/ivert/cache icesat2_granules_directory=/fast_ssd/ivert/granules
+ivert options cache_directory=/fast_ssd/ivert/cache ivert_database_directory=/fast_ssd/ivert/granules
 ```
 
 If the value contains spaces or special shell characters, wrap it in quotes:
@@ -75,7 +75,7 @@ cache_directory = ~/projects/coastal_survey/ivert/cache
 [DEFAULT]
 user_data_directory = /mnt/archive/ivert
 cache_directory = /mnt/archive/ivert/cache
-icesat2_granules_directory = /mnt/archive/ivert/icesat2/granules
+ivert_database_directory = /mnt/archive/ivert/database/granules
 ```
 
 ### Switching with the `--config` flag
