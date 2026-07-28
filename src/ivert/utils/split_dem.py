@@ -1,4 +1,3 @@
-#!python3
 """Quick utility for splitting a large DEM into sub-segments to ease processing constraints."""
 
 import glob

@@ -99,7 +99,6 @@ ignore = [
     "EM101",    # raw-string-in-exception
     "EM102",    # f-string-in-exception
     "ERA001",   # commented-out-code
-    "EXE001",   # shebang-not-executable
     "FBT001",   # boolean-type-hint-positional-argument
     "FBT002",   # boolean-default-value-positional-argument
     "FBT003",   # boolean-positional-value-in-call

@@ -1,5 +1,3 @@
-#!/usr/bin/env python
-
 """ivert.photon_classes
 ~~~~~~~~~~~~~~~~~~~~~~
 Single source of truth for ICESat-2 photon classification codes.

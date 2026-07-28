@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """plot_photon_clouds_v2.py — plot classified ICESat-2 photon curtains from .nc granule files.
 
 Usage
