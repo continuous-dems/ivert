@@ -143,7 +143,6 @@ ignore = [
     "PTH208",   # os-listdir
     "RET503",   # implicit-return
     "RET504",   # unnecessary-assign
-    "RSE102",   # unnecessary-paren-on-raise-exception
     "RUF001",   # ambiguous-unicode-character-string
     "RUF002",   # ambiguous-unicode-character-docstring
     "RUF005",   # collection-literal-concatenation

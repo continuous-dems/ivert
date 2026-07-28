@@ -944,7 +944,7 @@ def database_download(
             "\nContinue with the download anyway?",
             default=False,
         ):
-            raise click.Abort()
+            raise click.Abort
 
     class_list = tuple(int(c) for c in classes.split("/"))
 
@@ -1443,7 +1443,7 @@ def database_export(
             err=True,
         )
         if not click.confirm("\nContinue with the export anyway?", default=False):
-            raise click.Abort()
+            raise click.Abort
 
     # --- Read, subset, and merge granules. ---
     import geopandas
