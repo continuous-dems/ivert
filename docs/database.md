@@ -95,7 +95,7 @@ Photon class codes:
 
 ## export
 
-Export photons from the database to common GIS vector formats. Each exported photon carries its full set of fields: `x`, `y`, `z`, `class_code`, `class_name`, `confidence`, `delta_time`, `granule_id`, and (where present) `bathy_confidence`.
+Export data from the database to common GIS vector formats. Each exported photon carries its full set of fields: `x`, `y`, `z`, `class_code`, `class_name`, `confidence`, `delta_time`, `granule_id`, and (where present) `bathy_confidence`.
 
 ```
 ivert database export [BBOX_OR_FILE] [OPTIONS]
@@ -103,7 +103,7 @@ ivert database export [BBOX_OR_FILE] [OPTIONS]
 
 ### Choosing what to export
 
-With no region argument, the **entire database** is exported. Optionally restrict the export to one geographic area — either a bounding box or a georeferenced file (a raster or a polygon-vector file) whose extent defines the region:
+The positional argument says what to export. With no argument, the **entire database** is exported.
 
 ```
 # Export the whole database (default output: ./ivert_photons.gpkg)
@@ -115,22 +115,37 @@ ivert database export -- -74.0/-73.0/40.5/41.0
 # Use --wsen if your numbers are in W/S/E/N order
 ivert database export --wsen -- -74.0/40.5/-73.0/41.0
 
-# Use the extent of a raster or polygon-vector file
+# Use the extent of a georeferenced raster
 ivert database export mydem.tif
+
+# Export only the photons inside the polygon(s) of a vector file
 ivert database export coastline.gpkg
+
+# Export one IVERT photon granule in its entirety
+ivert database export ~/.ivert/database/granules/ATL24_20230419_x-74.00y40.50.nc
+
+# Export the database index as polygon footprints, one per granule
+ivert database export ~/.ivert/database/granules/_ivert_database_index.nc
 ```
 
-> **Note:** Because the region argument is variable-length, put any options *before* a `--` delimiter when the bounding box begins with a negative number (e.g. `ivert database export -c 40/41 -- -74.0/-73.0/40.5/41.0`).
+A **polygon-vector file** (`.shp`, `.gpkg`, `.geojson`, `.gml`, `.kml`) defines the area — or set of areas — to export: photons are clipped to the polygons themselves, not just to their combined rectangular extent, so disjoint polygons export only the data inside each one. Files with no polygonal geometry fall back to their bounding-box extent.
+
+A **`.nc` file** is exported directly off disk, with no database lookup, and IVERT detects which kind it is from the file's contents:
+
+- an **IVERT photon granule** exports in its entirety, as a point layer. This is the way to pull one specific granule out of the database — and, looping over the granule files, to export the whole database one granule at a time. The `--classes` and date options still apply.
+- the **IVERT database index** (`_ivert_database_index.nc`) exports as a *polygon* layer: one rectangle per granule, drawn from its `data_bbox`, carrying every index field. Because it holds polygons rather than points, it cannot be exported as `xyz`, and the photon filters (`--classes`, `--start-date`, `--end-date`) do not apply to it.
+
+> **Note:** Because the positional argument is variable-length, put any options *before* a `--` delimiter when the bounding box begins with a negative number (e.g. `ivert database export -c 40/41 -- -74.0/-73.0/40.5/41.0`).
 
 ### Output format options
 
 | Flag | Default | Description |
 |------|---------|-------------|
 | `-of, --output-format FORMATS` | `gpkg` | Vector format(s): `gpkg`, `shp`, `xyz`, or a comma-separated combination (e.g. `gpkg,shp`) |
-| `-o, --output PATH` | `./ivert_photons` | Output file path. The correct extension is added per format, so multiple formats share this base name |
+| `-o, --output PATH` | `./ivert_photons` | Output file path. The correct extension is added per format, so multiple formats share this base name. When exporting a single `.nc` file, the default is the input file's name (`./ivert_database_index` for the index) |
 | `-ow, --overwrite` | | Overwrite existing output files (otherwise formats whose file already exists are skipped) |
 
-Shapefiles (`shp`) drop the `class_name` and `granule_id` fields, which exceed the format's field-name/length limits; `gpkg` and `xyz` retain all fields.
+Shapefiles (`shp`) drop the `class_name` and `granule_id` photon fields, which exceed the format's field-name/length limits; `gpkg` and `xyz` retain all fields. Database-index exports to `shp` keep every field, under shortened names (e.g. `numphotons_bathy_floor` → `n_bathyflr`, `data_bbox_xmin` → `d_xmin`).
 
 ### Filtering options
 
@@ -139,6 +154,8 @@ Shapefiles (`shp`) drop the `class_name` and `granule_id` fields, which exceed t
 | `-c, --classes TEXT` | all classes | Slash-separated photon class codes to include (e.g. `40/41`). See [class codes](#photon-class-options) above, or run `ivert classes` |
 | `-ds, --start-date TEXT` | no lower bound | Only export photons on or after this date. Accepts dateparser formats: `2023-01-01`, `"1 year ago"`, `20230101` |
 | `-de, --end-date TEXT` | no upper bound | Only export photons before this date |
+
+These filter individual photons, so they apply to every export except the database index, where they are ignored (with a note printed).
 
 ### Other options
 
@@ -244,4 +261,15 @@ ivert database export -of gpkg,shp -c 40/41 -o bahamas_bathy -- -78.5/-77.0/24.0
 **Export the whole database (all photons) to an XYZ text file:**
 ```
 ivert database export -of xyz -o all_photons
+```
+
+**Export the photons inside a set of polygons:**
+```
+ivert database export study_areas.gpkg -o study_area_photons
+```
+
+**Export one granule, and the database index as granule footprints:**
+```
+ivert database export ~/.ivert/database/granules/ATL24_20230419_x-74.00y40.50.nc
+ivert database export ~/.ivert/database/granules/_ivert_database_index.nc -of gpkg,shp
 ```
