@@ -166,6 +166,5 @@ ignore = [
     "TRY003",   # raise-vanilla-args
     "TRY004",   # type-check-without-type-error
     "TRY300",   # try-consider-else
-    "UP030",    # format-literals
     "UP031",    # printf-string-formatting
 ]
