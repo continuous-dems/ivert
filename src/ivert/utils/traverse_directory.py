@@ -31,10 +31,10 @@ def _list_files_recurse(dirname, regex_match=None, depth=-1):
     for entryname in fpath_list:
         try:
             fpath = os.path.join(dirname, entryname)
-        except TypeError as e:
+        except TypeError:
             print("dirname:", dirname)
             print("entryname:", entryname)
-            raise e
+            raise
         if (depth == -1 or depth > 0) and os.path.isdir(fpath):
             file_list.extend(
                 _list_files_recurse(

@@ -36,7 +36,7 @@ def get_dem_reference_frame_from_user_input(
     """
     if crs is None or crs == "":
         crs_obj = None
-    elif isinstance(crs, rasterio.crs.CRS) or isinstance(crs, pyproj.CRS):
+    elif isinstance(crs, (rasterio.crs.CRS, pyproj.CRS)):
         crs_obj = pyproj.CRS(crs)
     else:
         crs_obj = pyproj.CRS.from_user_input(crs)

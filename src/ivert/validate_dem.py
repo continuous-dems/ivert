@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Created on Tue Jun 22 16:06:21 2021
 
 @author: mmacferrin
@@ -1178,9 +1177,9 @@ def _compute_photon_overlap(
                 cache_dir=cache_dir,
             )
         )
-    except (ValueError, RuntimeError) as e:
+    except (ValueError, RuntimeError):
         print("Warning: Unable to perform transformation. Using original points.")
-        raise e
+        raise
 
     if exclude_zones:
         exclude_geom = _resolve_exclude_geometry(exclude_zones, dem_epsg_str)
@@ -1693,7 +1692,7 @@ def _write_validation_outputs(
 
     if verbose:
         print(
-            "{0:,} valid interdecile photon records in {1:,} DEM cells.".format(
+            "{:,} valid interdecile photon records in {:,} DEM cells.".format(
                 results_dataframe["numphotons_intd"].sum(),
                 len(results_dataframe),
             ),
@@ -2032,12 +2031,12 @@ def write_summary_stats_file(
     lines = []
     lines.append(f"Number of DEM cells validated (cells): {len(results_df)}")
     lines.append(
-        "Total number of ground photons used to validate this DEM (photons): {0}".format(
+        "Total number of ground photons used to validate this DEM (photons): {}".format(
             results_df["numphotons_intd"].sum(),
         ),
     )
     lines.append(
-        "Mean number of photons used to validate each cell (photons): {0}".format(
+        "Mean number of photons used to validate each cell (photons): {}".format(
             _format_stat(results_df["numphotons_intd"].mean()),
         ),
     )
@@ -2052,7 +2051,7 @@ def write_summary_stats_file(
     )
 
     lines.append(
-        "Number of cells with bathymetry photons: {0:d}".format(
+        "Number of cells with bathymetry photons: {:d}".format(
             numpy.count_nonzero(results_df["numphotons_bathy"] > 0),
         ),
     )
@@ -2061,7 +2060,7 @@ def write_summary_stats_file(
     # lines.append("% of cells with >0 measured canopy (%): {0}".format((numpy.count_nonzero(results_df.canopy_fraction > 0.0) / len(results_df))*100))
     # lines.append("Mean canopy cover in 'wooded' cells containing >0 canopy (% cover): {0}".format(results_df[results_df["canopy_fraction"] > 0]["canopy_fraction"].mean()*100))
     lines.append(
-        "Mean roughness (stddev. of photon elevations within each cell (m)): {0}".format(
+        "Mean roughness (stddev. of photon elevations within each cell (m)): {}".format(
             _format_stat(results_df["stddev"].mean()),
         ),
     )

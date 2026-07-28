@@ -174,10 +174,10 @@ class ICESat2RequestsCSV:
                 try:
                     self.df = pandas.read_csv(self.csv_file, index_col=False)
                     break
-                except (TypeError, pandas.errors.ParserError) as e:
+                except (TypeError, pandas.errors.ParserError):
                     num_tries += 1
                     if num_tries >= 20:
-                        raise e
+                        raise
                     time.sleep(0.001)
             self.df["bbox"] = self.df["bbox"].apply(ast.literal_eval)
         elif create_if_nonexistent:

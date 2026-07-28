@@ -355,8 +355,8 @@ def validate_list_of_dems(
                 print(f"Skipping {os.path.basename(dem_path)} due to memory error.")
             continue
 
-        except KeyboardInterrupt as e:
-            raise e
+        except KeyboardInterrupt:
+            raise
 
         except Exception:
             if verbose:

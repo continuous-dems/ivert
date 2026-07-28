@@ -1,5 +1,3 @@
-#!/usr/bin/env python
-
 """ivert.cli
 ~~~~~~~~~
 Command-line interface for the ICESat-2 Validation of Elevations Reporting Tool (IVERT).
@@ -570,7 +568,7 @@ def database_list(show_all, boxes):
         unique_boxes = sorted(
             {tuple(r) for r in gdf[qcols].itertuples(index=False)},
         )
-        rows = [b[:4] + (_fmt_date(b[4]), _fmt_date(b[5])) for b in unique_boxes]
+        rows = [(*b[:4], _fmt_date(b[4]), _fmt_date(b[5])) for b in unique_boxes]
         headers = ["Xmin", "Xmax", "Ymin", "Ymax", "Date Start", "Date End"]
         click.echo(tabulate_mod.tabulate(rows, headers=headers, tablefmt="simple"))
         click.echo(f"\n{len(unique_boxes)} unique query box(es)  —  db: {db.db_fname}")
@@ -944,7 +942,7 @@ def database_download(
             "\nContinue with the download anyway?",
             default=False,
         ):
-            raise click.Abort()
+            raise click.Abort
 
     class_list = tuple(int(c) for c in classes.split("/"))
 
@@ -1443,7 +1441,7 @@ def database_export(
             err=True,
         )
         if not click.confirm("\nContinue with the export anyway?", default=False):
-            raise click.Abort()
+            raise click.Abort
 
     # --- Read, subset, and merge granules. ---
     import geopandas
@@ -1724,7 +1722,7 @@ def _run_validate(
 
     classes = [1, 6, 40]
     if buildings:
-        classes = sorted(classes + [7])
+        classes = sorted([*classes, 7])
 
     if len(expanded) == 1 and os.path.isfile(expanded[0]):
         # validate_dem uses output_dir as-is, so resolve any relative path against
@@ -1736,21 +1734,21 @@ def _run_validate(
             )
         else:
             single_outdir = outdir
-        kwargs = dict(
-            dem_name=expanded[0],
-            output_dir=single_outdir,
-            classes=classes,
-            band_num=band_num,
-            outliers_sd_threshold=outlier_sd_threshold,
-            include_photon_level_validation=include_photons,
-            location_name=region_name,
-            measure_coverage=measure_coverage,
-            min_coverage_pct=minimum_coverage_pct,
-            min_confidence_level=confidence_level,
-            min_bathy_confidence=bathy_confidence,
-            verbose=verbose,
-            overwrite=overwrite,
-        )
+        kwargs = {
+            "dem_name": expanded[0],
+            "output_dir": single_outdir,
+            "classes": classes,
+            "band_num": band_num,
+            "outliers_sd_threshold": outlier_sd_threshold,
+            "include_photon_level_validation": include_photons,
+            "location_name": region_name,
+            "measure_coverage": measure_coverage,
+            "min_coverage_pct": minimum_coverage_pct,
+            "min_confidence_level": confidence_level,
+            "min_bathy_confidence": bathy_confidence,
+            "verbose": verbose,
+            "overwrite": overwrite,
+        }
         if vdatum != "NONE_PROVIDED":
             kwargs["dem_vertical_datum"] = vdatum
         if ndv_float is not None:
@@ -1772,21 +1770,21 @@ def _run_validate(
             multi_outdir = os.path.join(dem_dir, outdir)
         else:
             multi_outdir = outdir
-        kwargs = dict(
-            dem_list_or_dir=dem_input,
-            output_dir=multi_outdir,
-            classes=classes,
-            band_num=band_num,
-            place_name=region_name,
-            include_photon_validation=include_photons,
-            measure_coverage=measure_coverage,
-            min_coverage_pct=minimum_coverage_pct,
-            outliers_sd_threshold=outlier_sd_threshold,
-            min_confidence_level=confidence_level,
-            min_bathy_confidence=bathy_confidence,
-            verbose=verbose,
-            overwrite=overwrite,
-        )
+        kwargs = {
+            "dem_list_or_dir": dem_input,
+            "output_dir": multi_outdir,
+            "classes": classes,
+            "band_num": band_num,
+            "place_name": region_name,
+            "include_photon_validation": include_photons,
+            "measure_coverage": measure_coverage,
+            "min_coverage_pct": minimum_coverage_pct,
+            "outliers_sd_threshold": outlier_sd_threshold,
+            "min_confidence_level": confidence_level,
+            "min_bathy_confidence": bathy_confidence,
+            "verbose": verbose,
+            "overwrite": overwrite,
+        }
         if vdatum != "NONE_PROVIDED":
             kwargs["input_vdatum"] = vdatum
         if ndv_float is not None:

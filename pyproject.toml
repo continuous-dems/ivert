@@ -78,7 +78,6 @@ ignore = [
     "C401",     # unnecessary-generator-set
     "C403",     # unnecessary-list-comprehension-set
     "C404",     # unnecessary-list-comprehension-dict
-    "C408",     # unnecessary-collection-call
     "C414",     # unnecessary-double-cast-or-process
     "C901",     # complex-structure
     "D100",     # undocumented-public-module
@@ -100,12 +99,10 @@ ignore = [
     "EM101",    # raw-string-in-exception
     "EM102",    # f-string-in-exception
     "ERA001",   # commented-out-code
-    "EXE001",   # shebang-not-executable
     "FBT001",   # boolean-type-hint-positional-argument
     "FBT002",   # boolean-default-value-positional-argument
     "FBT003",   # boolean-positional-value-in-call
     "FIX002",   # line-contains-todo
-    "FURB110",  # if-exp-instead-of-or-operator
     "ICN001",   # unconventional-import-alias
     "N801",     # invalid-class-name
     "N802",     # invalid-function-name
@@ -144,10 +141,8 @@ ignore = [
     "PTH208",   # os-listdir
     "RET503",   # implicit-return
     "RET504",   # unnecessary-assign
-    "RSE102",   # unnecessary-paren-on-raise-exception
     "RUF001",   # ambiguous-unicode-character-string
     "RUF002",   # ambiguous-unicode-character-docstring
-    "RUF005",   # collection-literal-concatenation
     "RUF012",   # mutable-class-default
     "RUF013",   # implicit-optional
     "RUF015",   # unnecessary-iterable-allocation-for-first-element
@@ -158,7 +153,6 @@ ignore = [
     "S603",     # subprocess-without-shell-equals-true
     "S605",     # start-process-with-a-shell
     "S607",     # start-process-with-partial-path
-    "SIM101",   # duplicate-isinstance-call
     "SIM102",   # collapsible-if
     "SIM105",   # suppressible-exception
     "SIM115",   # open-file-with-context-handler
@@ -170,8 +164,6 @@ ignore = [
     "TD003",    # missing-todo-link
     "TRY003",   # raise-vanilla-args
     "TRY004",   # type-check-without-type-error
-    "TRY201",   # verbose-raise
     "TRY300",   # try-consider-else
-    "UP030",    # format-literals
     "UP031",    # printf-string-formatting
 ]

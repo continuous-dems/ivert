@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """export_vector — convert IVERT NetCDF files to GIS vector formats.
 
 Reads the .nc files produced by IS2Database._process_h5_to_nc() and writes them

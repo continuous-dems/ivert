@@ -156,7 +156,12 @@ def plot_errors_against_slope_centrality(
         transform=ax1.transAxes,
     )
     txt.set_bbox(
-        dict(facecolor="white", alpha=0.7, edgecolor="white", boxstyle="square,pad=0"),
+        {
+            "facecolor": "white",
+            "alpha": 0.7,
+            "edgecolor": "white",
+            "boxstyle": "square,pad=0",
+        },
     )
 
     coverage_pct = coverage_frac * 100
@@ -244,7 +249,12 @@ def plot_errors_against_slope_centrality(
         transform=ax4.transAxes,
     )
     txt.set_bbox(
-        dict(facecolor="white", alpha=0.7, edgecolor="white", boxstyle="square,pad=0"),
+        {
+            "facecolor": "white",
+            "alpha": 0.7,
+            "edgecolor": "white",
+            "boxstyle": "square,pad=0",
+        },
     )
 
     txt = ax4.text(
@@ -257,7 +267,12 @@ def plot_errors_against_slope_centrality(
         transform=ax4.transAxes,
     )
     txt.set_bbox(
-        dict(facecolor="white", alpha=0.7, edgecolor="white", boxstyle="square,pad=0"),
+        {
+            "facecolor": "white",
+            "alpha": 0.7,
+            "edgecolor": "white",
+            "boxstyle": "square,pad=0",
+        },
     )
 
     fig.tight_layout()

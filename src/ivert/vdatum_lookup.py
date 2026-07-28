@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """ivert.vdatum_lookup
 ~~~~~~~~~~~~~~~~~~~
 Translate common vertical datum names to formal EPSG code strings.

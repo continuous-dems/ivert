@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """plot_photon_clouds_v2.py — plot classified ICESat-2 photon curtains from .nc granule files.
 
 Usage
@@ -35,16 +34,16 @@ from ivert.photon_classes import class_labels
 # Visual attributes only; legend labels come from ivert.photon_classes so they
 # stay in sync with the globato classifier.
 CLASS_STYLE = {
-    0: dict(color="grey", zorder=0.5, alpha=0.5, s=1),
-    1: dict(color="saddlebrown", zorder=2, alpha=1.0, s=3),
-    2: dict(color="limegreen", zorder=1, alpha=0.8, s=2),
-    3: dict(color="forestgreen", zorder=2, alpha=0.9, s=2),
-    7: dict(color="red", zorder=2, alpha=0.8, s=2),
-    40: dict(color="darkorange", zorder=3, alpha=1.0, s=3),
-    41: dict(color="dodgerblue", zorder=1, alpha=0.6, s=1),
-    42: dict(color="dodgerblue", zorder=1, alpha=0.6, s=1),
+    0: {"color": "grey", "zorder": 0.5, "alpha": 0.5, "s": 1},
+    1: {"color": "saddlebrown", "zorder": 2, "alpha": 1.0, "s": 3},
+    2: {"color": "limegreen", "zorder": 1, "alpha": 0.8, "s": 2},
+    3: {"color": "forestgreen", "zorder": 2, "alpha": 0.9, "s": 2},
+    7: {"color": "red", "zorder": 2, "alpha": 0.8, "s": 2},
+    40: {"color": "darkorange", "zorder": 3, "alpha": 1.0, "s": 3},
+    41: {"color": "dodgerblue", "zorder": 1, "alpha": 0.6, "s": 1},
+    42: {"color": "dodgerblue", "zorder": 1, "alpha": 0.6, "s": 1},
 }
-DEFAULT_STYLE = dict(color="lightgrey", zorder=0, alpha=0.3, s=1)
+DEFAULT_STYLE = {"color": "lightgrey", "zorder": 0, "alpha": 0.3, "s": 1}
 
 DEM_COLORS = ["dimgrey", "purple", "darkcyan", "darkmagenta", "darkgoldenrod"]
 
