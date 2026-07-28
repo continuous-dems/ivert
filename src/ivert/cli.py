@@ -570,7 +570,7 @@ def database_list(show_all, boxes):
         unique_boxes = sorted(
             {tuple(r) for r in gdf[qcols].itertuples(index=False)},
         )
-        rows = [b[:4] + (_fmt_date(b[4]), _fmt_date(b[5])) for b in unique_boxes]
+        rows = [(*b[:4], _fmt_date(b[4]), _fmt_date(b[5])) for b in unique_boxes]
         headers = ["Xmin", "Xmax", "Ymin", "Ymax", "Date Start", "Date End"]
         click.echo(tabulate_mod.tabulate(rows, headers=headers, tablefmt="simple"))
         click.echo(f"\n{len(unique_boxes)} unique query box(es)  —  db: {db.db_fname}")
@@ -1724,7 +1724,7 @@ def _run_validate(
 
     classes = [1, 6, 40]
     if buildings:
-        classes = sorted(classes + [7])
+        classes = sorted([*classes, 7])
 
     if len(expanded) == 1 and os.path.isfile(expanded[0]):
         # validate_dem uses output_dir as-is, so resolve any relative path against

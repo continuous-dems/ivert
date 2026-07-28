@@ -144,7 +144,6 @@ ignore = [
     "RET504",   # unnecessary-assign
     "RUF001",   # ambiguous-unicode-character-string
     "RUF002",   # ambiguous-unicode-character-docstring
-    "RUF005",   # collection-literal-concatenation
     "RUF012",   # mutable-class-default
     "RUF013",   # implicit-optional
     "RUF015",   # unnecessary-iterable-allocation-for-first-element
