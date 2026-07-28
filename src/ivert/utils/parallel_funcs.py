@@ -280,7 +280,7 @@ def process_parallel(
 
     # If this process crashes or is keyboard-interrupted,
     # clean up the tempdirs and running procs, then re-raise the error to be handled elsewhere.
-    except (Exception, KeyboardInterrupt) as e:
+    except (Exception, KeyboardInterrupt):
         # Kill any running processes.
         for rproc in running_procs:
             rproc.kill()
@@ -293,4 +293,4 @@ def process_parallel(
             for fn in running_outfiles:
                 if type(fn) is str and os.path.exists(fn):
                     os.remove(fn)
-        raise e
+        raise

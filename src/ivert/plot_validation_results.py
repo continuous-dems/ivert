@@ -228,12 +228,12 @@ def plot_histograms_and_line(
             transform=ax1.transAxes,
         )
         txt.set_bbox(
-            dict(
-                facecolor="white",
-                alpha=0.85,
-                edgecolor="white",
-                boxstyle="square,pad=0",
-            ),
+            {
+                "facecolor": "white",
+                "alpha": 0.85,
+                "edgecolor": "white",
+                "boxstyle": "square,pad=0",
+            },
         )
 
         # If requested, add the RMSE value to the figure.
@@ -249,12 +249,12 @@ def plot_histograms_and_line(
                 transform=ax1.transAxes,
             )
             txt_std.set_bbox(
-                dict(
-                    facecolor="white",
-                    alpha=0.95,
-                    edgecolor="white",
-                    boxstyle="square,pad=0",
-                ),
+                {
+                    "facecolor": "white",
+                    "alpha": 0.95,
+                    "edgecolor": "white",
+                    "boxstyle": "square,pad=0",
+                },
             )
 
         ax1.text(
@@ -329,12 +329,12 @@ def plot_histograms_and_line(
             transform=ax2.transAxes,
         )
         txt.set_bbox(
-            dict(
-                facecolor="white",
-                alpha=0.85,
-                edgecolor="white",
-                boxstyle="square,pad=0",
-            ),
+            {
+                "facecolor": "white",
+                "alpha": 0.85,
+                "edgecolor": "white",
+                "boxstyle": "square,pad=0",
+            },
         )
 
         # If requested, add the RMSE value to the figure.
@@ -350,12 +350,12 @@ def plot_histograms_and_line(
                 transform=ax2.transAxes,
             )
             txt_std.set_bbox(
-                dict(
-                    facecolor="white",
-                    alpha=0.95,
-                    edgecolor="white",
-                    boxstyle="square,pad=0",
-                ),
+                {
+                    "facecolor": "white",
+                    "alpha": 0.95,
+                    "edgecolor": "white",
+                    "boxstyle": "square,pad=0",
+                },
             )
 
         ax2.text(
@@ -571,7 +571,12 @@ def plot_histogram_and_error_stats_4_panels(
         transform=ax1.transAxes,
     )
     txt.set_bbox(
-        dict(facecolor="white", alpha=0.85, edgecolor="white", boxstyle="square,pad=0"),
+        {
+            "facecolor": "white",
+            "alpha": 0.85,
+            "edgecolor": "white",
+            "boxstyle": "square,pad=0",
+        },
     )
 
     # If requested, as the RMSE value to the figure.
@@ -587,12 +592,12 @@ def plot_histogram_and_error_stats_4_panels(
             transform=ax1.transAxes,
         )
         txt_std.set_bbox(
-            dict(
-                facecolor="white",
-                alpha=0.85,
-                edgecolor="white",
-                boxstyle="square,pad=0",
-            ),
+            {
+                "facecolor": "white",
+                "alpha": 0.85,
+                "edgecolor": "white",
+                "boxstyle": "square,pad=0",
+            },
         )
 
     # Add subplot label "a"

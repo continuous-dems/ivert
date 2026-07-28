@@ -1178,9 +1178,9 @@ def _compute_photon_overlap(
                 cache_dir=cache_dir,
             )
         )
-    except (ValueError, RuntimeError) as e:
+    except (ValueError, RuntimeError):
         print("Warning: Unable to perform transformation. Using original points.")
-        raise e
+        raise
 
     if exclude_zones:
         exclude_geom = _resolve_exclude_geometry(exclude_zones, dem_epsg_str)

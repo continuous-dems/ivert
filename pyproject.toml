@@ -78,7 +78,6 @@ ignore = [
     "C401",     # unnecessary-generator-set
     "C403",     # unnecessary-list-comprehension-set
     "C404",     # unnecessary-list-comprehension-dict
-    "C408",     # unnecessary-collection-call
     "C414",     # unnecessary-double-cast-or-process
     "C901",     # complex-structure
     "D100",     # undocumented-public-module
@@ -170,7 +169,6 @@ ignore = [
     "TD003",    # missing-todo-link
     "TRY003",   # raise-vanilla-args
     "TRY004",   # type-check-without-type-error
-    "TRY201",   # verbose-raise
     "TRY300",   # try-consider-else
     "UP030",    # format-literals
     "UP031",    # printf-string-formatting

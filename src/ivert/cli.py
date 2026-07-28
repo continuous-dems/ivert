@@ -1736,21 +1736,21 @@ def _run_validate(
             )
         else:
             single_outdir = outdir
-        kwargs = dict(
-            dem_name=expanded[0],
-            output_dir=single_outdir,
-            classes=classes,
-            band_num=band_num,
-            outliers_sd_threshold=outlier_sd_threshold,
-            include_photon_level_validation=include_photons,
-            location_name=region_name,
-            measure_coverage=measure_coverage,
-            min_coverage_pct=minimum_coverage_pct,
-            min_confidence_level=confidence_level,
-            min_bathy_confidence=bathy_confidence,
-            verbose=verbose,
-            overwrite=overwrite,
-        )
+        kwargs = {
+            "dem_name": expanded[0],
+            "output_dir": single_outdir,
+            "classes": classes,
+            "band_num": band_num,
+            "outliers_sd_threshold": outlier_sd_threshold,
+            "include_photon_level_validation": include_photons,
+            "location_name": region_name,
+            "measure_coverage": measure_coverage,
+            "min_coverage_pct": minimum_coverage_pct,
+            "min_confidence_level": confidence_level,
+            "min_bathy_confidence": bathy_confidence,
+            "verbose": verbose,
+            "overwrite": overwrite,
+        }
         if vdatum != "NONE_PROVIDED":
             kwargs["dem_vertical_datum"] = vdatum
         if ndv_float is not None:
@@ -1772,21 +1772,21 @@ def _run_validate(
             multi_outdir = os.path.join(dem_dir, outdir)
         else:
             multi_outdir = outdir
-        kwargs = dict(
-            dem_list_or_dir=dem_input,
-            output_dir=multi_outdir,
-            classes=classes,
-            band_num=band_num,
-            place_name=region_name,
-            include_photon_validation=include_photons,
-            measure_coverage=measure_coverage,
-            min_coverage_pct=minimum_coverage_pct,
-            outliers_sd_threshold=outlier_sd_threshold,
-            min_confidence_level=confidence_level,
-            min_bathy_confidence=bathy_confidence,
-            verbose=verbose,
-            overwrite=overwrite,
-        )
+        kwargs = {
+            "dem_list_or_dir": dem_input,
+            "output_dir": multi_outdir,
+            "classes": classes,
+            "band_num": band_num,
+            "place_name": region_name,
+            "include_photon_validation": include_photons,
+            "measure_coverage": measure_coverage,
+            "min_coverage_pct": minimum_coverage_pct,
+            "outliers_sd_threshold": outlier_sd_threshold,
+            "min_confidence_level": confidence_level,
+            "min_bathy_confidence": bathy_confidence,
+            "verbose": verbose,
+            "overwrite": overwrite,
+        }
         if vdatum != "NONE_PROVIDED":
             kwargs["input_vdatum"] = vdatum
         if ndv_float is not None:
