@@ -5,6 +5,7 @@ import logging
 import os
 import re
 import shutil
+from typing import ClassVar
 
 import dateparser
 import fetchez
@@ -417,7 +418,7 @@ class IS2Database:
     # to "ellipsoid" for any value it doesn't recognize (it does not raise), so
     # passing an EPSG code straight through would be a silent no-op rather than
     # an error -- always go through this lookup instead.
-    _EPSG_TO_GLOBATO_VERTICAL_DATUM = {
+    _EPSG_TO_GLOBATO_VERTICAL_DATUM: ClassVar[dict[str, str]] = {
         "EPSG:4979": "ellipsoid",
         "EPSG:3855": "geoid",
     }
@@ -498,9 +499,7 @@ class IS2Database:
             use_external_masks=use_external_masks,
         )
 
-        chunks = []
-        for chunk in stream:
-            chunks.append(pandas.DataFrame(chunk))
+        chunks = [pandas.DataFrame(chunk) for chunk in stream]
 
         if not chunks:
             return None

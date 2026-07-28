@@ -380,9 +380,7 @@ def options_list(details):
     from ivert.utils.configfile import Config, parse_option_descriptions
 
     config = Config()
-    keys = [
-        k for k in config._config["DEFAULT"].keys() if k not in _OPTIONS_EXCLUDED_KEYS
-    ]
+    keys = [k for k in config._config["DEFAULT"] if k not in _OPTIONS_EXCLUDED_KEYS]
 
     if not keys:
         click.echo("No configurable settings found.")
@@ -1502,10 +1500,11 @@ def _cache_dir():
 
 def _fmt_size(nbytes):
     """Format a byte count as a human-readable string."""
-    for unit in ("B", "KB", "MB", "GB", "TB"):
-        if nbytes < 1024 or unit == "TB":
+    for unit in ("B", "KB", "MB", "GB"):
+        if nbytes < 1024:
             return f"{nbytes:.1f} {unit}"
         nbytes /= 1024
+    return f"{nbytes:.1f} TB"
 
 
 @ivert_cli.group("cache", invoke_without_command=True)

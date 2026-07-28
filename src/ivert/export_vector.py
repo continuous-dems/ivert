@@ -97,7 +97,10 @@ def detect_nc_kind(nc_path: str) -> str | None:
 # ---------------------------------------------------------------------------
 # Core conversion
 # ---------------------------------------------------------------------------
-def nc_to_geodataframe(nc_path: str, classes: list = None) -> geopandas.GeoDataFrame:
+def nc_to_geodataframe(
+    nc_path: str,
+    classes: list | None = None,
+) -> geopandas.GeoDataFrame:
     """Read a single .nc granule file and return a GeoDataFrame.
 
     Parameters
