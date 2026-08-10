@@ -1655,6 +1655,7 @@ def _run_validate(
     band_num,
     outlier_sd_threshold,
     classes,
+    min_photons,
     buildings,
     confidence_level,
     bathy_confidence,
@@ -1758,6 +1759,7 @@ def _run_validate(
             "location_name": region_name,
             "measure_coverage": measure_coverage,
             "min_coverage_pct": minimum_coverage_pct,
+            "min_photons_per_cell": min_photons,
             "min_confidence_level": confidence_level,
             "min_bathy_confidence": bathy_confidence,
             "verbose": verbose,
@@ -1793,6 +1795,7 @@ def _run_validate(
             "include_photon_validation": include_photons,
             "measure_coverage": measure_coverage,
             "min_coverage_pct": minimum_coverage_pct,
+            "min_photons_per_cell": min_photons,
             "outliers_sd_threshold": outlier_sd_threshold,
             "min_confidence_level": confidence_level,
             "min_bathy_confidence": bathy_confidence,
@@ -1916,6 +1919,20 @@ def _run_validate(
     ),
 )
 @click.option(
+    "-mp",
+    "--min-photons",
+    "min_photons",
+    type=click.IntRange(1, None),
+    default=3,
+    show_default=True,
+    help=(
+        "Minimum number of photons a grid cell must contain to be validated. "
+        "Cells with fewer photons are omitted from the results entirely. Cells "
+        "with 5 or more photons have their outliers trimmed to the interdecile "
+        "range; cells below that use every photon they contain."
+    ),
+)
+@click.option(
     "-b",
     "--buildings",
     is_flag=True,
@@ -2028,6 +2045,7 @@ def validate(
     band_num,
     outlier_sd_threshold,
     classes,
+    min_photons,
     buildings,
     confidence_level,
     bathy_confidence,
@@ -2087,6 +2105,7 @@ def validate(
         band_num,
         outlier_sd_threshold,
         classes,
+        min_photons,
         buildings,
         confidence_level,
         bathy_confidence,

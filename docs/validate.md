@@ -56,6 +56,19 @@ ICESat-2 photons are stored either in WGS84 'ellipsoid' (EPSG:4979) or EGM2008 '
 | `-bc, --bathy-confidence F` | `0.90` | Minimum ATL24 bathymetry confidence for bathy-floor photons (0.0–1.0)           |
 | `-b, --buildings` | off | Include building-classed photons (class 7) in validation, on top of `-c/--classes` |
 | `-sd, --outlier-sd F` | `2.5` | Outlier threshold in standard deviations (use `-1` to disable)                  |
+| `-mp, --min-photons N` | `3` | Minimum photons a grid cell must contain to be validated. Cells with fewer are omitted from the results entirely |
+
+#### How per-cell statistics are computed
+
+Once a cell clears `-mp/--min-photons`, how its elevation is summarized depends on how many photons it holds:
+
+| Photons in cell | Treatment |
+|-----------------|-----------|
+| 1 | The photon's own height becomes the cell mean |
+| 2–4 | The mean of all photons in the cell; too few to identify outliers |
+| 5 or more | Photons outside the interdecile (10th–90th percentile) range are dropped as outliers, and the mean is taken over the rest |
+
+The `numphotons` column always reports the raw photon count for the cell, while `numphotons_intd` reports how many were actually used in the statistics. The two are equal for cells that were not trimmed. Setting `-mp 5` or higher guarantees every reported cell was interdecile-trimmed.
 
 ### Output options
 
