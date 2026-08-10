@@ -232,30 +232,27 @@ def validate_dem_child_process(
                     subset_df = subset_df.sample(n=photon_limit)
 
                 r_numphotons[counter] = len(subset_df)
-                # if len(subset_df) > 0:
-                #     r_canopy_fraction[counter] = (subset_df.ph_code >= 2).sum() / len(subset_df)
-                # else:
-                #     r_canopy_fraction[counter] = EMPTY_VAL
-
                 r_dem_elev[counter] = dem_elev_list[counter]
 
-                ground_only_df = subset_df[numpy.isin(subset_df.ph_code, [1, 40])]
-                if len(ground_only_df) < 3:
+                # The photon classes have already been filtered upstream (in
+                # _compute_photon_overlap), so every photon here is one the user
+                # asked to validate against.
+                if len(subset_df) < 3:
                     r_range[counter] = EMPTY_VAL
                     r_10p[counter] = EMPTY_VAL
                     r_90p[counter] = EMPTY_VAL
                     r_interdecile[counter] = EMPTY_VAL
                     r_numphotons_bathy[counter] = numpy.count_nonzero(
-                        ground_only_df.ph_code == 40,
+                        subset_df.ph_code == 40,
                     )
-                    r_numphotons_intd[counter] = len(ground_only_df)
+                    r_numphotons_intd[counter] = len(subset_df)
                     r_mean[counter] = EMPTY_VAL
                     r_median[counter] = EMPTY_VAL
                     r_std[counter] = EMPTY_VAL
                     r_mean_diff[counter] = EMPTY_VAL
                     r_med_diff[counter] = EMPTY_VAL
                 else:
-                    height_desc = ground_only_df.height.describe(
+                    height_desc = subset_df.height.describe(
                         percentiles=[0.10, 0.90],
                     )
                     r_range[counter] = height_desc["max"] - height_desc["min"]
@@ -267,11 +264,10 @@ def validate_dem_child_process(
                     # Get only the photons within the inter-decile range
                     # cph_z_intd = cph_z[(cph_z >= zp10) & (cph_z <= zp90)]
                     r_numphotons_bathy[counter] = numpy.count_nonzero(
-                        ground_only_df.ph_code == 40,
+                        subset_df.ph_code == 40,
                     )
-                    df_intd = ground_only_df[
-                        (ground_only_df.height >= zp10)
-                        & (ground_only_df.height <= zp90)
+                    df_intd = subset_df[
+                        (subset_df.height >= zp10) & (subset_df.height <= zp90)
                     ]
                     r_numphotons_intd[counter] = len(df_intd)
                     if len(df_intd) >= 1:
@@ -505,8 +501,9 @@ def validate_dem(
         output_dir (str): Output directory for results.
         dates (None, list, tuple): 2-tuple of photon dates (mutually inclusive) for ICESat-2 data to use in this
             validation. Default: use all dates available in the database.
-        classes (list, tuple): The ICESat-2 classes to use for validation. Default: [1,5,40], meaning land (1),
-            ice surface (5), and bathy_floor (40)
+        classes (list, tuple): The ICESat-2 photon classes to use for validation. Photons in any other
+            class are dropped before any statistics are computed. Default: [1, 6, 40], meaning ground (1),
+            land ice (6), and bathy floor (40). Run 'ivert classes' for the full list of codes.
         shared_ret_values (dict, None): Shared return values from validate_dem_parallel. This is an analagous way to get
             the return values back from the calling function if this is called as a sub-process.
         icesat2_photon_database_obj (icesat2_database_v2.IS2Database): icesat-2 photon database object. Only
@@ -1162,7 +1159,11 @@ def _compute_photon_overlap(
 ):
     """Transform photon coordinates into DEM space and compute cell-level overlap.
 
-    Returns (photon_df, height_field, ph_mask_ground_only, dem_overlap_i, dem_overlap_j,
+    Photons whose class_code is not in 'classes' are dropped here, so every array
+    handed downstream (height_field, the shared-memory arrays given to the child
+    processes, the photon-level outputs) holds only the requested classes.
+
+    Returns (photon_df, height_field, dem_overlap_i, dem_overlap_j,
              dem_overlap_elevs, N, coverage_coords) or None if no valid overlap exists.
     coverage_coords is (xmin_arr, xmax_arr, ymin_arr, ymax_arr) when measure_coverage=True, else None.
     """
@@ -1208,6 +1209,27 @@ def _compute_photon_overlap(
         & (photon_df["j"] >= 0)
         & (photon_df["j"] < dem_array.shape[1])
     ]
+
+    # Keep only the photon classes requested for this validation. Doing it here,
+    # rather than inside each child process, means the height/class arrays copied
+    # into shared memory carry only the photons that will actually be used.
+    class_mask = numpy.isin(photon_df["class_code"], classes)
+    if not class_mask.all():
+        if verbose:
+            print(
+                f"{numpy.count_nonzero(~class_mask):,} photons dropped as outside the",
+                "requested photon classes",
+                f"({'/'.join(str(c) for c in classes)}).",
+            )
+        photon_df = photon_df[class_mask]
+
+    if len(photon_df) == 0:
+        if verbose:
+            print(
+                "No photons remain in the requested classes. Stopping and moving on.",
+            )
+        return None
+
     height_field = photon_df["dem_z"]
 
     # NDV priority: (1) user_ndv flag, (2) file header, (3) config default
@@ -1224,14 +1246,10 @@ def _compute_photon_overlap(
         dem_goodpixel_mask = dem_array != dem_ndv
 
     photon_df = photon_df.set_index(["i", "j"], drop=False)
-    ph_mask_ground_only = numpy.isin(photon_df["class_code"], classes)
-    dem_mask_w_ground_photons = numpy.zeros(dem_array.shape, dtype=bool)
-    dem_mask_w_ground_photons[
-        photon_df.i[ph_mask_ground_only],
-        photon_df.j[ph_mask_ground_only],
-    ] = 1
+    dem_mask_w_photons = numpy.zeros(dem_array.shape, dtype=bool)
+    dem_mask_w_photons[photon_df.i, photon_df.j] = 1
 
-    dem_overlap_mask = dem_goodpixel_mask & dem_mask_w_ground_photons
+    dem_overlap_mask = dem_goodpixel_mask & dem_mask_w_photons
     dem_overlap_i, dem_overlap_j = numpy.where(dem_overlap_mask)
     dem_overlap_elevs = dem_array[dem_overlap_mask]
 
@@ -1268,7 +1286,6 @@ def _compute_photon_overlap(
     return (
         photon_df,
         height_field,
-        ph_mask_ground_only,
         dem_overlap_i,
         dem_overlap_j,
         dem_overlap_elevs,
@@ -1279,8 +1296,6 @@ def _compute_photon_overlap(
 
 def _run_photon_level_validation(
     photon_df,
-    height_field,
-    ph_mask_ground_only,
     dem_overlap_i,
     dem_overlap_j,
     dem_overlap_elevs,
@@ -1289,14 +1304,11 @@ def _run_photon_level_validation(
 ):
     """Compute photon-level DEM minus ICESat-2 differences and write an HDF5 results file.
 
-    Returns the photon results file path.
+    'photon_df' has already been subset to the requested photon classes by
+    _compute_photon_overlap. Returns the photon results file path.
     """
     if verbose:
         print("Performing photon-level validation...")
-        print("\tSubsetting ground-only photons... ", end="")
-    photon_df_ground_only = photon_df[ph_mask_ground_only]
-    if verbose:
-        print("Done.")
         print("\tGenerating DEM elevation dataframe... ", end="")
 
     dem_elev_df = pandas.DataFrame(
@@ -1310,7 +1322,7 @@ def _run_photon_level_validation(
         print(f"Done with {len(dem_elev_df)} records.")
         print("\tJoining photon_df and DEM elevation tables... ", end="")
 
-    photon_df_with_dem_elevs = photon_df_ground_only.join(dem_elev_df, how="left")
+    photon_df_with_dem_elevs = photon_df.join(dem_elev_df, how="left")
     photon_df_with_dem_elevs = photon_df_with_dem_elevs[
         pandas.notna(photon_df_with_dem_elevs["dem_elevation"])
     ]
@@ -1318,8 +1330,11 @@ def _run_photon_level_validation(
         print(f"Done with {len(photon_df_with_dem_elevs)} records.")
         print("\tCalculating elevation differences... ", end="")
 
+    # Use the frame's own 'dem_z' column rather than the caller's height_field
+    # Series: photon_df is (i, j)-indexed here, so an external Series would align
+    # against the wrong index.
     photon_df_with_dem_elevs["dem_minus_is2_m"] = (
-        photon_df_with_dem_elevs["dem_elevation"] - height_field
+        photon_df_with_dem_elevs["dem_elevation"] - photon_df_with_dem_elevs["dem_z"]
     )
     if verbose:
         print("Done.")
@@ -1919,7 +1934,6 @@ def validate_dem_parallel(
     (
         photon_df,
         height_field,
-        ph_mask_ground_only,
         dem_overlap_i,
         dem_overlap_j,
         dem_overlap_elevs,
@@ -1930,8 +1944,6 @@ def validate_dem_parallel(
     if include_photon_level_validation:
         photon_file = _run_photon_level_validation(
             photon_df,
-            height_field,
-            ph_mask_ground_only,
             dem_overlap_i,
             dem_overlap_j,
             dem_overlap_elevs,
@@ -2329,8 +2341,9 @@ def export_error_results(
     "-c",
     type=str,
     default="1/6/40",
-    help="ICESat-2 photon classes to include in validation, separated by slashes. Default '1/6/40',"
-    "which are 'ground', 'land_ice', and 'bathy_floor'.",
+    help="ICESat-2 photon classes to include in validation, separated by slashes. Photons in any "
+    "other class are excluded before statistics are computed. Default '1/6/40', which are "
+    "'ground', 'land_ice', and 'bathy_floor'.",
 )
 @click.option(
     "--input_vdatum",

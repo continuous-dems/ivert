@@ -9,9 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - `ivert database export` now accepts a single IVERT `.nc` photon granule (exported in its entirety) or the IVERT database index `.nc` file (exported as a polygon layer of per-granule `data_bbox` footprints), auto-detected from the file's contents (#59).
+- `-c`/`--classes` option for `ivert validate`, selecting which ICESat-2 photon classes the validation runs against (default `1/6/40`), matching the option of the same name on `ivert database download`.
 
 ### Changed
 - `ivert database export` now clips photons to the actual polygons of a polygon-vector region file, rather than only to that file's rectangular extent (#59).
+- Photon classes are now filtered once, before the per-cell arrays are copied into shared memory, rather than inside every validation child process.
+
+### Fixed
+- `ivert validate` no longer silently restricts its elevation statistics to classes 1 and 40. Requested classes other than ground and bathy floor (e.g. land ice, and the `-b`/`--buildings` flag's class 7) were previously counted in `numphotons` but dropped before the mean/median were computed.
+- Photon-level output (`-ph`/`--include-photons`) computed `dem_minus_is2_m` by subtracting a Series carrying a different index from the joined frame, yielding misaligned differences; it now uses the frame's own `dem_z` column.
 
 ### Fixed
 - IVERT no longer crashes with a `configparser.NoOptionError` when the user config file (`~/.ivert/user_config.ini`) contains a setting that is not in `ivert_defaults.ini`, which happened after upgrading to a version where a setting had been renamed or removed (#65). Unrecognized settings are now reported in a warning, commented out of the user config file with a dated note explaining why, and ignored.
