@@ -971,8 +971,7 @@ def _check_existing_outputs(
         # the raw photon data. If they're missing, signal the caller to run the full pipeline.
         photon_results_file = ""
         if include_photon_level_validation:
-            base, ext = os.path.splitext(results_dataframe_file)
-            photon_results_file = base.replace("_results", "_photons") + ext
+            photon_results_file = _photon_results_filename(results_dataframe_file)
             if not os.path.exists(photon_results_file):
                 return None
 
@@ -1349,8 +1348,7 @@ def _run_photon_level_validation(
     if verbose:
         print("Done.")
 
-    base, ext = os.path.splitext(results_dataframe_file)
-    photon_results_dataframe_file = base.replace("_results", "_photons") + ext
+    photon_results_dataframe_file = _photon_results_filename(results_dataframe_file)
     if verbose:
         print(
             "\tWriting",
@@ -2282,6 +2280,19 @@ def _normalize_export_formats(formats):
         if f and f in ERROR_EXPORT_FORMATS and f not in seen:
             seen.append(f)
     return seen
+
+
+def _photon_results_filename(results_dataframe_file):
+    """Return the '<dem>_photons.h5' path matching a given results dataframe file.
+
+    The photon output belongs next to the rest of a DEM's validation results, so
+    only the file name's trailing '_results' is swapped here, never the containing
+    directory. Results are written into a directory named 'ivert_results', so a
+    blanket str.replace("_results", "_photons") would also rewrite the directory
+    and send this file to a sibling 'ivert_photons' directory that is never created.
+    """
+    base, ext = os.path.splitext(results_dataframe_file)
+    return base.removesuffix("_results") + "_photons" + ext
 
 
 def _error_export_filenames(results_dataframe_file, formats):
