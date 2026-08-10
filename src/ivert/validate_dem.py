@@ -1480,6 +1480,12 @@ def _run_parallel_cell_validation(
     running_procs = [None] * cpu_count
     open_pipes_parent = [None] * cpu_count
     open_pipes_child = [None] * cpu_count
+    # Cells in the chunk currently out with each child process. Progress is measured
+    # in cells *handed out*, not rows handed back: a child omits any cell that fell
+    # below 'min_photons_per_cell', so len(chunk_result_df) undercounts the work done
+    # and the bar would stall short of N. Each pipe has at most one chunk outstanding,
+    # so this is an exact count.
+    chunk_sizes = [0] * cpu_count
 
     counter_started = 0
     counter_finished = 0
@@ -1493,6 +1499,7 @@ def _run_parallel_cell_validation(
                 running_procs = running_procs[:i]
                 open_pipes_parent = open_pipes_parent[:i]
                 open_pipes_child = open_pipes_child[:i]
+                chunk_sizes = chunk_sizes[:i]
                 break
 
             running_procs[i], open_pipes_parent[i], open_pipes_child[i] = (
@@ -1537,6 +1544,7 @@ def _run_parallel_cell_validation(
                         dem_overlap_elevs[counter_started:counter_chunk_end],
                     ),
                 )
+            chunk_sizes[i] = counter_chunk_end - counter_started
             counter_started = counter_chunk_end
             num_chunks_started += 1
 
@@ -1576,11 +1584,17 @@ def _run_parallel_cell_validation(
                     running_procs[i] = proc
                     open_pipes_parent[i] = pipe
                     open_pipes_child[i] = pipe_child
+                    # The chunk this child was working on died with it and is never
+                    # retried, so count it as accounted for. Otherwise the bar could
+                    # never reach N once a child has crashed.
+                    counter_finished += chunk_sizes[i]
+                    chunk_sizes[i] = 0
                     num_chunks_finished += 1
 
                 if pipe.poll():
                     chunk_result_df = pipe.recv()
-                    counter_finished += len(chunk_result_df)
+                    counter_finished += chunk_sizes[i]
+                    chunk_sizes[i] = 0
                     num_chunks_finished += 1
                     results_dataframes_list.append(chunk_result_df)
                     if verbose:
@@ -1622,6 +1636,7 @@ def _run_parallel_cell_validation(
                                     ],
                                 ),
                             )
+                        chunk_sizes[i] = counter_chunk_end - counter_started
                         counter_started = counter_chunk_end
                         num_chunks_started += 1
                     else:
