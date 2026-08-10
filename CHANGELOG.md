@@ -13,6 +13,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - `ivert database export` now clips photons to the actual polygons of a polygon-vector region file, rather than only to that file's rectangular extent (#59).
 
+### Fixed
+- IVERT no longer crashes with a `configparser.NoOptionError` when the user config file (`~/.ivert/user_config.ini`) contains a setting that is not in `ivert_defaults.ini`, which happened after upgrading to a version where a setting had been renamed or removed (#65). Unrecognized settings are now reported in a warning, commented out of the user config file with a dated note explaining why, and ignored.
+- Boolean settings written in configparser's non-literal forms (`yes`/`no`, `on`/`off`) are now read from the value actually given. A boolean in the `[AWS]` section or in the user config file previously took its value from the `[DEFAULT]` section of `ivert_defaults.ini` instead of from the override.
+
 ## [0.6.6] - 2026-07-20
 
 ### Added

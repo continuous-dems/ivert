@@ -1,8 +1,10 @@
 import ast
 import configparser
+import datetime
 import importlib.resources
 import os
 import re
+import sys
 
 from ivert.utils import is_aws
 
@@ -18,6 +20,10 @@ ivert_config = None
 # validated), so both the attribute and "ivert options list" must show the
 # original relative string.
 _RELATIVE_PATH_KEYS = frozenset({"ivert_results_subdir"})
+
+# Marker written above any option that IVERT automatically comments out in the
+# user's config file because the option is no longer recognized.
+_AUTO_COMMENT_MARKER = "Automatically commented out by IVERT"
 
 
 def parse_option_descriptions(configfile: str = ivert_default_configfile):
@@ -86,6 +92,68 @@ def _is_absolute_path(value):
         return True
     # Windows drive-letter absolute path ("C:\..." or "C:/...").
     return bool(re.match(r"[A-Za-z]:[\\/]", stripped))
+
+
+def comment_out_options(configfile: str, keys) -> list[str]:
+    """Comment out the given option assignments in an .ini file, in place.
+
+    Each commented-out assignment gets a dated marker line above it explaining
+    that IVERT did this automatically, so the user can see what happened (and
+    restore the line themselves if they want). Everything else in the file --
+    comments, blank lines, section headers, ordering -- is left untouched.
+
+    Multi-line (indented continuation) values are commented out along with the
+    assignment line that starts them.
+
+    Returns the list of keys that were actually found and commented out.
+    """
+    keys = {str(k).strip().lower() for k in keys}
+    if not keys:
+        return []
+
+    with open(configfile, encoding="utf-8") as f:
+        lines = f.readlines()
+
+    today = datetime.datetime.now().strftime("%Y-%m-%d")
+    commented_out = []
+    new_lines = []
+    # True while walking the indented continuation lines of an assignment that
+    # was just commented out (those belong to the same option's value).
+    in_commented_value = False
+
+    for line in lines:
+        stripped = line.strip()
+
+        if in_commented_value:
+            if stripped and line[:1] in (" ", "\t") and not stripped.startswith("#"):
+                new_lines.append("#" + line)
+                continue
+            in_commented_value = False
+
+        # Only bare "key = value" / "key : value" assignment lines are candidates.
+        if (
+            stripped
+            and not stripped.startswith(("#", ";", "["))
+            and re.search(r"[=:]", stripped)
+        ):
+            key = re.split(r"[=:]", stripped, maxsplit=1)[0].strip().lower()
+            if key in keys:
+                new_lines.append(
+                    f"# {_AUTO_COMMENT_MARKER} on {today}:"
+                    " unrecognized setting name.\n",
+                )
+                new_lines.append("#" + line)
+                commented_out.append(key)
+                in_commented_value = True
+                continue
+
+        new_lines.append(line)
+
+    if commented_out:
+        with open(configfile, "w", encoding="utf-8") as f:
+            f.writelines(new_lines)
+
+    return commented_out
 
 
 class Config:
@@ -183,20 +251,100 @@ class Config:
             return
 
         user_config = configparser.ConfigParser()
-        user_config.read(user_path)
+        try:
+            user_config.read(user_path)
+        except configparser.Error as e:
+            print(
+                f"WARNING: Could not parse the IVERT user config file {user_path}:"
+                f"\n  {e}"
+                "\n  Ignoring it and using IVERT's default settings. Fix or delete"
+                " that file, or run 'ivert options reset' to start over.",
+                file=sys.stderr,
+            )
+            return
+
+        # Options that no longer exist (or never existed) in ivert_defaults.ini --
+        # typically hold-overs from an older IVERT version, or typos. Comment them
+        # out of the user's file rather than trying (and failing) to apply them.
+        unknown_keys = self._unknown_user_keys(user_config)
+        if unknown_keys:
+            self._handle_unknown_user_keys(user_path, unknown_keys)
+
+        sections = ["DEFAULT"]
+        if self.is_aws and "AWS" in user_config:
+            sections.append("AWS")
 
         saved_configfile = self._configfile
         self._configfile = user_path
         try:
-            for k, v in user_config["DEFAULT"].items():
-                self._read_option(k, v)
-                self._user_set_keys.add(k)
-            if self.is_aws and "AWS" in user_config:
-                for k, v in user_config["AWS"].items():
+            for section in sections:
+                for k in user_config[section]:
+                    if k in unknown_keys:
+                        continue
+                    try:
+                        v = user_config[section][k]
+                    except configparser.Error as e:
+                        # e.g. a hand-edited "%(...)s" reference that can't be
+                        # resolved. Skip that option instead of crashing.
+                        print(
+                            f"WARNING: Ignoring setting '{k}' in {user_path}:\n  {e}",
+                            file=sys.stderr,
+                        )
+                        continue
                     self._read_option(k, v)
                     self._user_set_keys.add(k)
         finally:
             self._configfile = saved_configfile
+
+    def _unknown_user_keys(self, user_config: configparser.ConfigParser) -> set[str]:
+        """Return the option names in a user config that IVERT no longer recognizes.
+
+        An option is recognized if it appears anywhere in ivert_defaults.ini (in
+        either the [DEFAULT] or the [AWS] section), regardless of which section
+        the user put it in.
+        """
+        known = set(self._config["DEFAULT"].keys())
+        if self._config.has_section("AWS"):
+            known.update(self._config["AWS"].keys())
+
+        # configparser propagates [DEFAULT] options into every other section, so
+        # only the section's own options are checked on top of the defaults.
+        user_keys = set(user_config.defaults().keys())
+        for section in user_config.sections():
+            user_keys.update(user_config[section].keys())
+
+        return user_keys - known
+
+    def _handle_unknown_user_keys(self, user_path: str, unknown_keys: set[str]) -> None:
+        """Warn about unrecognized user-config options and comment them out."""
+        from ivert import __version__
+
+        key_list = "\n".join(f"    - {k}" for k in sorted(unknown_keys))
+        try:
+            commented = comment_out_options(user_path, unknown_keys)
+        except OSError as e:
+            print(
+                f"WARNING: The IVERT user config file {user_path} contains settings"
+                f" that IVERT v{__version__} does not recognize:"
+                f"\n{key_list}"
+                f"\n  They will be ignored. IVERT tried to comment them out of that"
+                f" file but could not write to it:\n    {e}",
+                file=sys.stderr,
+            )
+            return
+
+        if commented:
+            print(
+                f"WARNING: The IVERT user config file {user_path} contained settings"
+                f" that IVERT v{__version__} does not recognize:"
+                f"\n{key_list}"
+                "\n  They may have been renamed or removed in a newer version of"
+                " IVERT, or misspelled when entered by hand."
+                "\n  They have been commented out of that file (with a dated note)"
+                " and ignored."
+                "\n  Run 'ivert options list' to see the settings IVERT supports.",
+                file=sys.stderr,
+            )
 
     def _parse_config_into_attrs(self):
         """Read all the Config lines, put into object attributes. If we're running in an AWS instance, also read the
@@ -229,12 +377,17 @@ class Config:
             pass
 
         # In some boolean cases, you can put other things besides "True/False", such as "yes/no"
-        # Use configparser's intelligence to try to interpret it as a boolean.
-        try:
-            setattr(self, key, self._config.getboolean("DEFAULT", key))
-            return
-        except (NameError, ValueError, SyntaxError):
-            pass
+        # Use configparser's boolean vocabulary to try to interpret it as a boolean.
+        # The value is converted directly (rather than looked up by key) so that
+        # this also works for options coming from the [AWS] section or from the
+        # user config file, which need not exist in this parser's [DEFAULT].
+        if isinstance(value, str):
+            bool_value = configparser.ConfigParser.BOOLEAN_STATES.get(
+                value.strip().lower(),
+            )
+            if bool_value is not None:
+                setattr(self, key, bool_value)
+                return
 
         # Check to see if this is potentially a path. Interpret it as such if it is a string and contains path
         # characters ('\' in Windows or '/' in Linux).
