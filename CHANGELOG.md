@@ -5,14 +5,20 @@ All notable changes to IVERT are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.6.7] - 2026-08-10
 
 ### Added
+- `-y`/`--yes` flag on the `ivert options` command group, accepting the prompt to propagate a setting change to the settings that inherit from it (#71).
 - `ivert database export` now accepts a single IVERT `.nc` photon granule (exported in its entirety) or the IVERT database index `.nc` file (exported as a polygon layer of per-granule `data_bbox` footprints), auto-detected from the file's contents (#59).
 - `-c`/`--classes` option for `ivert validate`, selecting which ICESat-2 photon classes the validation runs against (default `1/6/40`), matching the option of the same name on `ivert database download`.
 - `-mp`/`--min-photons` option for `ivert validate`, setting the minimum number of photons a grid cell must contain to be validated (default `3`, previously hard-coded). Cells below the threshold are omitted from the results entirely.
 
 ### Changed
+- The IVERT database index is now a single NetCDF (`.nc`) file, replacing the previous GeoPackage plus a Blosc-compressed cache of the same information (#60). The `icesat2_granules_gpkg` and `icesat2_granules_blosc` settings are replaced by `ivert_database_index`, and `icesat2_granules_directory` by `ivert_database_directory`. The index is a plain table of numeric columns carrying no geometry, so granule lookups are vectorized bounding-box comparisons.
+- `ivert options <key>=<value>` now finds the settings that inherit their value from `<key>` — transitively, via configparser's `%(...)s` interpolation — and offers to copy them into the user config (#71). Overriding `user_data_directory` previously left `cache_directory`, `ivert_database_directory`, `ivert_database_index`, `icesat2_download_directory` and `icesat2_requests_csv` pointing at the old tree, because those defaults resolve inside whichever file defines them. Values are copied verbatim with `%(...)s` intact, so they resolve against the new value and follow any later change automatically. Settings you have already set yourself are never listed or overwritten, and declining the prompt can never abort the primary change.
+- `user_configfile` now defaults to `~/.ivert/user_config.ini`, independent of `user_data_directory`, and is listed but not settable through `ivert options` (#71). IVERT has to resolve the user config's location before it can open that file, so a user config naming its own location made reads and writes disagree. A `user_configfile` found inside a user config is now ignored, warned about, and commented out with a dated note. This is a no-op for existing installs: every user config already lives at exactly that path.
+- `ivert setup` now derives the directories it creates from the config's path settings rather than from a hand-maintained list, so new path settings are picked up automatically (#72). The set of directories created is unchanged; only the order in which they are reported differs.
+- Progress bars are now drawn with `tqdm` rather than IVERT's homegrown progress bar (#70). `tqdm` is a new dependency.
 - `ivert database export` now clips photons to the actual polygons of a polygon-vector region file, rather than only to that file's rectangular extent (#59).
 - Photon classes are now filtered once, before the per-cell arrays are copied into shared memory, rather than inside every validation child process.
 - Grid cells below the minimum photon count are now omitted from validation results entirely. They were previously emitted with empty (NaN) statistics and discarded further downstream.
@@ -20,6 +26,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Validation results no longer carry a hard-coded `numphotons_intd >= 3` filter, which dropped sparse cells regardless of the requested minimum. Cell inclusion is now governed solely by `-mp`/`--min-photons`. Runs at the default `-mp 3` will report more cells than before, since 3- and 4-photon cells now produce statistics.
 
 ### Removed
+- The `blosc2` dependency, along with `utils/pickle_blosc.py` (#60).
+- `utils/progress_bar.py`, superseded by `tqdm` (#70).
 - `median` and `diff_median` columns from the per-cell validation results, and the corresponding `is2_med` and `error_med` fields from the GeoPackage/Shapefile error exports. Reporting is based on the mean.
 
 ### Fixed
@@ -31,6 +39,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `ivert validate -ph`/`--include-photons` now writes `<dem>_photons.h5` into the same `ivert_results/` directory as the rest of a DEM's validation output. The photon path was derived with `str.replace("_results", "_photons")`, which also rewrote the `ivert_results` directory name and sent the file to a sibling `ivert_photons/` directory that is never created, so `-ph` crashed with a `FileNotFoundError`. The same mis-derived path also made the resume check never find existing photon output, re-running the full pipeline on every invocation.
 - IVERT no longer crashes with a `configparser.NoOptionError` when the user config file (`~/.ivert/user_config.ini`) contains a setting that is not in `ivert_defaults.ini`, which happened after upgrading to a version where a setting had been renamed or removed (#65). Unrecognized settings are now reported in a warning, commented out of the user config file with a dated note explaining why, and ignored.
 - Boolean settings written in configparser's non-literal forms (`yes`/`no`, `on`/`off`) are now read from the value actually given. A boolean in the `[AWS]` section or in the user config file previously took its value from the `[DEFAULT]` section of `ivert_defaults.ini` instead of from the override.
+- `ivert options` no longer writes to a user config file that IVERT never reads back, and `ivert options reset` no longer reports that no config file exists when one does (#71). Both happened whenever a user config defined its own `user_configfile`, which is now ignored. `ivert options list`/`info` also report the file actually in use, labelled `[--config]` when it has been overridden.
+- `ivert setup` no longer creates a stray relative directory in the current working directory when a path setting has been set to a non-path value such as `none` (#72).
 
 ## [0.6.6] - 2026-07-20
 
@@ -103,6 +113,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - First release with a tracked changelog.
 
+[0.6.7]: https://github.com/continuous-dems/ivert/compare/0.6.6...0.6.7
 [0.6.6]: https://github.com/continuous-dems/ivert/compare/0.6.5...0.6.6
 [0.6.5]: https://github.com/continuous-dems/ivert/compare/0.6.4...0.6.5
 [0.6.4]: https://github.com/continuous-dems/ivert/compare/0.6.3...0.6.4
