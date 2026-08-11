@@ -1,4 +1,5 @@
 import logging
+import math
 import os
 
 import numpy
@@ -9,6 +10,12 @@ import transformez
 logger = logging.getLogger(__name__)
 
 _GRID_RESOLUTION = "3s"  # ~90 m — appropriate resolution for datum shift grids
+
+# Shift grids are generated over the requested region snapped outward to a multiple
+# of this many degrees. The cache file name carries the snapped bounds, so the name
+# describes exactly the extent the grid covers and any later request landing inside
+# that box is genuinely covered by the cached file.
+_GRID_SNAP_DEGREES = 0.1
 
 
 def transform_points(
@@ -112,6 +119,51 @@ def _decompose_crs(
     return crs, None
 
 
+def _snap_region_outward(
+    region_bounds: list[float],
+    snap: float = _GRID_SNAP_DEGREES,
+) -> list[float]:
+    """Expand [w, e, s, n] outward to the surrounding multiples of 'snap' degrees.
+
+    Snapping makes the region a function of a coarse grid rather than of the exact
+    input points, so runs over slightly different extents share one cached shift
+    grid instead of colliding on a rounded file name while needing different areas.
+    """
+    w, e, s, n = region_bounds
+    w_snap = math.floor(w / snap) * snap
+    e_snap = math.ceil(e / snap) * snap
+    s_snap = math.floor(s / snap) * snap
+    n_snap = math.ceil(n / snap) * snap
+
+    # A bound sitting exactly on a multiple can snap to itself on both sides (and
+    # floating-point division makes that hard to predict), which would ask for a
+    # zero-width or zero-height grid. Keep at least one snap unit in each dimension.
+    if e_snap - w_snap < snap:
+        e_snap = w_snap + snap
+    if n_snap - s_snap < snap:
+        n_snap = s_snap + snap
+
+    return [w_snap, e_snap, s_snap, n_snap]
+
+
+def _grid_covers_region(grid_fn: str, region_bounds: list[float], tol=1e-9) -> bool:
+    """Return True if the raster at 'grid_fn' is readable and spans region_bounds."""
+    w, e, s, n = region_bounds
+    try:
+        with rasterio.open(grid_fn) as src:
+            bounds = src.bounds
+    except (OSError, rasterio.errors.RasterioError):
+        # Unreadable or truncated (e.g. an interrupted earlier run): treat as absent.
+        return False
+
+    return (
+        (bounds.left <= w + tol)
+        and (bounds.right >= e - tol)
+        and (bounds.bottom <= s + tol)
+        and (bounds.top >= n - tol)
+    )
+
+
 def _apply_vertical_transform(
     x: numpy.ndarray,
     y: numpy.ndarray,
@@ -137,13 +189,9 @@ def _apply_vertical_transform(
     _cache = cache_dir or os.path.join(os.getcwd(), "transformez_cache")
     os.makedirs(_cache, exist_ok=True)
 
-    w, e, s, n = region_bounds
-    grid_fn = os.path.join(
-        _cache,
-        f"vshift_{src_vert_epsg}_{dst_vert_epsg}_{w:.1f}_{e:.1f}_{s:.1f}_{n:.1f}.tif",
-    )
-
-    # Strip any "EPSG:" and/or any compound ("4326+4979") datum strings fed to this function.
+    # Strip any "EPSG:" and/or any compound ("4326+4979") datum strings fed to this
+    # function. Done before the file name is built so the name never carries a ':'
+    # (which is not a legal path character on Windows) or a '+'.
     src_vert_epsg = src_vert_epsg.rsplit(":", maxsplit=1)[-1].rsplit("+", maxsplit=1)[
         -1
     ]
@@ -151,9 +199,30 @@ def _apply_vertical_transform(
         -1
     ]
 
+    grid_region = _snap_region_outward(region_bounds)
+    w, e, s, n = grid_region
+    grid_fn = os.path.join(
+        _cache,
+        f"vshift_{src_vert_epsg}_{dst_vert_epsg}_{w:.1f}_{e:.1f}_{s:.1f}_{n:.1f}.tif",
+    )
+
+    # Never reuse a cached grid that does not actually span the points being
+    # transformed. Grids written by earlier versions were named from bounds rounded
+    # to 0.1 degrees but generated over the exact (smaller) region, so a later run
+    # covering more ground would silently reuse one that fell short and leave the
+    # uncovered points unconverted. Coverage is checked against the real data
+    # region, not the snapped one, so a grid trimmed by a pixel of increment
+    # rounding is still accepted.
+    if os.path.exists(grid_fn) and not _grid_covers_region(grid_fn, region_bounds):
+        logger.info(
+            "Cached shift grid %s does not cover the requested region; regenerating.",
+            grid_fn,
+        )
+        os.remove(grid_fn)
+
     if not os.path.exists(grid_fn):
         shift_array = transformez.generate_grid(
-            region=region_bounds,
+            region=grid_region,
             increment=_GRID_RESOLUTION,
             datum_in=src_vert_epsg,
             datum_out=dst_vert_epsg,
@@ -164,7 +233,7 @@ def _apply_vertical_transform(
         if shift_array is None:
             raise ValueError(
                 f"Vertical transform failed: EPSG:{src_vert_epsg} → EPSG:{dst_vert_epsg} "
-                f"over region {region_bounds}.",
+                f"over region {grid_region}.",
             )
 
     with rasterio.open(grid_fn) as src:
@@ -177,14 +246,50 @@ def _apply_vertical_transform(
     lons = numpy.linspace(grid_bounds.left, grid_bounds.right, width)
     lats = numpy.linspace(grid_bounds.bottom, grid_bounds.top, height)
 
+    # A point outside the grid must never come back as a 0.0 shift: an unconverted
+    # height is indistinguishable from a legitimate zero separation, and silently
+    # leaves those points wrong by the full datum offset (~24 m for NAVD88 on the
+    # Oregon coast). Fail loudly instead. The coverage check above should make this
+    # unreachable; it is the backstop if it ever is not.
+    outside = (
+        (x < grid_bounds.left)
+        | (x > grid_bounds.right)
+        | (y < grid_bounds.bottom)
+        | (y > grid_bounds.top)
+    )
+    if outside.any():
+        n_outside = int(numpy.count_nonzero(outside))
+        raise ValueError(
+            f"Vertical transform failed: {n_outside:,} of {outside.size:,} points fall "
+            f"outside the shift grid {grid_fn} "
+            f"(grid covers {tuple(round(b, 6) for b in grid_bounds)}, points span "
+            f"x [{float(x.min()):.6f}, {float(x.max()):.6f}], "
+            f"y [{float(y.min()):.6f}, {float(y.max()):.6f}]). "
+            "Delete that file and retry.",
+        )
+
     # rasterio stores rows top-to-bottom; flip to ascending-lat order for interpolator
     interp = RegularGridInterpolator(
         (lats, lons),
         shift_data[::-1, :],
         method="linear",
         bounds_error=False,
-        fill_value=0.0,
+        fill_value=numpy.nan,
     )
 
     shifts = interp(numpy.column_stack([y, x]))
+
+    # In-bounds NaNs mean the grid itself has nodata there (a genuine gap in the
+    # datum model), not a caching problem. Those heights cannot be converted, so
+    # they stay NaN and are dropped downstream rather than silently passed through.
+    n_nan = int(numpy.count_nonzero(numpy.isnan(shifts)))
+    if n_nan:
+        logger.warning(
+            "%d of %d points fall on nodata cells of shift grid %s; "
+            "their transformed heights will be NaN.",
+            n_nan,
+            shifts.size,
+            grid_fn,
+        )
+
     return z + shifts
