@@ -6,6 +6,7 @@ Command-line interface for the ICESat-2 Validation of Elevations Reporting Tool 
 import glob
 import logging
 import os
+import sys
 import typing
 from pathlib import Path
 
@@ -252,12 +253,15 @@ def setup():
         "icesat2_download_directory",
     )
     file_attrs = (
-        "user_configfile",
         "ivert_database_index",
         "icesat2_requests_csv",
     )
     dirs = [getattr(config, attr) for attr in dir_attrs]
     dirs += [os.path.dirname(getattr(config, attr)) for attr in file_attrs]
+    # The user config file's own directory, which --config / IVERT_USER_CONFIG
+    # can move independently of any of the settings above.
+    if config.user_config_path:
+        dirs.append(os.path.dirname(config.user_config_path))
 
     # Dedupe while preserving order.
     unique_dirs = []
@@ -285,6 +289,19 @@ def setup():
 # Keys that are read-only and hidden from the "ivert options" command.
 _OPTIONS_EXCLUDED_KEYS: set[str] = set()
 
+# Keys that "ivert options" lists but refuses to assign, mapped to the reason
+# why, which is shown to the user when they try. Unlike _OPTIONS_EXCLUDED_KEYS
+# these still appear in "options list" and "options info" -- their value is
+# useful to see, just not settable here.
+_OPTIONS_READONLY_KEYS: dict[str, str] = {
+    "user_configfile": (
+        "IVERT resolves this before it opens your config file, so a config file"
+        " cannot move itself. To use a different config file, run"
+        " 'ivert --config PATH ...' or set the IVERT_USER_CONFIG environment"
+        " variable."
+    ),
+}
+
 
 class _OptionsGroup(click.Group):
     """Click Group that also accepts 'key=value' arguments as config assignments.
@@ -294,11 +311,19 @@ class _OptionsGroup(click.Group):
     """
 
     def parse_args(self, ctx, args):
-        if args and not args[0].startswith("-") and "=" in args[0]:
+        assignment_positions = {
+            i for i, a in enumerate(args) if not a.startswith("-") and "=" in a
+        }
+        if assignment_positions:
             # Flag this as a bare key=value assignment (not a subcommand) so
             # invoke() routes it to the group callback rather than a subcommand.
+            # The group's own flags (e.g. -y) are still parsed by Click; only
+            # the assignments are held back, so Click never tries to resolve
+            # them as subcommand names.
             ctx.meta["options_passthrough"] = True
-            ctx.args = list(args)
+            flags = [a for i, a in enumerate(args) if i not in assignment_positions]
+            super().parse_args(ctx, flags)
+            ctx.args = [args[i] for i in sorted(assignment_positions)]
             return []
         return super().parse_args(ctx, args)
 
@@ -313,20 +338,115 @@ class _OptionsGroup(click.Group):
 
 
 @ivert_cli.group("options", cls=_OptionsGroup, invoke_without_command=True)
+@click.option(
+    "-y",
+    "--yes",
+    is_flag=True,
+    default=False,
+    help=(
+        "Skip the confirmation prompt and also update any settings that are "
+        "defined in terms of the ones being changed."
+    ),
+)
 @click.pass_context
-def options(ctx):
+def options(ctx, yes):
     """Configure IVERT settings and local data directories.
 
     Typically, run once before using IVERT on a new machine, or when
     changing data directory paths or credentials.
     """
     if ctx.args:
-        _options_set_values(ctx.args)
+        _options_set_values(ctx.args, assume_yes=yes)
     elif ctx.invoked_subcommand is None:
         click.echo(ctx.get_help())
 
 
-def _options_set_values(assignments):
+def _option_display_value(config, key):
+    """The current value of a setting, as the user should see it."""
+    if key == "user_configfile":
+        # --config / IVERT_USER_CONFIG can point IVERT at a different file than
+        # the one ivert_defaults.ini names, so report the file actually in use.
+        return str(config.user_config_path or "")
+    return str(getattr(config, key, ""))
+
+
+def _option_source_label(config, key):
+    """Styled marker showing where a setting's current value came from."""
+    if key == "user_configfile" and os.environ.get("IVERT_USER_CONFIG"):
+        return click.style("[--config]", fg="yellow")
+    if key in config._user_set_keys:
+        return click.style("[user]", fg="yellow")
+    return click.style("[default]", fg="bright_black")
+
+
+def _inherited_options(config, user_config, changed_keys):
+    """Settings that would keep their default value after 'changed_keys' change.
+
+    A setting like "cache_directory = %(user_data_directory)s/cache" lives only
+    in ivert_defaults.ini, so it keeps resolving against the *default*
+    user_data_directory once the user overrides that setting in their own file.
+    Returns (dependents, support): the settings to offer to copy, plus any
+    further settings their raw values reference that must be copied alongside
+    them so the user config file stays resolvable.
+
+    Settings the user has already set by hand are excluded -- an explicit choice
+    is never overwritten, and one that already embeds "%(changed_key)s" picks up
+    the new value on its own.
+    """
+    already_defined = set(user_config["DEFAULT"].keys())
+
+    dependents = [
+        k
+        for k in config.dependent_options(changed_keys)
+        if k not in already_defined
+        and k not in _OPTIONS_EXCLUDED_KEYS
+        and k not in _OPTIONS_READONLY_KEYS
+    ]
+    if not dependents:
+        return [], []
+
+    support = config.interpolation_support_options(
+        dependents,
+        already_defined | set(dependents),
+    )
+    return dependents, support
+
+
+def _confirm_inherited_copy(config, dependents, changed_keys, assume_yes):
+    """Ask whether settings inheriting a changed value should follow it."""
+    # Name only the changed settings something is actually inheriting from, so
+    # unrelated assignments in the same command are not mentioned.
+    offered = set(dependents)
+    inherited_from = [
+        k for k in changed_keys if offered & set(config.dependent_options([k]))
+    ]
+    changed_list = ", ".join(f"'{k}'" for k in inherited_from or changed_keys)
+
+    click.echo("")
+    click.echo(
+        f"{click.style('Warning:', fg='yellow')} these settings use the value of"
+        f" {changed_list} in their own values, and are still at IVERT's default:",
+    )
+    for key in dependents:
+        click.echo(f"    {click.style(key, fg='cyan')} = {config.raw_default(key)}")
+
+    if assume_yes:
+        return True
+
+    if not sys.stdin.isatty():
+        click.echo(
+            "  Leaving them unchanged (no terminal available to ask at)."
+            " Re-run with --yes to update them too, or set them individually.",
+        )
+        return False
+
+    return click.confirm(
+        f"  Update them to use the new value of {changed_list}?",
+        default=True,
+    )
+
+
+def _options_set_values(assignments, assume_yes=False):
     """Write one or more key=value pairs to the user config file."""
     import configparser as _cp
 
@@ -346,13 +466,18 @@ def _options_set_values(assignments):
             raise click.UsageError(
                 f"'{key}' is a read-only setting and cannot be changed.",
             )
+        if key in _OPTIONS_READONLY_KEYS:
+            raise click.UsageError(
+                f"'{key}' is a read-only setting and cannot be changed.\n"
+                f"  {_OPTIONS_READONLY_KEYS[key]}",
+            )
         if key not in config._config["DEFAULT"]:
             raise click.UsageError(
                 f"Unknown setting '{key}'. Run 'ivert options list' to see valid settings.",
             )
         parsed.append((key, value))
 
-    user_path = os.path.abspath(os.path.expanduser(str(config.user_configfile)))
+    user_path = config.user_config_path
     user_config = _cp.ConfigParser()
     if os.path.exists(user_path):
         user_config.read(user_path)
@@ -360,6 +485,29 @@ def _options_set_values(assignments):
     for key, value in parsed:
         user_config["DEFAULT"][key] = value
         click.echo(f"  {key} = {value}")
+
+    changed_keys = [k for k, _ in parsed]
+    dependents, support = _inherited_options(config, user_config, changed_keys)
+    if dependents and _confirm_inherited_copy(
+        config,
+        dependents,
+        changed_keys,
+        assume_yes,
+    ):
+        # Copied raw, so they keep embedding "%(changed_key)s" and will follow
+        # the changed setting again if it is ever changed a second time.
+        copied = []
+        for key in dependents + support:
+            try:
+                user_config["DEFAULT"][key] = config.raw_default(key)
+            except ValueError as e:
+                # A hand-edited default with a stray '%' that configparser
+                # refuses to store. Skip it rather than losing the whole write.
+                click.echo(f"  Skipped '{key}': {e}", err=True)
+                continue
+            copied.append(key)
+        if copied:
+            click.echo(f"  Updated: {', '.join(copied)}")
 
     os.makedirs(os.path.dirname(user_path), exist_ok=True)
     with open(user_path, "w", encoding="utf-8") as f:
@@ -392,13 +540,8 @@ def options_list(details):
     if details:
         click.echo("")
         for key in keys:
-            value = str(getattr(config, key, ""))
-            is_user = key in config._user_set_keys
-            source = (
-                click.style("[user]", fg="yellow")
-                if is_user
-                else click.style("[default]", fg="bright_black")
-            )
+            value = _option_display_value(config, key)
+            source = _option_source_label(config, key)
             click.echo(
                 f"  {click.style(key, fg='cyan', bold=True)}  = {value}  {source}",
             )
@@ -418,14 +561,9 @@ def options_list(details):
         click.echo("  " + "-" * (col_w + 2 + 56))
 
         for key in keys:
-            value = str(getattr(config, key, ""))
-            is_user = key in config._user_set_keys
+            value = _option_display_value(config, key)
             colored_key = click.style(f"{key:<{col_w}}", fg="cyan")
-            source = (
-                click.style("[user]", fg="yellow")
-                if is_user
-                else click.style("[default]", fg="bright_black")
-            )
+            source = _option_source_label(config, key)
             click.echo(f"  {colored_key}  {value:<52}  {source}")
 
     click.echo(
@@ -451,7 +589,7 @@ def options_info(option_name):
             "Run 'ivert options list' to see valid settings.",
         )
 
-    value = str(getattr(config, key, ""))
+    value = _option_display_value(config, key)
     default_value = config._config["DEFAULT"].get(key, "")
     is_user = key in config._user_set_keys
     descriptions = parse_option_descriptions()
@@ -468,11 +606,22 @@ def options_info(option_name):
         )
 
     click.echo("")
-    source = "user-set" if is_user else "default"
+    env_override = key == "user_configfile" and os.environ.get("IVERT_USER_CONFIG")
+    if env_override:
+        source = "set by --config / IVERT_USER_CONFIG"
+    else:
+        source = "user-set" if is_user else "default"
     click.echo(f"  Current value: {value}  ({source})")
-    if is_user:
+    if is_user or env_override:
         click.echo(f"  IVERT default: {default_value}")
-    click.echo(f"\n  To change it:  ivert options {key}=<new_value>")
+
+    if key in _OPTIONS_READONLY_KEYS:
+        click.echo(
+            f"\n  {click.style('Read-only.', fg='yellow')}"
+            f" {_OPTIONS_READONLY_KEYS[key]}",
+        )
+    else:
+        click.echo(f"\n  To change it:  ivert options {key}=<new_value>")
 
 
 @options.command("reset")
@@ -488,9 +637,9 @@ def options_reset(yes):
     from ivert.utils.configfile import Config
 
     config = Config()
-    user_path = os.path.abspath(os.path.expanduser(str(config.user_configfile)))
+    user_path = config.user_config_path
 
-    if not os.path.exists(user_path):
+    if not user_path or not os.path.exists(user_path):
         click.echo("No user config file found — settings are already at defaults.")
         return
 
