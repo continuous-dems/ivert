@@ -7,10 +7,10 @@ import matplotlib.pyplot as plt
 import numpy
 import pandas
 import six
+import tqdm
 from matplotlib import ticker
 
 import ivert.utils.configfile
-import ivert.utils.progress_bar
 
 ivert_config = ivert.utils.configfile.Config()
 
@@ -45,7 +45,15 @@ def get_data_from_h5_or_list(
             print(f"Reading {len(h5_name_or_list)} h5 results files.")
         data_list = []
 
-        for i, h5_file in enumerate(h5_name_or_list):
+        # 'disable=None' tells tqdm to draw the bar only when attached to a terminal,
+        # and stay silent when the output is redirected to a file or a pipe.
+        for i, h5_file in enumerate(
+            tqdm.tqdm(
+                h5_name_or_list,
+                disable=None if verbose else True,
+                unit="file",
+            ),
+        ):
             if os.path.exists(h5_file):
                 temp_data = pandas.read_hdf(h5_file)
                 if include_filenames:
@@ -56,13 +64,6 @@ def get_data_from_h5_or_list(
                         temp_data["filename"] = os.path.basename(orig_filenames[i])
 
                 data_list.append(temp_data)
-
-            if verbose:
-                ivert.utils.progress_bar.ProgressBar(
-                    i + 1,
-                    len(h5_name_or_list),
-                    suffix=f"{i + 1}/{len(h5_name_or_list)}",
-                )
 
         data = pandas.concat(data_list)
     else:

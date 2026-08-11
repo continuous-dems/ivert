@@ -1,12 +1,12 @@
 import multiprocessing as mp
 import os
 import shutil
+import sys
 import time
 
 import numpy
 import psutil
-
-from ivert.utils import progress_bar
+import tqdm
 
 
 def physical_cpu_count():
@@ -128,6 +128,38 @@ def process_parallel(
     running_tempdirs = []
     running_procnames = []
 
+    # The bar is created lazily, on first use: when the caller has given us outfiles or
+    # process names to report, we print a line per process instead and never want one.
+    progress = None
+
+    def update_bar() -> None:
+        """Advance the progress bar to the number of processes finished so far."""
+        nonlocal progress
+        if progress is None:
+            # 'disable=None' tells tqdm to draw the bar only when attached to a
+            # terminal, and stay silent when output is redirected to a file or a pipe.
+            progress = tqdm.tqdm(
+                total=len(args_lists),
+                disable=None,
+                unit="proc",
+                file=sys.stdout,
+            )
+        progress.update(num_finished - progress.n)
+
+    def report(msg: str) -> None:
+        """Print a status line, without clobbering the progress bar if one is up.
+
+        A bar is only up if some earlier process reported through one, in which case
+        it is advanced too: this process counts towards 'num_finished' either way, and
+        a bar left behind here would never catch up if every later process reports by
+        name rather than by bar.
+        """
+        if progress is None:
+            print(msg)
+        else:
+            progress.update(num_finished - progress.n)
+            progress.write(msg, file=sys.stdout)
+
     try:
         num_finished = 0
         for i, (args, kwargs, outfile, temp_dir, proc_name) in enumerate(
@@ -178,37 +210,25 @@ def process_parallel(
                     # (c) or just a count using the progress bar.
                     if verbose:
                         if use_progress_bar_only:
-                            progress_bar.ProgressBar(
-                                i + 1,
-                                len(args_lists),
-                                suffix=f"{num_finished:,}/{len(args_lists):,}",
-                            )
+                            update_bar()
                         elif type(d_outf) is str:
-                            print(
-                                f"{num_finished:,}/{len(args_lists):,} ",
-                                end="",
-                            )
                             written_qualifier = "" if os.path.exists(d_outf) else "NOT "
-                            print(
+                            outf_name = (
                                 os.path.basename(d_outf)
                                 if abbreviate_outfile_names_in_stdout
-                                else d_outf,
-                                f"{written_qualifier}written.",
+                                else d_outf
+                            )
+                            report(
+                                f"{num_finished:,}/{len(args_lists):,} {outf_name} {written_qualifier}written.",
                             )
                         elif type(d_pname) is str:
-                            print(
-                                f"{num_finished:,}/{len(args_lists):,} ",
-                                end="",
+                            report(
+                                f"{num_finished:,}/{len(args_lists):,} {d_pname} finished.",
                             )
-                            print(d_pname, "finished.")
                         else:
                             # If we've given no identifying information for the processes, either a file to check
                             # or a process name, just output a progress bar.
-                            progress_bar.ProgressBar(
-                                i + 1,
-                                len(args_lists),
-                                suffix=f"{num_finished:,}/{len(args_lists):,}",
-                            )
+                            update_bar()
 
                     # Delete the temporary directory if it was created.
                     if type(d_tdir) is str and os.path.exists(d_tdir):
@@ -224,15 +244,13 @@ def process_parallel(
                         if not overwrite_outfiles:
                             num_finished += 1
                             if verbose:
-                                print(
-                                    f"{num_finished:,}/{len(args_lists):,} ",
-                                    end="",
-                                )
-                                print(
+                                outfile_name = (
                                     os.path.basename(outfile)
                                     if abbreviate_outfile_names_in_stdout
-                                    else outfile,
-                                    "already exists.",
+                                    else outfile
+                                )
+                                report(
+                                    f"{num_finished:,}/{len(args_lists):,} {outfile_name} already exists.",
                                 )
                             process_started = True
                             continue
@@ -294,3 +312,7 @@ def process_parallel(
                 if type(fn) is str and os.path.exists(fn):
                     os.remove(fn)
         raise
+
+    finally:
+        if progress is not None:
+            progress.close()
