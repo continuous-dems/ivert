@@ -199,8 +199,9 @@ def classes():
 
     These are the class codes assigned to ICESat-2 photons during
     classification and used when filtering photons for validation (e.g. the
-    ``--classes`` option of ``ivert database download``). Definitions come from
-    the globato ICESat-2 reader so they always match the classifier.
+    ``--classes`` option of ``ivert database download`` and ``ivert validate``).
+    Definitions come from the globato ICESat-2 reader so they always match the
+    classifier.
     """
     from ivert.photon_classes import photon_classes
 
@@ -227,7 +228,7 @@ def classes():
 
     click.echo(
         "\n  These codes are used with the --classes option of "
-        "'ivert database download'.",
+        "'ivert database download', 'ivert database export', and 'ivert validate'.",
     )
 
 
@@ -1653,6 +1654,8 @@ def _run_validate(
     measure_coverage,
     band_num,
     outlier_sd_threshold,
+    classes,
+    min_photons,
     buildings,
     confidence_level,
     bathy_confidence,
@@ -1719,9 +1722,22 @@ def _run_validate(
     if not expanded:
         raise click.ClickException("No input files or directory found.")
 
-    classes = [1, 6, 40]
-    if buildings:
-        classes = sorted([*classes, 7])
+    try:
+        class_list = [
+            int(c) for c in str(classes).replace(",", "/").split("/") if c != ""
+        ]
+    except ValueError as exc:
+        raise click.ClickException(
+            f"Invalid --classes value '{classes}': {exc}",
+        ) from exc
+    if not class_list:
+        raise click.ClickException(
+            "--classes must name at least one photon class code. "
+            "Run 'ivert classes' for the full list of codes.",
+        )
+    if buildings and 7 not in class_list:
+        class_list.append(7)
+    class_list = sorted(set(class_list))
 
     if len(expanded) == 1 and os.path.isfile(expanded[0]):
         # validate_dem uses output_dir as-is, so resolve any relative path against
@@ -1736,13 +1752,14 @@ def _run_validate(
         kwargs = {
             "dem_name": expanded[0],
             "output_dir": single_outdir,
-            "classes": classes,
+            "classes": class_list,
             "band_num": band_num,
             "outliers_sd_threshold": outlier_sd_threshold,
             "include_photon_level_validation": include_photons,
             "location_name": region_name,
             "measure_coverage": measure_coverage,
             "min_coverage_pct": minimum_coverage_pct,
+            "min_photons_per_cell": min_photons,
             "min_confidence_level": confidence_level,
             "min_bathy_confidence": bathy_confidence,
             "verbose": verbose,
@@ -1772,12 +1789,13 @@ def _run_validate(
         kwargs = {
             "dem_list_or_dir": dem_input,
             "output_dir": multi_outdir,
-            "classes": classes,
+            "classes": class_list,
             "band_num": band_num,
             "place_name": region_name,
             "include_photon_validation": include_photons,
             "measure_coverage": measure_coverage,
             "min_coverage_pct": minimum_coverage_pct,
+            "min_photons_per_cell": min_photons,
             "outliers_sd_threshold": outlier_sd_threshold,
             "min_confidence_level": confidence_level,
             "min_bathy_confidence": bathy_confidence,
@@ -1888,11 +1906,38 @@ def _run_validate(
     ),
 )
 @click.option(
+    "-c",
+    "--classes",
+    "classes",
+    default="1/6/40",
+    show_default=True,
+    metavar="CLASSES",
+    help=(
+        "ICESat-2 photon classes to validate against, slash-separated (e.g. "
+        "'1/40'). Photons in any other class are excluded before the elevation "
+        "statistics are computed. Run 'ivert classes' for the full list of codes."
+    ),
+)
+@click.option(
+    "-mp",
+    "--min-photons",
+    "min_photons",
+    type=click.IntRange(1, None),
+    default=3,
+    show_default=True,
+    help=(
+        "Minimum number of photons a grid cell must contain to be validated. "
+        "Cells with fewer photons are omitted from the results entirely. Cells "
+        "with 5 or more photons have their outliers trimmed to the interdecile "
+        "range; cells below that use every photon they contain."
+    ),
+)
+@click.option(
     "-b",
     "--buildings",
     is_flag=True,
     default=False,
-    help="Include building-class photons in validation.",
+    help="Include building-class photons (class 7) in validation, on top of -c/--classes.",
 )
 @click.option(
     "-cl",
@@ -1999,6 +2044,8 @@ def validate(
     minimum_coverage_pct,
     band_num,
     outlier_sd_threshold,
+    classes,
+    min_photons,
     buildings,
     confidence_level,
     bathy_confidence,
@@ -2057,6 +2104,8 @@ def validate(
         measure_coverage,
         band_num,
         outlier_sd_threshold,
+        classes,
+        min_photons,
         buildings,
         confidence_level,
         bathy_confidence,

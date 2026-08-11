@@ -1,6 +1,6 @@
 # ivert classes
 
-List the ICESat-2 photon classification codes and their meanings. These are the codes IVERT assigns to photons during classification and that you use when filtering photons — for example with the `--classes` option of [`ivert database download`](database.md#photon-class-options) and [`ivert database export`](database.md#filtering-options).
+List the ICESat-2 photon classification codes and their meanings. These are the codes IVERT assigns to photons during classification and that you use when filtering photons — for example with the `--classes` option of [`ivert database download`](database.md#photon-class-options), [`ivert database export`](database.md#filtering-options), and [`ivert validate`](validate.md#photon-filtering).
 
 ```
 ivert classes

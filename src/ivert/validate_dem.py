@@ -34,6 +34,12 @@ ivert_config = ivert.utils.configfile.Config()
 EMPTY_VAL = ivert_config.dem_default_ndv
 TRANSFORMEZ_CACHE_DIR = ivert_config.cache_directory
 
+# Grid cells with at least this many photons have their outlier photons trimmed to
+# the interdecile (10th-90th percentile) range before their elevation statistics are
+# computed. Below this count there are too few photons to distinguish an outlier from
+# the signal, so every photon in the cell is used instead.
+INTERDECILE_MIN_PHOTONS = 5
+
 
 def read_dataframe_file(df_filename: str) -> pandas.DataFrame:
     """Read a dataframe file, either from a picklefile, HDF, CSV, or feather.
@@ -71,6 +77,7 @@ def validate_dem_child_process(
     array_shape,
     connection,
     photon_limit=None,
+    min_photons=3,
     measure_coverage=False,
     x_array_name=None,
     x_dtype=None,
@@ -87,6 +94,12 @@ def validate_dem_child_process(
 
     'measure_coverage' is a boolean parameter to measure how well a given pixel is covered by ICESat-2 photons.
     We'll measure a couple of different measures (centrality and coverage), and insert those parameters in the output.
+
+    'min_photons' is the fewest photons a grid cell may contain and still be validated. Cells with fewer than
+    this many photons are omitted from the returned dataframe entirely; nothing is reported for them.
+
+    Cells with at least INTERDECILE_MIN_PHOTONS photons have their outliers trimmed to the interdecile range
+    before their statistics are computed. Cells below that use every photon they contain.
     """
     # Define shared memory arrays here.
     h_shm = shared_memory.SharedMemory(name=height_array_name)
@@ -160,8 +173,10 @@ def validate_dem_child_process(
             N = len(dem_i_list)
 
             # Do the work.
+            # r_keep marks the cells that had enough photons to validate. Cells left
+            # False are dropped from the results below, not reported as empty.
+            r_keep = numpy.zeros((N,), dtype=bool)
             r_mean = numpy.zeros((N,), dtype=float)
-            r_median = numpy.zeros((N,), dtype=float)
             r_numphotons = numpy.zeros((N,), dtype=numpy.uint32)
             r_numphotons_bathy = r_numphotons.copy()
             r_numphotons_intd = r_numphotons.copy()
@@ -170,10 +185,8 @@ def validate_dem_child_process(
             r_range = numpy.zeros((N,), heights.dtype)
             r_10p = numpy.zeros((N,), float)
             r_90p = numpy.zeros((N,), float)
-            # r_canopy_fraction = numpy.zeros((N,), numpy.float16)
             r_dem_elev = numpy.zeros((N,), dtype=float)
             r_mean_diff = numpy.zeros((N,), dtype=float)
-            r_med_diff = numpy.zeros((N,), dtype=float)
             if measure_coverage:
                 r_coverage_frac = numpy.zeros((N,), dtype=float)
             else:
@@ -231,97 +244,80 @@ def validate_dem_child_process(
                     assert photon_limit >= 2
                     subset_df = subset_df.sample(n=photon_limit)
 
-                r_numphotons[counter] = len(subset_df)
-                # if len(subset_df) > 0:
-                #     r_canopy_fraction[counter] = (subset_df.ph_code >= 2).sum() / len(subset_df)
-                # else:
-                #     r_canopy_fraction[counter] = EMPTY_VAL
+                n_photons = len(subset_df)
 
+                # Cells without enough photons to validate are omitted from the
+                # results entirely. Leaving r_keep False drops them below.
+                if n_photons < min_photons:
+                    continue
+
+                # The photon classes have already been filtered upstream (in
+                # _compute_photon_overlap), so every photon here is one the user
+                # asked to validate against.
+                r_keep[counter] = True
+                r_numphotons[counter] = n_photons
                 r_dem_elev[counter] = dem_elev_list[counter]
+                r_numphotons_bathy[counter] = numpy.count_nonzero(
+                    subset_df.ph_code == 40,
+                )
+                r_range[counter] = subset_df.height.max() - subset_df.height.min()
 
-                ground_only_df = subset_df[numpy.isin(subset_df.ph_code, [1, 40])]
-                if len(ground_only_df) < 3:
-                    r_range[counter] = EMPTY_VAL
-                    r_10p[counter] = EMPTY_VAL
-                    r_90p[counter] = EMPTY_VAL
-                    r_interdecile[counter] = EMPTY_VAL
-                    r_numphotons_bathy[counter] = numpy.count_nonzero(
-                        ground_only_df.ph_code == 40,
-                    )
-                    r_numphotons_intd[counter] = len(ground_only_df)
-                    r_mean[counter] = EMPTY_VAL
-                    r_median[counter] = EMPTY_VAL
-                    r_std[counter] = EMPTY_VAL
-                    r_mean_diff[counter] = EMPTY_VAL
-                    r_med_diff[counter] = EMPTY_VAL
-                else:
-                    height_desc = ground_only_df.height.describe(
+                if n_photons >= INTERDECILE_MIN_PHOTONS:
+                    # Enough photons to tell signal from outliers: keep only those
+                    # within the interdecile range and compute the stats on those.
+                    height_desc = subset_df.height.describe(
                         percentiles=[0.10, 0.90],
                     )
-                    r_range[counter] = height_desc["max"] - height_desc["min"]
-                    # zp10, zp90 = numpy.percentile(cph_z, [10,90])
                     zp10 = height_desc["10%"]
                     zp90 = height_desc["90%"]
                     r_10p[counter], r_90p[counter] = zp10, zp90
                     r_interdecile[counter] = zp90 - zp10
-                    # Get only the photons within the inter-decile range
-                    # cph_z_intd = cph_z[(cph_z >= zp10) & (cph_z <= zp90)]
-                    r_numphotons_bathy[counter] = numpy.count_nonzero(
-                        ground_only_df.ph_code == 40,
-                    )
-                    df_intd = ground_only_df[
-                        (ground_only_df.height >= zp10)
-                        & (ground_only_df.height <= zp90)
+                    heights_used = subset_df.height[
+                        (subset_df.height >= zp10) & (subset_df.height <= zp90)
                     ]
-                    r_numphotons_intd[counter] = len(df_intd)
-                    if len(df_intd) >= 1:
-                        height_intd_desc = df_intd.height.describe()
+                else:
+                    # Too few photons for an interdecile range to mean anything, so
+                    # use all of them: a lone photon's height becomes the cell mean,
+                    # and 2-4 photons are simply averaged.
+                    r_10p[counter] = EMPTY_VAL
+                    r_90p[counter] = EMPTY_VAL
+                    r_interdecile[counter] = EMPTY_VAL
+                    heights_used = subset_df.height
 
-                        r_mean[counter] = height_intd_desc["mean"]
-                        r_median[counter] = height_intd_desc["50%"]
-                        r_std[counter] = height_intd_desc["std"]
-                        r_mean_diff[counter] = dem_elev_list[counter] - r_mean[counter]
-                        r_med_diff[counter] = dem_elev_list[counter] - r_median[counter]
+                r_numphotons_intd[counter] = len(heights_used)
+                r_mean[counter] = heights_used.mean()
+                # A single photon has no spread to measure; pandas returns NaN here.
+                r_std[counter] = heights_used.std()
+                r_mean_diff[counter] = dem_elev_list[counter] - r_mean[counter]
 
-                    else:
-                        r_mean[counter] = EMPTY_VAL
-                        r_median[counter] = EMPTY_VAL
-                        r_std[counter] = EMPTY_VAL
-                        r_mean_diff[counter] = EMPTY_VAL
-                        r_med_diff[counter] = EMPTY_VAL
-
-            # Generate a little dataframe of the outputs for all the different grid cells to return.
+            # Generate a little dataframe of the outputs for the grid cells that had
+            # enough photons to validate. Cells below 'min_photons' were skipped in
+            # the loop above and are omitted here rather than reported as empty.
             results_df = pandas.DataFrame(
                 {
-                    "i": dem_i_list,
-                    "j": dem_j_list,
-                    "mean": r_mean,
-                    "median": r_median,
-                    "stddev": r_std,
-                    "numphotons": r_numphotons,
-                    "numphotons_bathy": r_numphotons_bathy,
-                    "numphotons_intd": r_numphotons_intd,
-                    "interdecile_range": r_interdecile,
-                    "range": r_range,
-                    "10p": r_10p,
-                    "90p": r_90p,
+                    "i": numpy.asarray(dem_i_list)[r_keep],
+                    "j": numpy.asarray(dem_j_list)[r_keep],
+                    "mean": r_mean[r_keep],
+                    "stddev": r_std[r_keep],
+                    "numphotons": r_numphotons[r_keep],
+                    "numphotons_bathy": r_numphotons_bathy[r_keep],
+                    "numphotons_intd": r_numphotons_intd[r_keep],
+                    "interdecile_range": r_interdecile[r_keep],
+                    "range": r_range[r_keep],
+                    "10p": r_10p[r_keep],
+                    "90p": r_90p[r_keep],
                     # "canopy_fraction": r_canopy_fraction,
-                    "dem_elev": r_dem_elev,
-                    "diff_mean": r_mean_diff,
-                    "diff_median": r_med_diff,
+                    "dem_elev": r_dem_elev[r_keep],
+                    "diff_mean": r_mean_diff[r_keep],
                 },
             ).set_index(["i", "j"])
 
             if measure_coverage:
                 # Add columns for centrality measurements here.
                 # results_df["min_dist_from_center"] = r_min_distance_to_center
-                results_df["coverage_frac"] = r_coverage_frac
+                results_df["coverage_frac"] = r_coverage_frac[r_keep]
 
             connection.send(results_df)
-
-    raise RuntimeError(
-        "Something went wrong in dem_validate child process. Should not get here.",
-    )
 
 
 def clean_procs_and_pipes(procs, pipes1, pipes2, memory_objs):
@@ -364,6 +360,7 @@ def kick_off_new_child_process(
     code_dtype,
     array_shape,
     photon_limit=None,
+    min_photons=3,
     measure_coverage=False,
     x_array_name=None,
     x_dtype=None,
@@ -394,6 +391,7 @@ def kick_off_new_child_process(
             "y_array_name": y_array_name,
             "y_dtype": y_dtype,
             "photon_limit": photon_limit,
+            "min_photons": min_photons,
             "num_subdivisions": num_subdivisions,
         },
     )
@@ -484,6 +482,7 @@ def validate_dem(
     measure_coverage: bool = False,
     min_coverage_pct: float | None = None,
     max_photons_per_cell: int | None = None,
+    min_photons_per_cell: int = 3,
     numprocs: int = parallel_funcs.physical_cpu_count(),
     max_subdivides: int = 4,
     subdivision_number: int = 0,
@@ -505,8 +504,9 @@ def validate_dem(
         output_dir (str): Output directory for results.
         dates (None, list, tuple): 2-tuple of photon dates (mutually inclusive) for ICESat-2 data to use in this
             validation. Default: use all dates available in the database.
-        classes (list, tuple): The ICESat-2 classes to use for validation. Default: [1,5,40], meaning land (1),
-            ice surface (5), and bathy_floor (40)
+        classes (list, tuple): The ICESat-2 photon classes to use for validation. Photons in any other
+            class are dropped before any statistics are computed. Default: [1, 6, 40], meaning ground (1),
+            land ice (6), and bathy floor (40). Run 'ivert classes' for the full list of codes.
         shared_ret_values (dict, None): Shared return values from validate_dem_parallel. This is an analagous way to get
             the return values back from the calling function if this is called as a sub-process.
         icesat2_photon_database_obj (icesat2_database_v2.IS2Database): icesat-2 photon database object. Only
@@ -529,6 +529,11 @@ def validate_dem(
             measure_coverage=True (coverage must be measured to filter on it). Defaults to None
             (no coverage filtering).
         max_photons_per_cell (int): Maximum number of photons per cell.
+        min_photons_per_cell (int): Minimum number of photons a grid cell must contain to be
+            validated. Cells with fewer photons are omitted from the results entirely. Cells with
+            at least INTERDECILE_MIN_PHOTONS photons have their outliers trimmed to the interdecile
+            range before their statistics are computed; cells below that use every photon they
+            contain. Defaults to 3.
         numprocs (int): Number of processes to use for parallelized validation.
         max_subdivides (int): Maximum number of times to subdivide the DEM in quarters before giving up.
         subdivision_number (int): The current recursion depth of this subdivision. Will not subdivide further if
@@ -573,6 +578,7 @@ def validate_dem(
         "measure_coverage": measure_coverage,
         "min_coverage_pct": min_coverage_pct,
         "max_photons_per_cell": max_photons_per_cell,
+        "min_photons_per_cell": min_photons_per_cell,
         "numprocs": numprocs,
         "min_confidence_level": min_confidence_level,
         "min_bathy_confidence": min_bathy_confidence,
@@ -670,6 +676,7 @@ def validate_dem(
                 measure_coverage=measure_coverage,
                 min_coverage_pct=min_coverage_pct,
                 max_photons_per_cell=max_photons_per_cell,
+                min_photons_per_cell=min_photons_per_cell,
                 numprocs=numprocs,
                 min_confidence_level=min_confidence_level,
                 min_bathy_confidence=min_bathy_confidence,
@@ -964,8 +971,7 @@ def _check_existing_outputs(
         # the raw photon data. If they're missing, signal the caller to run the full pipeline.
         photon_results_file = ""
         if include_photon_level_validation:
-            base, ext = os.path.splitext(results_dataframe_file)
-            photon_results_file = base.replace("_results", "_photons") + ext
+            photon_results_file = _photon_results_filename(results_dataframe_file)
             if not os.path.exists(photon_results_file):
                 return None
 
@@ -1162,7 +1168,11 @@ def _compute_photon_overlap(
 ):
     """Transform photon coordinates into DEM space and compute cell-level overlap.
 
-    Returns (photon_df, height_field, ph_mask_ground_only, dem_overlap_i, dem_overlap_j,
+    Photons whose class_code is not in 'classes' are dropped here, so every array
+    handed downstream (height_field, the shared-memory arrays given to the child
+    processes, the photon-level outputs) holds only the requested classes.
+
+    Returns (photon_df, height_field, dem_overlap_i, dem_overlap_j,
              dem_overlap_elevs, N, coverage_coords) or None if no valid overlap exists.
     coverage_coords is (xmin_arr, xmax_arr, ymin_arr, ymax_arr) when measure_coverage=True, else None.
     """
@@ -1208,6 +1218,27 @@ def _compute_photon_overlap(
         & (photon_df["j"] >= 0)
         & (photon_df["j"] < dem_array.shape[1])
     ]
+
+    # Keep only the photon classes requested for this validation. Doing it here,
+    # rather than inside each child process, means the height/class arrays copied
+    # into shared memory carry only the photons that will actually be used.
+    class_mask = numpy.isin(photon_df["class_code"], classes)
+    if not class_mask.all():
+        if verbose:
+            print(
+                f"{numpy.count_nonzero(~class_mask):,} photons dropped as outside the",
+                "requested photon classes",
+                f"({'/'.join(str(c) for c in classes)}).",
+            )
+        photon_df = photon_df[class_mask]
+
+    if len(photon_df) == 0:
+        if verbose:
+            print(
+                "No photons remain in the requested classes. Stopping and moving on.",
+            )
+        return None
+
     height_field = photon_df["dem_z"]
 
     # NDV priority: (1) user_ndv flag, (2) file header, (3) config default
@@ -1224,14 +1255,10 @@ def _compute_photon_overlap(
         dem_goodpixel_mask = dem_array != dem_ndv
 
     photon_df = photon_df.set_index(["i", "j"], drop=False)
-    ph_mask_ground_only = numpy.isin(photon_df["class_code"], classes)
-    dem_mask_w_ground_photons = numpy.zeros(dem_array.shape, dtype=bool)
-    dem_mask_w_ground_photons[
-        photon_df.i[ph_mask_ground_only],
-        photon_df.j[ph_mask_ground_only],
-    ] = 1
+    dem_mask_w_photons = numpy.zeros(dem_array.shape, dtype=bool)
+    dem_mask_w_photons[photon_df.i, photon_df.j] = 1
 
-    dem_overlap_mask = dem_goodpixel_mask & dem_mask_w_ground_photons
+    dem_overlap_mask = dem_goodpixel_mask & dem_mask_w_photons
     dem_overlap_i, dem_overlap_j = numpy.where(dem_overlap_mask)
     dem_overlap_elevs = dem_array[dem_overlap_mask]
 
@@ -1268,7 +1295,6 @@ def _compute_photon_overlap(
     return (
         photon_df,
         height_field,
-        ph_mask_ground_only,
         dem_overlap_i,
         dem_overlap_j,
         dem_overlap_elevs,
@@ -1279,8 +1305,6 @@ def _compute_photon_overlap(
 
 def _run_photon_level_validation(
     photon_df,
-    height_field,
-    ph_mask_ground_only,
     dem_overlap_i,
     dem_overlap_j,
     dem_overlap_elevs,
@@ -1289,14 +1313,11 @@ def _run_photon_level_validation(
 ):
     """Compute photon-level DEM minus ICESat-2 differences and write an HDF5 results file.
 
-    Returns the photon results file path.
+    'photon_df' has already been subset to the requested photon classes by
+    _compute_photon_overlap. Returns the photon results file path.
     """
     if verbose:
         print("Performing photon-level validation...")
-        print("\tSubsetting ground-only photons... ", end="")
-    photon_df_ground_only = photon_df[ph_mask_ground_only]
-    if verbose:
-        print("Done.")
         print("\tGenerating DEM elevation dataframe... ", end="")
 
     dem_elev_df = pandas.DataFrame(
@@ -1310,7 +1331,7 @@ def _run_photon_level_validation(
         print(f"Done with {len(dem_elev_df)} records.")
         print("\tJoining photon_df and DEM elevation tables... ", end="")
 
-    photon_df_with_dem_elevs = photon_df_ground_only.join(dem_elev_df, how="left")
+    photon_df_with_dem_elevs = photon_df.join(dem_elev_df, how="left")
     photon_df_with_dem_elevs = photon_df_with_dem_elevs[
         pandas.notna(photon_df_with_dem_elevs["dem_elevation"])
     ]
@@ -1318,14 +1339,16 @@ def _run_photon_level_validation(
         print(f"Done with {len(photon_df_with_dem_elevs)} records.")
         print("\tCalculating elevation differences... ", end="")
 
+    # Use the frame's own 'dem_z' column rather than the caller's height_field
+    # Series: photon_df is (i, j)-indexed here, so an external Series would align
+    # against the wrong index.
     photon_df_with_dem_elevs["dem_minus_is2_m"] = (
-        photon_df_with_dem_elevs["dem_elevation"] - height_field
+        photon_df_with_dem_elevs["dem_elevation"] - photon_df_with_dem_elevs["dem_z"]
     )
     if verbose:
         print("Done.")
 
-    base, ext = os.path.splitext(results_dataframe_file)
-    photon_results_dataframe_file = base.replace("_results", "_photons") + ext
+    photon_results_dataframe_file = _photon_results_filename(results_dataframe_file)
     if verbose:
         print(
             "\tWriting",
@@ -1352,6 +1375,7 @@ def _run_parallel_cell_validation(
     dem_overlap_elevs,
     N,
     max_photons_per_cell,
+    min_photons_per_cell,
     measure_coverage,
     coverage_coords,
     numprocs,
@@ -1366,6 +1390,10 @@ def _run_parallel_cell_validation(
             print(
                 f"Limiting processing to {max_photons_per_cell} photons per grid cell.",
             )
+        print(
+            f"Validating grid cells with at least {min_photons_per_cell} photon"
+            f"{'' if min_photons_per_cell == 1 else 's'}.",
+        )
         print("Performing ICESat-2/DEM cell validation...")
 
     results_dataframes_list = []
@@ -1452,6 +1480,12 @@ def _run_parallel_cell_validation(
     running_procs = [None] * cpu_count
     open_pipes_parent = [None] * cpu_count
     open_pipes_child = [None] * cpu_count
+    # Cells in the chunk currently out with each child process. Progress is measured
+    # in cells *handed out*, not rows handed back: a child omits any cell that fell
+    # below 'min_photons_per_cell', so len(chunk_result_df) undercounts the work done
+    # and the bar would stall short of N. Each pipe has at most one chunk outstanding,
+    # so this is an exact count.
+    chunk_sizes = [0] * cpu_count
 
     counter_started = 0
     counter_finished = 0
@@ -1465,6 +1499,7 @@ def _run_parallel_cell_validation(
                 running_procs = running_procs[:i]
                 open_pipes_parent = open_pipes_parent[:i]
                 open_pipes_child = open_pipes_child[:i]
+                chunk_sizes = chunk_sizes[:i]
                 break
 
             running_procs[i], open_pipes_parent[i], open_pipes_child[i] = (
@@ -1479,6 +1514,7 @@ def _run_parallel_cell_validation(
                     code_dtype,
                     height_field.shape,
                     photon_limit=max_photons_per_cell,
+                    min_photons=min_photons_per_cell,
                     measure_coverage=measure_coverage,
                     x_array_name=x_array_name,
                     x_dtype=x_dtype,
@@ -1508,6 +1544,7 @@ def _run_parallel_cell_validation(
                         dem_overlap_elevs[counter_started:counter_chunk_end],
                     ),
                 )
+            chunk_sizes[i] = counter_chunk_end - counter_started
             counter_started = counter_chunk_end
             num_chunks_started += 1
 
@@ -1537,6 +1574,7 @@ def _run_parallel_cell_validation(
                         code_dtype,
                         height_field.shape,
                         photon_limit=max_photons_per_cell,
+                        min_photons=min_photons_per_cell,
                         measure_coverage=measure_coverage,
                         x_array_name=x_array_name,
                         x_dtype=x_dtype,
@@ -1546,11 +1584,17 @@ def _run_parallel_cell_validation(
                     running_procs[i] = proc
                     open_pipes_parent[i] = pipe
                     open_pipes_child[i] = pipe_child
+                    # The chunk this child was working on died with it and is never
+                    # retried, so count it as accounted for. Otherwise the bar could
+                    # never reach N once a child has crashed.
+                    counter_finished += chunk_sizes[i]
+                    chunk_sizes[i] = 0
                     num_chunks_finished += 1
 
                 if pipe.poll():
                     chunk_result_df = pipe.recv()
-                    counter_finished += len(chunk_result_df)
+                    counter_finished += chunk_sizes[i]
+                    chunk_sizes[i] = 0
                     num_chunks_finished += 1
                     results_dataframes_list.append(chunk_result_df)
                     if verbose:
@@ -1592,6 +1636,7 @@ def _run_parallel_cell_validation(
                                     ],
                                 ),
                             )
+                        chunk_sizes[i] = counter_chunk_end - counter_started
                         counter_started = counter_chunk_end
                         num_chunks_started += 1
                     else:
@@ -1670,10 +1715,11 @@ def _write_validation_outputs(
         return files_to_export
 
     results_dataframe = pandas.concat(results_dataframes_list)
+    # Cells with too few photons were already dropped by the child processes, which
+    # enforce 'min_photons_per_cell'. This only guards against a non-finite mean
+    # arising from bad photon elevations.
     results_dataframe = results_dataframe[
-        (results_dataframe["mean"] != EMPTY_VAL)
-        & (~numpy.isnan(results_dataframe["mean"]))
-        & (results_dataframe["numphotons_intd"] >= 3)
+        numpy.isfinite(results_dataframe["mean"])
     ].copy()
 
     # Drop cells below the requested minimum ICESat-2 coverage. Coverage is a
@@ -1692,7 +1738,7 @@ def _write_validation_outputs(
 
     if verbose:
         print(
-            "{:,} valid interdecile photon records in {:,} DEM cells.".format(
+            "{:,} photon records used in {:,} DEM cells.".format(
                 results_dataframe["numphotons_intd"].sum(),
                 len(results_dataframe),
             ),
@@ -1808,6 +1854,7 @@ def validate_dem_parallel(
     measure_coverage: bool = False,
     min_coverage_pct: float | None = None,
     max_photons_per_cell: int | None = None,
+    min_photons_per_cell: int = 3,
     numprocs: int = parallel_funcs.physical_cpu_count(),
     min_confidence_level: int = 4,
     min_bathy_confidence: float = 0.90,
@@ -1919,7 +1966,6 @@ def validate_dem_parallel(
     (
         photon_df,
         height_field,
-        ph_mask_ground_only,
         dem_overlap_i,
         dem_overlap_j,
         dem_overlap_elevs,
@@ -1930,8 +1976,6 @@ def validate_dem_parallel(
     if include_photon_level_validation:
         photon_file = _run_photon_level_validation(
             photon_df,
-            height_field,
-            ph_mask_ground_only,
             dem_overlap_i,
             dem_overlap_j,
             dem_overlap_elevs,
@@ -1949,6 +1993,7 @@ def validate_dem_parallel(
         dem_overlap_elevs,
         N,
         max_photons_per_cell,
+        min_photons_per_cell,
         measure_coverage,
         coverage_coords,
         numprocs,
@@ -2160,10 +2205,8 @@ ERROR_EXPORT_FORMATS = ("tif", "gpkg", "shp", "xyz")
 # (display_name, dataframe_column) pairs; columns absent from the dataframe are skipped.
 _ERROR_EXPORT_FIELDS = (
     ("error", "diff_mean"),  # DEM - ICESat-2, mean per cell (the primary error value)
-    ("error_med", "diff_median"),
     ("dem_z", "dem_elev"),
     ("is2_mean", "mean"),
-    ("is2_med", "median"),
     ("stddev", "stddev"),
     ("n_photons", "numphotons"),
     ("n_bathy", "numphotons_bathy"),
@@ -2254,6 +2297,19 @@ def _normalize_export_formats(formats):
     return seen
 
 
+def _photon_results_filename(results_dataframe_file):
+    """Return the '<dem>_photons.h5' path matching a given results dataframe file.
+
+    The photon output belongs next to the rest of a DEM's validation results, so
+    only the file name's trailing '_results' is swapped here, never the containing
+    directory. Results are written into a directory named 'ivert_results', so a
+    blanket str.replace("_results", "_photons") would also rewrite the directory
+    and send this file to a sibling 'ivert_photons' directory that is never created.
+    """
+    base, ext = os.path.splitext(results_dataframe_file)
+    return base.removesuffix("_results") + "_photons" + ext
+
+
 def _error_export_filenames(results_dataframe_file, formats):
     """Return the '<dem>_errors.<ext>' output paths a given format request would produce."""
     base, _ = os.path.splitext(results_dataframe_file)
@@ -2329,8 +2385,9 @@ def export_error_results(
     "-c",
     type=str,
     default="1/6/40",
-    help="ICESat-2 photon classes to include in validation, separated by slashes. Default '1/6/40',"
-    "which are 'ground', 'land_ice', and 'bathy_floor'.",
+    help="ICESat-2 photon classes to include in validation, separated by slashes. Photons in any "
+    "other class are excluded before statistics are computed. Default '1/6/40', which are "
+    "'ground', 'land_ice', and 'bathy_floor'.",
 )
 @click.option(
     "--input_vdatum",

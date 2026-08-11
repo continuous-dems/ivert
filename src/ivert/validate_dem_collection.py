@@ -105,6 +105,7 @@ def validate_list_of_dems(
     write_summary_csv: bool = True,
     measure_coverage: bool = False,
     min_coverage_pct: float | None = None,
+    min_photons_per_cell: int = 3,
     outliers_sd_threshold: float = 2.5,
     min_confidence_level: int = 1,
     min_bathy_confidence: float = 0.75,
@@ -206,17 +207,23 @@ def validate_list_of_dems(
             + "_results"
         ).replace("__", "_")
 
+    # Swap only the trailing "_results" appended above. A blanket
+    # str.replace("_results", ...) rewrites every occurrence, so a place name that
+    # itself contains "results" (e.g. "oregon results 2024" -> "oregon_results_2024")
+    # would have its own text rewritten mid-name as well.
+    sibling_base = stats_and_plots_base.removesuffix("_results")
+
     statsfile_name = os.path.join(
         stats_and_plots_dir,
-        stats_and_plots_base.replace("_results", "_summary_stats") + ".txt",
+        sibling_base + "_summary_stats.txt",
     )
     plot_file_name = os.path.join(
         stats_and_plots_dir,
-        stats_and_plots_base.replace("_results", "_plot") + ".png",
+        sibling_base + "_plot.png",
     )
     csv_name = os.path.join(
         stats_and_plots_dir,
-        stats_and_plots_base.replace("_results", "_individual_results") + ".csv",
+        sibling_base + "_individual_results.csv",
     )
     results_h5 = os.path.join(stats_and_plots_dir, stats_and_plots_base + ".h5")
 
@@ -318,7 +325,7 @@ def validate_list_of_dems(
             this_output_dir,
             os.path.splitext(os.path.split(dem_path)[1])[0] + "_results.h5",
         )
-        empty_fname = results_h5_file.replace("_results.h5", "_results_EMPTY.txt")
+        empty_fname = results_h5_file.removesuffix("_results.h5") + "_results_EMPTY.txt"
 
         try:
             shared_ret_values = {}
@@ -344,6 +351,7 @@ def validate_list_of_dems(
                 mark_empty_results=True,
                 measure_coverage=measure_coverage,
                 min_coverage_pct=min_coverage_pct,
+                min_photons_per_cell=min_photons_per_cell,
                 min_confidence_level=min_confidence_level,
                 min_bathy_confidence=min_bathy_confidence,
                 export_error_formats=export_error_formats,
