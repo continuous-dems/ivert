@@ -164,20 +164,90 @@ def _append_earthdata_credentials(
         pass
 
 
-def _setup_earthdata_credentials():
-    """Check for NASA Earthdata credentials in .netrc, offering to save them."""
-    netrc_path = _netrc_path()
+def _stdin_is_interactive():
+    """Return True if there is a terminal on stdin to prompt the user with."""
+    try:
+        return sys.stdin is not None and sys.stdin.isatty()
+    except (AttributeError, ValueError):
+        return False
 
-    if _has_earthdata_credentials(netrc_path):
-        click.echo("NASA Earthdata credentials are already set in your .netrc file.")
+
+def _check_netrc_permissions(netrc_path):
+    """Warn, and offer to fix, if .netrc is readable by anyone but its owner.
+
+    Downloads read credentials through the stdlib netrc module, which refuses
+    to parse a group- or world-readable ~/.netrc and reports no credentials at
+    all -- so the user would be prompted on every download despite having
+    saved them.
+    """
+    try:
+        mode = Path(netrc_path).stat().st_mode
+    except OSError:
+        return
+    if not (mode & 0o077):
         return
 
     click.echo(
-        "No NASA Earthdata credentials were found in your .netrc file.\n"
+        f"WARNING: {netrc_path} is readable by other users. Credentials in a "
+        "file with these permissions are ignored when downloading, so you "
+        "would still be asked for them every time.",
+        err=True,
+    )
+    if not _stdin_is_interactive():
+        return
+    if not click.confirm(
+        "Restrict it to owner-only (chmod 600) now?",
+        default=True,
+    ):
+        return
+    try:
+        Path(netrc_path).chmod(0o600)
+        click.echo(f"Set {netrc_path} to owner-only (600).")
+    except OSError as e:
+        click.echo(f"Could not change the permissions on {netrc_path}: {e}", err=True)
+
+
+def _setup_earthdata_credentials(announce_if_present=True, prompt_note=None):
+    """Check for NASA Earthdata credentials in .netrc, offering to save them.
+
+    Returns True if credentials are in place afterwards. Callers that only want
+    to give the user the chance to save them can ignore the result and carry
+    on: without a .netrc entry the download prompts for credentials itself,
+    once per run. Nothing is prompted when stdin is not a terminal.
+    """
+    netrc_path = _netrc_path()
+
+    if _has_earthdata_credentials(netrc_path):
+        if announce_if_present:
+            click.echo(
+                "NASA Earthdata credentials are already set in your .netrc file.",
+            )
+        _check_netrc_permissions(netrc_path)
+        return True
+
+    # With no terminal there is no point explaining an offer we cannot make.
+    if not _stdin_is_interactive():
+        click.echo(
+            "No NASA Earthdata credentials are saved in your .netrc file. "
+            "Run 'ivert setup' from a terminal to save them.",
+        )
+        return False
+
+    if os.path.exists(netrc_path):
+        click.echo(f"No NASA Earthdata credentials were found in {netrc_path}.")
+    else:
+        click.echo(
+            f"You have no {netrc_path} file, so IVERT has nowhere to save your "
+            "NASA Earthdata credentials.",
+        )
+    click.echo(
         "IVERT needs NASA Earthdata Login credentials to download ICESat-2 data.\n"
         "Register for a free account at https://urs.earthdata.nasa.gov/ if you "
         "do not have one.",
     )
+    if prompt_note:
+        click.echo(prompt_note)
+
     if not click.confirm(
         "Would you like to enter and save your NASA Earthdata username and password now?",
         default=False,
@@ -185,13 +255,14 @@ def _setup_earthdata_credentials():
         click.echo(
             "Skipped. Run 'ivert setup' again later to save your credentials.",
         )
-        return
+        return False
 
     username = click.prompt("NASA Earthdata username")
     password = click.prompt("NASA Earthdata password", hide_input=True)
 
     _append_earthdata_credentials(netrc_path, username, password)
     click.echo(f"Saved NASA Earthdata credentials to {netrc_path}.")
+    return True
 
 
 @ivert_cli.command("classes")
@@ -1101,6 +1172,16 @@ def database_download(
         raise click.ClickException(
             f"Invalid bounding box: xmin < xmax, ymin < ymax required. Got {full_bbox[:4]}.",
         )
+
+    # Offer to save credentials before the download asks for them. Declining is
+    # fine -- the download prompts for them itself, just once per run.
+    _setup_earthdata_credentials(
+        announce_if_present=False,
+        prompt_note=(
+            "Saving them means you will not be asked again on every download "
+            "while you build up your IVERT database."
+        ),
+    )
 
     db.download_new_granules(
         full_bbox,
