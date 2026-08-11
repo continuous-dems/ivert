@@ -245,23 +245,24 @@ def setup():
 
     config = Config()
 
-    # Directory settings, plus the parent directories of key file settings.
-    dir_attrs = (
-        "user_data_directory",
-        "cache_directory",
-        "ivert_database_directory",
-        "icesat2_download_directory",
-    )
-    file_attrs = (
-        "ivert_database_index",
-        "icesat2_requests_csv",
-    )
-    dirs = [getattr(config, attr) for attr in dir_attrs]
-    dirs += [os.path.dirname(getattr(config, attr)) for attr in file_attrs]
-    # The user config file's own directory, which --config / IVERT_USER_CONFIG
-    # can move independently of any of the settings above.
-    if config.user_config_path:
-        dirs.append(os.path.dirname(config.user_config_path))
+    # Derived from the settings IVERT resolved as local paths, so a new path
+    # setting is picked up here automatically. A "*_directory" setting names a
+    # directory to create; any other path setting names a file, so its parent
+    # directory is created instead. Settings that are not local paths -- S3
+    # keys, URLs, and ivert_results_subdir, which is resolved against each DEM
+    # at validation time -- are not included at all.
+    dirs = []
+    for key in config.path_options:
+        # --config / IVERT_USER_CONFIG can move the config file independently
+        # of every other setting, so take the location actually in use.
+        path = (
+            config.user_config_path
+            if key == "user_configfile"
+            else getattr(config, key, None)
+        )
+        if not path:
+            continue
+        dirs.append(path if key.endswith("_directory") else os.path.dirname(path))
 
     # Dedupe while preserving order.
     unique_dirs = []
