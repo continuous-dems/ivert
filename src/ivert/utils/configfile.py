@@ -216,6 +216,10 @@ class Config:
         self._config = configparser.ConfigParser()
         self.is_aws = is_aws.is_aws()
         self._user_set_keys = set()
+        # Options whose values were resolved as local filesystem paths, in the
+        # order the configfile lists them. A dict is used as an ordered set;
+        # read it through the 'path_options' property.
+        self._path_keys: dict = {}
 
         if not os.path.exists(configfile):
             raise FileNotFoundError(f"Configfile {configfile} not found.")
@@ -282,6 +286,22 @@ class Config:
             return os.path.abspath(os.path.expanduser(str(configured)))
 
         return None
+
+    @property
+    def path_options(self) -> list[str]:
+        """Settings whose values IVERT resolved as local filesystem paths.
+
+        Ordered as the configfile lists them. This is the same judgment
+        _read_option makes when it converts a value to an absolute path, so
+        settings that are deliberately not local paths are absent: S3 keys,
+        URLs, non-path strings, and the entries in _RELATIVE_PATH_KEYS (e.g.
+        ivert_results_subdir, which is resolved against each DEM at validation
+        time rather than named on disk here).
+
+        Lets callers such as "ivert setup" find IVERT's on-disk locations
+        without maintaining a hard-coded list that new settings must be added to.
+        """
+        return list(self._path_keys)
 
     def raw_default(self, key):
         """The un-interpolated default of an option, as written in the configfile.
@@ -533,6 +553,10 @@ class Config:
         and then attempt to read as a boolean if that fails. It helps to keep the
         .ini file a python-readable format, and allows base python objects to be in there.
         """
+        # Re-reading an option (e.g. a user config overriding a default) decides
+        # afresh whether it is a path, so drop any earlier verdict first.
+        self._path_keys.pop(key, None)
+
         try:
             # Using ast.literal_eval() rather than eval(), because literal_eval only allows the creation of generic
             # python objects but doesn't allow the calling of functions or commands that could pose security risks.
@@ -596,6 +620,9 @@ class Config:
                             os.path.join(os.path.dirname(self._configfile), value),
                         ),
                     )
+                # Record that this option names a local path, so callers such as
+                # "ivert setup" can find them without a hard-coded list.
+                self._path_keys[key] = None
                 return
         except ValueError:
             pass
