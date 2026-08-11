@@ -55,6 +55,54 @@ ivert options user_data_directory="/home/my user/ivert data"
 
 The first time you change any setting, IVERT creates your user config file at the location specified by `user_configfile` in `ivert_defaults.ini` (default: `~/.ivert/user_config.ini`). Subsequent changes update that same file.
 
+### Settings that are defined in terms of other settings
+
+Several defaults in `ivert_defaults.ini` embed another setting's value, using configparser's `%(other_setting)s` syntax:
+
+```ini
+user_data_directory = ~/.ivert
+cache_directory = %(user_data_directory)s/cache
+ivert_database_directory = %(user_data_directory)s/database/granules
+ivert_database_index = %(ivert_database_directory)s/_ivert_database_index.nc
+```
+
+Those embedded references are resolved inside whichever file defines them. So if you override `user_data_directory` in your user config file but `cache_directory` still lives only in `ivert_defaults.ini`, `cache_directory` keeps resolving against the **default** `~/.ivert` — not your new directory.
+
+To avoid that, `ivert options` detects the affected settings (transitively — `ivert_database_index` follows `ivert_database_directory`, which follows `user_data_directory`) and offers to copy them into your user config file:
+
+```
+$ ivert options user_data_directory=/mnt/external/ivert
+  user_data_directory = /mnt/external/ivert
+
+Warning: these settings use the value of 'user_data_directory' in their own values, and are still at IVERT's default:
+    cache_directory = %(user_data_directory)s/cache
+    ivert_database_directory = %(user_data_directory)s/database/granules
+    ivert_database_index = %(ivert_database_directory)s/_ivert_database_index.nc
+    icesat2_download_directory = %(cache_directory)s
+    icesat2_requests_csv = %(user_data_directory)s/database/requests.csv
+  Update them to use the new value of 'user_data_directory'? [Y/n]:
+```
+
+Answering yes copies them **verbatim**, `%(...)s` references intact — so they resolve against your new value now, and automatically follow `user_data_directory` again if you change it a second time.
+
+Settings you have already changed yourself are never listed and never overwritten.
+
+Add `-y`/`--yes` to accept without being asked:
+
+```
+ivert options -y user_data_directory=/mnt/external/ivert
+```
+
+When there is no terminal to prompt at (a script, a CI job), IVERT saves your change, leaves the inheriting settings alone, and tells you to re-run with `--yes` if you wanted them updated too.
+
+### `user_configfile` is read-only
+
+`user_configfile` is the one setting `ivert options` will not change, and setting it by hand in your user config file has no effect (IVERT ignores it, comments it out, and warns you).
+
+IVERT has to know where your config file is *before* it can open it, so that location is resolved from `ivert_defaults.ini` alone. If a config file could name its own location, IVERT would read one file and write to another — your settings would appear to save but never load. For the same reason, `user_configfile` is not defined in terms of `user_data_directory`: moving your data directory moves the cache, granules, and database, but your config file stays put, like `~/.gitconfig`.
+
+To use a different config file, use `--config` or `IVERT_USER_CONFIG`, both described below.
+
 ---
 
 ## Using different config files for different projects
@@ -112,6 +160,8 @@ When IVERT starts, the user config path is resolved in this order:
 1. `--config PATH` CLI flag
 2. `IVERT_USER_CONFIG` environment variable
 3. `user_configfile` setting in `ivert_defaults.ini` (default: `~/.ivert/user_config.ini`)
+
+A `user_configfile` value inside a *user* config file is never consulted — only the one in `ivert_defaults.ini` is. See [`user_configfile` is read-only](#user_configfile-is-read-only) above.
 
 ---
 

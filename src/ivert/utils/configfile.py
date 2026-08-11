@@ -25,6 +25,30 @@ _RELATIVE_PATH_KEYS = frozenset({"ivert_results_subdir"})
 # user's config file because the option is no longer recognized.
 _AUTO_COMMENT_MARKER = "Automatically commented out by IVERT"
 
+# Options that determine where the user config file itself lives. They are
+# resolved from ivert_defaults.ini (plus IVERT_USER_CONFIG / --config) *before*
+# any user config file is opened, so setting them inside a user config file
+# cannot move it: IVERT has already read that file from the bootstrap location,
+# and honoring the setting afterwards would make reads and writes disagree
+# about which file holds the user's settings. They are ignored when found in a
+# user config, and "ivert options" refuses to set them.
+_BOOTSTRAP_ONLY_KEYS = frozenset({"user_configfile"})
+
+# configparser's BasicInterpolation syntax: a value may embed another option's
+# value as "%(other_option)s".
+_INTERPOLATION_REF_RE = re.compile(r"%\(([^)]+)\)s")
+
+
+def option_references(value) -> set[str]:
+    """Return the option names a raw .ini value embeds via "%(other_option)s".
+
+    Operates on the raw (un-interpolated) text of a value, so it reports the
+    options a setting is *defined in terms of*, not what it resolved to.
+    """
+    if not isinstance(value, str):
+        return set()
+    return {name.strip().lower() for name in _INTERPOLATION_REF_RE.findall(value)}
+
 
 def parse_option_descriptions(configfile: str = ivert_default_configfile):
     """Extract the descriptive comments for each option in a config .ini file.
@@ -94,13 +118,18 @@ def _is_absolute_path(value):
     return bool(re.match(r"[A-Za-z]:[\\/]", stripped))
 
 
-def comment_out_options(configfile: str, keys) -> list[str]:
+def comment_out_options(
+    configfile: str,
+    keys,
+    reason: str = "unrecognized setting name.",
+) -> list[str]:
     """Comment out the given option assignments in an .ini file, in place.
 
     Each commented-out assignment gets a dated marker line above it explaining
-    that IVERT did this automatically, so the user can see what happened (and
-    restore the line themselves if they want). Everything else in the file --
-    comments, blank lines, section headers, ordering -- is left untouched.
+    that IVERT did this automatically and why ('reason'), so the user can see
+    what happened (and restore the line themselves if they want). Everything
+    else in the file -- comments, blank lines, section headers, ordering -- is
+    left untouched.
 
     Multi-line (indented continuation) values are commented out along with the
     assignment line that starts them.
@@ -138,10 +167,7 @@ def comment_out_options(configfile: str, keys) -> list[str]:
         ):
             key = re.split(r"[=:]", stripped, maxsplit=1)[0].strip().lower()
             if key in keys:
-                new_lines.append(
-                    f"# {_AUTO_COMMENT_MARKER} on {today}:"
-                    " unrecognized setting name.\n",
-                )
+                new_lines.append(f"# {_AUTO_COMMENT_MARKER} on {today}: {reason}\n")
                 new_lines.append("#" + line)
                 commented_out.append(key)
                 in_commented_value = True
@@ -233,21 +259,107 @@ class Config:
 
         return os.path.abspath(os.path.join(os.path.dirname(self._configfile), path))
 
-    def _apply_user_config(self):
-        """If the user config file exists, overlay its values on top of the defaults.
+    @property
+    def user_config_path(self):
+        """Absolute path of the user config file IVERT reads and writes, or None.
 
-        Resolution order for the user config path:
-          1. IVERT_USER_CONFIG environment variable (set directly or via --config CLI flag)
-          2. user_configfile value from ivert_defaults.ini
+        Resolution order:
+          1. IVERT_USER_CONFIG environment variable (set directly or via the
+             --config CLI flag)
+          2. the user_configfile value in ivert_defaults.ini
+
+        Step 2 is deliberately taken from the defaults file only -- see
+        _BOOTSTRAP_ONLY_KEYS. Use this property, rather than the
+        'user_configfile' attribute, whenever locating the file to read from or
+        write to, so that --config and IVERT_USER_CONFIG are always honored.
         """
         env_override = os.environ.get("IVERT_USER_CONFIG", "").strip()
         if env_override:
-            user_path = os.path.abspath(os.path.expanduser(env_override))
-        elif hasattr(self, "user_configfile") and self.user_configfile:
-            user_path = os.path.abspath(os.path.expanduser(str(self.user_configfile)))
-        else:
-            return
-        if not os.path.exists(user_path):
+            return os.path.abspath(os.path.expanduser(env_override))
+
+        configured = getattr(self, "user_configfile", None)
+        if configured:
+            return os.path.abspath(os.path.expanduser(str(configured)))
+
+        return None
+
+    def raw_default(self, key):
+        """The un-interpolated default of an option, as written in the configfile.
+
+        Unlike the parsed attribute, this keeps any "%(other_option)s" embedding
+        intact, so the value can be copied into a user config file and continue
+        to track whatever the referenced options are set to there.
+        """
+        return self._config.get("DEFAULT", key, raw=True)
+
+    def _raw_defaults(self) -> dict:
+        """Every [DEFAULT] option's raw value, in the order the configfile lists them."""
+        return {k: self.raw_default(k) for k in self._config["DEFAULT"]}
+
+    def dependent_options(self, keys) -> list[str]:
+        """Return the options whose defaults are defined in terms of 'keys'.
+
+        Follows "%(other_option)s" references transitively: if 'keys' contains
+        "user_data_directory", the result includes "ivert_database_directory"
+        (which embeds it) and "ivert_database_index" (which embeds *that*).
+
+        'keys' themselves are never included. The result is ordered as the
+        configfile lists the options.
+        """
+        raw = self._raw_defaults()
+        refs = {k: option_references(v) for k, v in raw.items()}
+
+        changed = {str(k).strip().lower() for k in keys}
+        dependents: set[str] = set()
+        frontier = changed
+
+        while frontier:
+            newly_found = {
+                k
+                for k, r in refs.items()
+                if k not in changed and k not in dependents and (r & frontier)
+            }
+            if not newly_found:
+                break
+            dependents |= newly_found
+            frontier = newly_found
+
+        return [k for k in raw if k in dependents]
+
+    def interpolation_support_options(self, keys, already_defined) -> list[str]:
+        """Extra options needed for 'keys' to be copied verbatim into another file.
+
+        A raw value like "%(a)s/%(b)s" only resolves in the file it is written
+        to if every option it references is defined there as well. Given the
+        options about to be written ('keys') and the options that file already
+        defines ('already_defined'), this returns the additional options whose
+        raw defaults must be copied alongside them, found transitively and
+        ordered as the configfile lists them.
+        """
+        raw = self._raw_defaults()
+        defined = {str(k).strip().lower() for k in already_defined}
+
+        needed: set[str] = set()
+        seen = {str(k).strip().lower() for k in keys}
+        frontier = set(seen)
+
+        while frontier:
+            next_frontier = set()
+            for key in frontier:
+                for ref in option_references(raw.get(key, "")):
+                    if ref in defined or ref in seen or ref not in raw:
+                        continue
+                    seen.add(ref)
+                    needed.add(ref)
+                    next_frontier.add(ref)
+            frontier = next_frontier
+
+        return [k for k in raw if k in needed]
+
+    def _apply_user_config(self):
+        """If the user config file exists, overlay its values on top of the defaults."""
+        user_path = self.user_config_path
+        if user_path is None or not os.path.exists(user_path):
             return
 
         user_config = configparser.ConfigParser()
@@ -270,6 +382,14 @@ class Config:
         if unknown_keys:
             self._handle_unknown_user_keys(user_path, unknown_keys)
 
+        # Options that are recognized, but that cannot take effect from inside a
+        # user config file because they decide where that file lives.
+        bootstrap_keys = self._all_option_names(user_config) & _BOOTSTRAP_ONLY_KEYS
+        if bootstrap_keys:
+            self._handle_bootstrap_user_keys(user_path, bootstrap_keys)
+
+        ignored_keys = unknown_keys | bootstrap_keys
+
         sections = ["DEFAULT"]
         if self.is_aws and "AWS" in user_config:
             sections.append("AWS")
@@ -279,7 +399,7 @@ class Config:
         try:
             for section in sections:
                 for k in user_config[section]:
-                    if k in unknown_keys:
+                    if k in ignored_keys:
                         continue
                     try:
                         v = user_config[section][k]
@@ -296,6 +416,16 @@ class Config:
         finally:
             self._configfile = saved_configfile
 
+    @staticmethod
+    def _all_option_names(user_config: configparser.ConfigParser) -> set[str]:
+        """Return every option name defined anywhere in a config, in any section."""
+        # configparser propagates [DEFAULT] options into every other section, so
+        # each section's own options are collected on top of the defaults.
+        names = set(user_config.defaults().keys())
+        for section in user_config.sections():
+            names.update(user_config[section].keys())
+        return names
+
     def _unknown_user_keys(self, user_config: configparser.ConfigParser) -> set[str]:
         """Return the option names in a user config that IVERT no longer recognizes.
 
@@ -307,13 +437,7 @@ class Config:
         if self._config.has_section("AWS"):
             known.update(self._config["AWS"].keys())
 
-        # configparser propagates [DEFAULT] options into every other section, so
-        # only the section's own options are checked on top of the defaults.
-        user_keys = set(user_config.defaults().keys())
-        for section in user_config.sections():
-            user_keys.update(user_config[section].keys())
-
-        return user_keys - known
+        return self._all_option_names(user_config) - known
 
     def _handle_unknown_user_keys(self, user_path: str, unknown_keys: set[str]) -> None:
         """Warn about unrecognized user-config options and comment them out."""
@@ -343,6 +467,48 @@ class Config:
                 "\n  They have been commented out of that file (with a dated note)"
                 " and ignored."
                 "\n  Run 'ivert options list' to see the settings IVERT supports.",
+                file=sys.stderr,
+            )
+
+    def _handle_bootstrap_user_keys(self, user_path: str, keys: set[str]) -> None:
+        """Warn about user-config options that cannot take effect there.
+
+        These options decide where the user config file lives, so IVERT has to
+        resolve them before it can open that file. Honoring them afterwards
+        would leave IVERT reading one file and writing another. They are
+        commented out (with a dated note) and the user is pointed at --config /
+        IVERT_USER_CONFIG, which are resolved early enough to work.
+        """
+        key_list = "\n".join(f"    - {k}" for k in sorted(keys))
+        preamble = (
+            f"WARNING: The IVERT user config file {user_path} sets options that"
+            f" determine where that file itself lives:"
+            f"\n{key_list}"
+            "\n  IVERT resolves those before opening your config file, so they"
+            " cannot take effect from inside it, and they have been ignored."
+            "\n  To use a different config file, run 'ivert --config PATH ...'"
+            " or set the IVERT_USER_CONFIG environment variable."
+        )
+
+        try:
+            commented = comment_out_options(
+                user_path,
+                keys,
+                reason="this setting cannot be applied from a user config file.",
+            )
+        except OSError as e:
+            print(
+                f"{preamble}"
+                f"\n  IVERT tried to comment them out of that file but could not"
+                f" write to it:\n    {e}",
+                file=sys.stderr,
+            )
+            return
+
+        if commented:
+            print(
+                f"{preamble}"
+                "\n  They have been commented out of that file, with a dated note.",
                 file=sys.stderr,
             )
 
