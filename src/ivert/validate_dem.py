@@ -21,6 +21,7 @@ import pyproj
 import rasterio
 import shapely
 import shapely.geometry
+import tqdm
 
 import ivert.icesat2_database_v2
 import ivert.plot_validation_results
@@ -28,7 +29,7 @@ import ivert.transform_points
 import ivert.utils.configfile
 import ivert.utils.loggerproc
 import ivert.utils.split_dem
-from ivert.utils import dem_geom, parallel_funcs, progress_bar
+from ivert.utils import dem_geom, parallel_funcs
 
 ivert_config = ivert.utils.configfile.Config()
 EMPTY_VAL = ivert_config.dem_default_ndv
@@ -1493,6 +1494,15 @@ def _run_parallel_cell_validation(
     num_chunks_finished = 0
     items_per_process_chunk = 20
 
+    # 'disable=None' tells tqdm to draw the bar only when attached to a terminal, and
+    # stay silent when the output is redirected to a file or a pipe.
+    progress = tqdm.tqdm(
+        total=N,
+        disable=None if verbose else True,
+        unit="cell",
+        file=sys.stdout,
+    )
+
     try:
         for i in range(cpu_count):
             if counter_started >= N:
@@ -1557,8 +1567,9 @@ def _run_parallel_cell_validation(
 
                 if not proc.is_alive():
                     if verbose:
-                        print(
-                            "\nSub-process terminated unexpectedly. Some data may be missing. Restarting a new process.",
+                        progress.write(
+                            "Sub-process terminated unexpectedly. Some data may be missing. Restarting a new process.",
+                            file=sys.stdout,
                         )
                     proc.join()
                     pipe.close()
@@ -1590,6 +1601,7 @@ def _run_parallel_cell_validation(
                     counter_finished += chunk_sizes[i]
                     chunk_sizes[i] = 0
                     num_chunks_finished += 1
+                    progress.update(counter_finished - progress.n)
 
                 if pipe.poll():
                     chunk_result_df = pipe.recv()
@@ -1597,15 +1609,7 @@ def _run_parallel_cell_validation(
                     chunk_sizes[i] = 0
                     num_chunks_finished += 1
                     results_dataframes_list.append(chunk_result_df)
-                    if verbose:
-                        progress_bar.ProgressBar(
-                            counter_finished,
-                            N,
-                            suffix=("{0:>" + str(len(str(N))) + "d}/{1:d}").format(
-                                counter_finished,
-                                N,
-                            ),
-                        )
+                    progress.update(counter_finished - progress.n)
 
                     if counter_started < N:
                         counter_chunk_end = min(
@@ -1662,6 +1666,9 @@ def _run_parallel_cell_validation(
         )
         print(e)
         return results_dataframes_list
+
+    finally:
+        progress.close()
 
     t_end = time.perf_counter()
     if verbose:

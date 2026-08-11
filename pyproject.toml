@@ -37,6 +37,7 @@ dependencies = [
     "six",
     "tables",
     "tabulate",
+    "tqdm",
     "xarray",
     "fetchez",
     "globato",
