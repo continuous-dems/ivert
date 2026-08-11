@@ -486,6 +486,11 @@ def _inherited_options(config, user_config, changed_keys):
 
 def _confirm_inherited_copy(config, dependents, changed_keys, assume_yes):
     """Ask whether settings inheriting a changed value should follow it."""
+    # The warning exists to flag settings that would silently stay behind. With
+    # --yes they are all updated, so there is nothing to warn about.
+    if assume_yes:
+        return True
+
     # Name only the changed settings something is actually inheriting from, so
     # unrelated assignments in the same command are not mentioned.
     offered = set(dependents)
@@ -501,9 +506,6 @@ def _confirm_inherited_copy(config, dependents, changed_keys, assume_yes):
     )
     for key in dependents:
         click.echo(f"    {click.style(key, fg='cyan')} = {config.raw_default(key)}")
-
-    if assume_yes:
-        return True
 
     if not sys.stdin.isatty():
         click.echo(
