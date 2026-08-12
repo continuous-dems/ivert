@@ -5,6 +5,15 @@ All notable changes to IVERT are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.8] - 2026-08-11
+
+### Added
+- `ivert database download` now offers to save your NASA Earthdata credentials to `~/.netrc` when a download needs them (#74). The credential prompt comes from `fetchez`, which only reads `.netrc` and never writes one, so a download that needed credentials asked for them again on every run; saving them was reachable only through `ivert setup`. The prompt is suppressed when there is no tty.
+
+### Fixed
+- IVERT now warns, and offers to `chmod 600`, when `~/.netrc` is group- or world-readable (#74). The standard library's `netrc` parser — which `fetchez` uses — refuses to read such a file and reports *no* credentials, while IVERT's own check parsed the tokens by hand and reported "all set", so the user was prompted for credentials over and over with no explanation.
+- `ivert options <key>=<value> -y`/`--yes` no longer prints the warning about settings that inherit the changed value (#74). That warning exists to say those settings would silently stay behind, which is not what `--yes` does — it updated them all immediately afterwards. The `Updated: ...` summary still reports everything that changed, and the interactive and non-interactive paths are unchanged.
+
 ## [0.6.7] - 2026-08-10
 
 ### Added
@@ -113,6 +122,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - First release with a tracked changelog.
 
+[0.6.8]: https://github.com/continuous-dems/ivert/compare/0.6.7...0.6.8
 [0.6.7]: https://github.com/continuous-dems/ivert/compare/0.6.6...0.6.7
 [0.6.6]: https://github.com/continuous-dems/ivert/compare/0.6.5...0.6.6
 [0.6.5]: https://github.com/continuous-dems/ivert/compare/0.6.4...0.6.5
