@@ -2,6 +2,7 @@ import ast
 import configparser
 import datetime
 import importlib.resources
+import math
 import os
 import re
 import sys
@@ -565,6 +566,23 @@ class Config:
             return
         except (NameError, ValueError, SyntaxError):
             pass
+
+        # literal_eval() can express every Python literal except the non-finite
+        # floats: "NaN" and "inf" are names rather than literals, so a setting
+        # written that way arrives here as a string and breaks any arithmetic
+        # done on it (numpy.isnan("NaN") raises a TypeError, for instance).
+        # Convert those, and only those: float() would also happily turn an
+        # unquoted zero-padded value such as "007" into 7.0, which would silently
+        # corrupt settings that are meant to stay strings.
+        if isinstance(value, str):
+            try:
+                number = float(value)
+            except ValueError:
+                pass
+            else:
+                if not math.isfinite(number):
+                    setattr(self, key, number)
+                    return
 
         # In some boolean cases, you can put other things besides "True/False", such as "yes/no"
         # Use configparser's boolean vocabulary to try to interpret it as a boolean.
