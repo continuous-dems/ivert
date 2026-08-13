@@ -43,6 +43,15 @@ def _delta_time_to_yyyymmdd(delta_time: float) -> int:
     )
 
 
+class DatabaseNotFoundError(Exception):
+    """No IVERT photon database exists where the configuration points.
+
+    Raised by IS2Database.ensure_index_exists() when neither an index file nor
+    any granules are found, i.e. when there is nothing to query and nothing to
+    rebuild an index from.
+    """
+
+
 class IS2Database:
     # Column groups describing how the index is serialized to the NetCDF file.
     # Every column becomes a plain 1-D numeric or string variable over the
@@ -174,13 +183,7 @@ class IS2Database:
             )
 
         if populate:
-            nc_files = sorted(
-                [
-                    os.path.join(self.granules_dir, fn)
-                    for fn in os.listdir(self.granules_dir)
-                    if os.path.splitext(fn)[-1].lower() == ".nc"
-                ],
-            )
+            nc_files = self.granule_files()
 
             records = []
             for nc_fn in nc_files:
@@ -213,6 +216,66 @@ class IS2Database:
         self.gdf = gdf
 
         return gdf
+
+    def granule_files(self) -> list[str]:
+        """Return the paths of the .nc granule files in the granules directory, sorted.
+
+        The index file lives in that same directory and also ends in .nc, so it
+        is explicitly skipped. Returns an empty list if the directory does not
+        exist.
+        """
+        if not os.path.isdir(self.granules_dir):
+            return []
+
+        index_fn = os.path.basename(self.db_fname)
+        return sorted(
+            os.path.join(self.granules_dir, fn)
+            for fn in os.listdir(self.granules_dir)
+            if os.path.splitext(fn)[-1].lower() == ".nc" and fn != index_fn
+        )
+
+    def ensure_index_exists(self) -> None:
+        """Check that this database's index file is in place before it is queried.
+
+        A query only ever touches the index, so an index that has been deleted
+        or was never built makes an otherwise-complete database look empty and
+        fails deep inside the query with an unhelpful traceback. Check it up
+        front instead:
+
+          * index present                       -> nothing to do.
+          * index missing, but granules on disk -> warn and rebuild it in place.
+          * neither one                         -> DatabaseNotFoundError.
+
+        Raises
+        ------
+        DatabaseNotFoundError if no index file exists and there are no granules
+        to rebuild it from.
+
+        """
+        if os.path.exists(self.db_fname):
+            return
+
+        granule_fnames = self.granule_files()
+
+        if not granule_fnames:
+            raise DatabaseNotFoundError(
+                "No IVERT ICESat-2 photon database exists where IVERT is looking "
+                "for it. Neither the index file nor any .nc granule files were found.\n"
+                f"  index file:         {self.db_fname}\n"
+                f"  granules directory: {self.granules_dir}\n"
+                "Run 'ivert database download <bbox or DEM>' to begin creating an IVERT "
+                "database, or point IVERT at an existing one with "
+                "'ivert options ivert_database_directory=<path>'.",
+            )
+
+        logger.warning(
+            "The database index '%s' is missing, but %d granule file(s) are present "
+            "in %s. Rebuilding the index in place; this may take a few moments.",
+            os.path.basename(self.db_fname),
+            len(granule_fnames),
+            self.granules_dir,
+        )
+        self.create_new_database(populate=True, overwrite=True)
 
     @classmethod
     def _empty_db_dict(cls) -> dict:

@@ -1972,6 +1972,15 @@ def _run_validate(
         class_list.append(7)
     class_list = sorted(set(class_list))
 
+    # Fail early, and legibly, if there is no photon database to validate against.
+    # If the granules are on disk but the index file isn't, this rebuilds it.
+    from ivert import icesat2_database_v2 as is2db_mod
+
+    try:
+        is2db_mod.IS2Database().ensure_index_exists()
+    except is2db_mod.DatabaseNotFoundError as exc:
+        raise click.ClickException(str(exc)) from exc
+
     if len(expanded) == 1 and os.path.isfile(expanded[0]):
         # validate_dem uses output_dir as-is, so resolve any relative path against
         # the DEM's own directory rather than the current working directory.
