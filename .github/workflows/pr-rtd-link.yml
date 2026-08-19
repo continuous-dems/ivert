@@ -5,7 +5,7 @@
 name: "Add ReadTheDocs preview link to PR description"
 
 on:
-  # zizmor: ignore[dangerous-triggers]x
+  # zizmor: ignore[dangerous-triggers]
   pull_request_target:
     types:
       - "opened"
