@@ -4,8 +4,8 @@
 # findable by updating PR descriptions to include it.
 name: "Add ReadTheDocs preview link to PR description"
 
-# zizmor: ignore[dangerous-triggers]
 on:
+  # zizmor: ignore[dangerous-triggers]x
   pull_request_target:
     types:
       - "opened"
