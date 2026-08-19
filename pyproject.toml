@@ -168,3 +168,6 @@ ignore = [
     "TRY004",   # type-check-without-type-error
     "TRY300",   # try-consider-else
 ]
+
+[tool.ruff.lint.per-file-ignores]
+"conf.py" = ["A001"]
