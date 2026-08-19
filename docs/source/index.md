@@ -1,9 +1,8 @@
-# IVERT
+# Ivert Documentation
+
 **ICESat-2 Validation of Elevations Reporting Tool**
 
 IVERT validates Digital Elevation Models (DEMs) by comparing their elevations against ICESat-2 satellite photon data. It supports topographic, bathymetric, and mixed coastal DEMs, runs fully offline on any machine, and handles vertical datum conversions automatically.
-
-Developed by the [continuous-dems team](https://github.com/continuous-dems). Primary authors: [Mike MacFerrin](https://github.com/mmacferrin) (IVERT) and [Matthew Love](https://github.com/matth-love) ([continuous-dems](https://github.com/continuous-dems) utilities).
 
 ---
 ## Capabilities
@@ -74,13 +73,17 @@ ivert validate mydem.tif
 
 ---
 
-## Documentation
+```{toctree}
+:maxdepth: 2
+:hidden:
+:caption: User Guide:
 
-| Command | Description |
-|---------|-------------|
-| [ivert setup](docs/source/user_guide/setup.md) | Create data directories and set up NASA Earthdata credentials |
-| [ivert validate](docs/source/user_guide/validate.md) | Validate DEMs against ICESat-2 data |
-| [ivert database](docs/source/user_guide/database.md) | Download, export, and manage the local photon database |
-| [ivert classes](docs/source/user_guide/classes.md) | List the ICESat-2 photon classification codes |
-| [ivert cache](docs/source/user_guide/cache.md) | View and clear the local file cache |
-| [ivert options](docs/source/user_guide/options.md) | View and change configuration settings |
+user_guide/index
+```
+
+Indices and tables
+==================
+
+* {ref}`genindex`
+* {ref}`modindex`
+* {ref}`search`
