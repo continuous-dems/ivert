@@ -5,6 +5,15 @@ All notable changes to IVERT are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.10] - 2026-08-27
+
+### Fixed
+- The documentation now builds, and https://ivert.readthedocs.io/ is live (#86). An unescaped `*` in a `cli.py` docstring opened a docutils emphasis span that never closed; the Read the Docs config sets `fail_on_warning: true`, so that single warning failed every build since the docs were configured, and the site served a 404. A `databasee` typo in the same docstring is fixed too.
+- A local `sphinx-build` now resolves `ivert` from the working tree (#87). `docs/source/conf.py` put the repository root on `sys.path`, but the package lives in `src/`, so a local docs build documented whichever copy happened to be installed in the environment — or failed with `ModuleNotFoundError` when none was. Read the Docs was unaffected, because `uv sync` installs the checkout itself. The path is also resolved from `__file__` rather than the working directory.
+
+### Changed
+- `CITATION.cff` now lists Michael MacFerrin as first author, then Matthew Love and Matt Fisher (#85). The previous order was inherited from fetchez's citation file.
+
 ## [0.6.9] - 2026-08-27
 
 ### Added
@@ -135,6 +144,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - First release with a tracked changelog.
 
+[0.6.10]: https://github.com/continuous-dems/ivert/compare/0.6.9...0.6.10
 [0.6.9]: https://github.com/continuous-dems/ivert/compare/0.6.8...0.6.9
 [0.6.8]: https://github.com/continuous-dems/ivert/compare/0.6.7...0.6.8
 [0.6.7]: https://github.com/continuous-dems/ivert/compare/0.6.6...0.6.7
