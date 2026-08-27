@@ -28,12 +28,12 @@ contact:
     website: "https://cudem.zulipchat.com"
 
 authors:
+  - family-names: MacFerrin
+    given-names: Michael
   - family-names: Love
     given-names: Matthew
   - family-names: Amante
     given-names: Christopher
-  - family-names: MacFerrin
-    given-names: Michael
   - family-names: Lim
     given-names: Elliot
   - family-names: Fisher
