@@ -9,7 +9,10 @@
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path("../..").resolve()))
+# The package lives in src/, so that is what belongs on the path -- not the
+# repository root. Resolved from this file rather than the working directory,
+# which is what "../.." depended on.
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
 
 project = "Ivert"
 copyright = "2026, The Continuous-DEMs Development Team."
