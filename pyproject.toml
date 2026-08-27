@@ -44,6 +44,15 @@ dependencies = [
     "transformez",
 ]
 
+[dependency-groups]
+docs = [
+    "sphinx<9.0.0",  # temp pin for sphinx-click
+    "sphinx-autodoc-typehints>=2.0.1",
+    "sphinx-click>=6.0",
+    "pydata-sphinx-theme",
+    "myst-parser",
+]
+
 [project.urls]
 Source = "https://github.com/continuous-dems/ivert"
 
@@ -159,3 +168,6 @@ ignore = [
     "TRY004",   # type-check-without-type-error
     "TRY300",   # try-consider-else
 ]
+
+[tool.ruff.lint.per-file-ignores]
+"conf.py" = ["A001"]

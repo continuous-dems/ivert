@@ -95,6 +95,7 @@ ivert options -y user_data_directory=/mnt/external/ivert
 
 When there is no terminal to prompt at (a script, a CI job), IVERT saves your change, leaves the inheriting settings alone, and tells you to re-run with `--yes` if you wanted them updated too.
 
+(user_configfile-is-read-only)=
 ### `user_configfile` is read-only
 
 `user_configfile` is the one setting `ivert options` will not change, and setting it by hand in your user config file has no effect (IVERT ignores it, comments it out, and warns you).
