@@ -78,9 +78,9 @@ ivert validate mydem.tif
 
 | Command | Description |
 |---------|-------------|
-| [ivert setup](docs/source/user_guide/setup.md) | Create data directories and set up NASA Earthdata credentials |
-| [ivert validate](docs/source/user_guide/validate.md) | Validate DEMs against ICESat-2 data |
-| [ivert database](docs/source/user_guide/database.md) | Download, export, and manage the local photon database |
-| [ivert classes](docs/source/user_guide/classes.md) | List the ICESat-2 photon classification codes |
-| [ivert cache](docs/source/user_guide/cache.md) | View and clear the local file cache |
-| [ivert options](docs/source/user_guide/options.md) | View and change configuration settings |
+| [ivert setup](docs/setup.md) | Create data directories and set up NASA Earthdata credentials |
+| [ivert validate](docs/validate.md) | Validate DEMs against ICESat-2 data |
+| [ivert database](docs/database.md) | Download, export, and manage the local photon database |
+| [ivert classes](docs/classes.md) | List the ICESat-2 photon classification codes |
+| [ivert cache](docs/cache.md) | View and clear the local file cache |
+| [ivert options](docs/options.md) | View and change configuration settings |
