@@ -5,6 +5,19 @@ All notable changes to IVERT are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.9] - 2026-08-27
+
+### Added
+- `CITATION.cff`, so GitHub offers a "Cite this repository" entry and reference managers can read IVERT's authorship, version, and license metadata (#82). The `version` and `date-released` fields are maintained by hand and are bumped as part of each release. A `cffconvert` pre-commit hook validates the file against the CFF 1.2.0 schema.
+
+### Fixed
+- `ivert validate` now reports a readable error when no photon database exists where IVERT is looking, instead of crashing with `TypeError: object of type 'NoneType' has no len()` inside a validation child process (#78, fixes #77). The message names both the configured index file and granules directory, since `ivert_database_index` and `ivert_database_directory` are separate settings and need not agree. When the index is missing but granule files are present, IVERT warns and rebuilds the index in place rather than failing.
+- Config values of `NaN` and `inf` are now read as floats rather than strings (#79). `dem_default_ndv` defaults to `NaN`, so validating a DEM whose header declares no NoData value — without passing `--ndv` — died with `TypeError: ufunc 'isnan' not supported for the input types`; the workaround was to pass `--ndv nan` explicitly. `ast.literal_eval()` cannot parse `NaN` and `inf`, which are names rather than literals. Only non-finite values are converted, so a zero-padded setting such as `nsidc_atl_version = 007` is still read as the string it has to be.
+- `ivert database download` no longer fails with `RuntimeError: NetCDF: HDF error` when IVERT is installed with `pip` into a virtual environment (#81). `netCDF4` and `h5py` ship binary wheels carrying conflicting `libhdf5` builds; importing `netCDF4` at the top of `icesat2_database_v2.py` settles which one is loaded first. Conda installs were never affected, because conda supplies a single shared `libhdf5` for both.
+
+### Changed
+- The user guide moved from `docs/` to `docs/source/user_guide/`, and the repository gained a Sphinx and Read the Docs configuration (#80).
+
 ## [0.6.8] - 2026-08-11
 
 ### Added
@@ -122,6 +135,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - First release with a tracked changelog.
 
+[0.6.9]: https://github.com/continuous-dems/ivert/compare/0.6.8...0.6.9
 [0.6.8]: https://github.com/continuous-dems/ivert/compare/0.6.7...0.6.8
 [0.6.7]: https://github.com/continuous-dems/ivert/compare/0.6.6...0.6.7
 [0.6.6]: https://github.com/continuous-dems/ivert/compare/0.6.5...0.6.6
