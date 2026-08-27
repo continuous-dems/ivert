@@ -1,5 +1,32 @@
-cff-version: 1.2.0
+cff-version: "1.2.0"
 message: "If you use this software, please cite it as below."
+
+title: "IVERT"
+repository-code: "https://github.com/continuous-dems/ivert"
+abstract: >-
+  IVERT (ICESat-2 Validation of Elevations Reporting Tool) validates Digital
+  Elevation Models by comparing their elevations against ICESat-2 satellite
+  photon data. It supports topographic, bathymetric, and mixed coastal DEMs,
+  runs fully offline, and handles vertical datum conversions automatically.
+
+version: "0.6.8"
+date-released: "2026-08-11"
+
+type: "software"
+license: "MIT"
+keywords:
+  - "Python"
+  - "DEM"
+  - "ICESat-2"
+  - "Altimetry"
+  - "Bathymetry"
+
+contact:
+  - name: "The Continuous DEMs Community"
+    website: "https://continuous-dems.github.io"
+  - name: "The Continuous DEMs Community Chat"
+    website: "https://cudem.zulipchat.com"
+
 authors:
   - family-names: Love
     given-names: Matthew
@@ -11,7 +38,4 @@ authors:
     given-names: Elliot
   - family-names: Fisher
     given-names: Matt
-title: "IVERT"
-version: 0.6.8
-date-released: 2026-08-11
-url: "https://github.com/continuous-dems/ivert"
+    website: "https://mattz.cool"
