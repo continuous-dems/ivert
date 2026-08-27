@@ -1,0 +1,17 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+authors:
+  - family-names: Love
+    given-names: Matthew
+  - family-names: Amante
+    given-names: Christopher
+  - family-names: MacFerrin
+    given-names: Michael
+  - family-names: Lim
+    given-names: Elliot
+  - family-names: Fisher
+    given-names: Matt
+title: "IVERT"
+version: 0.6.8
+date-released: 2026-08-11
+url: "https://github.com/continuous-dems/ivert"
