@@ -1,5 +1,13 @@
 # Functionality for reading ICESat-2 data and saving it in a tiled database.
 
+# Import netCDF4 first to force C-library symbol resolution before h5py/xarray loads.
+# Bypasses HDF5 dimscale corruption in pip/venv environments.
+# This library isn't used directly in this file, but we need to import it
+# in order for xarray to initialize correctly.
+import netCDF4  # noqa: F401
+
+# isort: split
+
 import datetime
 import logging
 import os
