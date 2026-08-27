@@ -1072,7 +1072,7 @@ def database_download(
 
         ivert database download -ds 2023.01.01 -de 2024.01.01 ../dems/oregon_coast_v1.tif
 
-        ivert databasee download -ds "two years ago" -de "one year ago" `../dems/*.tif`
+        ivert database download -ds "two years ago" -de "one year ago" `../dems/*.tif`
 
     (Note: Use the '--' delimiter to explicitly end your command-line options if coordinates begin with a negative '-')
 
