@@ -317,7 +317,7 @@ def setup():
     config = Config()
 
     # Derived from the settings IVERT resolved as local paths, so a new path
-    # setting is picked up here automatically. A "*_directory" setting names a
+    # setting is picked up here automatically. A `*_directory` setting names a
     # directory to create; any other path setting names a file, so its parent
     # directory is created instead. Settings that are not local paths -- S3
     # keys, URLs, and ivert_results_subdir, which is resolved against each DEM
@@ -1072,7 +1072,7 @@ def database_download(
 
         ivert database download -ds 2023.01.01 -de 2024.01.01 ../dems/oregon_coast_v1.tif
 
-        ivert databasee download -ds "two years ago" -de "one year ago" ../dems/*.tif
+        ivert databasee download -ds "two years ago" -de "one year ago" `../dems/*.tif`
 
     (Note: Use the '--' delimiter to explicitly end your command-line options if coordinates begin with a negative '-')
 
@@ -2301,7 +2301,7 @@ def validate(
     """Validate one or more DEMs against ICESat-2 photon data.
 
     FILES_OR_DIRECTORY can be one or more GeoTIFF paths, a directory
-    (all *.tif files are used), or a glob pattern (e.g., 'data/ncei*.tif').
+    (all `*.tif` files are used), or a glob pattern (e.g., `data/ncei*.tif`).
 
     Example: ivert validate mydem.tif -V navd88 -n "Oregon Coast"
     """
