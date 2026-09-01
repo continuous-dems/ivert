@@ -4,6 +4,7 @@
 """
 
 import ast
+import contextlib
 import multiprocessing as mp
 import os
 import re
@@ -349,10 +350,8 @@ def clean_procs_and_pipes(procs, pipes1, pipes2, memory_objs):
     # Clean up shared memory objoects.
     for smo in memory_objs:
         smo.close()
-        try:
+        with contextlib.suppress(FileNotFoundError):
             smo.unlink()
-        except FileNotFoundError:
-            pass
 
 
 def kick_off_new_child_process(
@@ -415,14 +414,12 @@ def subdivide_dem(
     if not os.path.exists(dem_name):
         raise FileNotFoundError(f"DEM {dem_name} does not exist.")
 
-    sub_dems = ivert.utils.split_dem.split(
+    return ivert.utils.split_dem.split(
         dem_name,
         factor=factor,
         output_dir=output_dir,
         verbose=verbose,
     )
-
-    return sub_dems
 
 
 def reset_results_indexes_after_merge(

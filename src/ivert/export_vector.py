@@ -164,8 +164,7 @@ def nc_to_geodataframe(
         return geopandas.GeoDataFrame(df, geometry=[], crs=WGS84_EPSG)
 
     geometry = geopandas.points_from_xy(df["x"], df["y"], df["z"])
-    gdf = geopandas.GeoDataFrame(df, geometry=geometry, crs=WGS84_EPSG)
-    return gdf
+    return geopandas.GeoDataFrame(df, geometry=geometry, crs=WGS84_EPSG)
 
 
 def index_to_geodataframe(index_path: str) -> geopandas.GeoDataFrame:

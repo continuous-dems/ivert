@@ -563,9 +563,10 @@ class Config:
             # python objects but doesn't allow the calling of functions or commands that could pose security risks.
             # It will natively evaluate things like lists, dictionaries, or other generic python data types.
             setattr(self, key, ast.literal_eval(value))
-            return
         except (NameError, ValueError, SyntaxError):
             pass
+        else:
+            return
 
         # literal_eval() can express every Python literal except the non-finite
         # floats: "NaN" and "inf" are names rather than literals, so a setting

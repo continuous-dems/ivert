@@ -940,9 +940,10 @@ class IS2Database:
     def is_iterable(obj) -> bool:
         try:
             iter(obj)
-            return True
         except TypeError:
             return False
+        else:
+            return True
 
     def query_photons(
         self,
@@ -1588,7 +1589,8 @@ class IS2Database:
         # Build a (xmin, xmax, ymin, ymax, tmin, tmax) tuple per row from the
         # scalar bbox columns, keep the unique ones, and cast the dates to int.
         cols = list(self._bbox_cols(base))
-        bboxes = sorted(
+        # Return it as a list of bbox tuples.
+        return sorted(
             {
                 (
                     float(r[0]),
@@ -1601,9 +1603,6 @@ class IS2Database:
                 for r in gdf[cols].itertuples(index=False)
             },
         )
-
-        # Return it as a list of bbox tuples.
-        return bboxes
 
     def delete_cache(
         self,
@@ -1721,16 +1720,14 @@ class IS2Database:
 
             query_bboxes = new_bboxes
 
-        # Do a quick merger on all the remaining bboxes to make sure they're simplified
-        query_bboxes = ivert.utils.cuboid_funcs.merge_cuboids(
-            query_bboxes,
-            bbox_order="axis",
-        )
-
         # Now, decrement the tmax day by 1 to make the ranges inclusive again.
         # query_bboxes = [tuple(bb[:5]) + (self.increment_yyyymmdd_by_n(bb[5], -1),) for bb in query_bboxes]
 
-        return query_bboxes
+        # Do a quick merger on all the remaining bboxes to make sure they're simplified
+        return ivert.utils.cuboid_funcs.merge_cuboids(
+            query_bboxes,
+            bbox_order="axis",
+        )
 
     @staticmethod
     def increment_yyyymmdd_by_n(yyyymmdd: float | str, days: int) -> int:

@@ -137,14 +137,12 @@ ignore = [
     "PTH202",   # os-path-getsize
     "PTH207",   # glob
     "PTH208",   # os-listdir
-    "RET504",   # unnecessary-assign
     "RUF001",   # ambiguous-unicode-character-string
     "RUF002",   # ambiguous-unicode-character-docstring
     "S101",     # assert
     "S110",     # try-except-pass
     "S301",     # suspicious-pickle-usage
     "SIM102",   # collapsible-if
-    "SIM105",   # suppressible-exception
     "SIM115",   # open-file-with-context-handler
     "SLF001",   # private-member-access
     "T201",     # print
@@ -152,7 +150,6 @@ ignore = [
     "TD003",    # missing-todo-link
     "TRY003",   # raise-vanilla-args
     "TRY004",   # type-check-without-type-error
-    "TRY300",   # try-consider-else
 ]
 
 [tool.ruff.lint.per-file-ignores]
