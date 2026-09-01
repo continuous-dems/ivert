@@ -1,6 +1,4 @@
-"""validate_dem_collection.py
-Code for validating and summarizing an entire list or directory of DEMs.
-"""
+"""Validate and summarize an entire list or directory of DEMs."""
 
 import ast
 import multiprocessing as mp

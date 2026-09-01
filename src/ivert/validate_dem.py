@@ -1,9 +1,17 @@
-"""Created on Tue Jun 22 16:06:21 2021
+"""Validate a DEM against ICESat-2 photon elevations.
+
+Samples classified ICESat-2 photons over a DEM, aggregates them per DEM cell,
+and reports per-cell and summary error statistics. Cell-level validation runs
+across child processes over shared-memory arrays; large DEMs are subdivided and
+their results merged back together.
+
+Created on Tue Jun 22 16:06:21 2021
 
 @author: mmacferrin
 """
 
 import ast
+import contextlib
 import multiprocessing as mp
 import os
 import re
@@ -349,10 +357,8 @@ def clean_procs_and_pipes(procs, pipes1, pipes2, memory_objs):
     # Clean up shared memory objoects.
     for smo in memory_objs:
         smo.close()
-        try:
+        with contextlib.suppress(FileNotFoundError):
             smo.unlink()
-        except FileNotFoundError:
-            pass
 
 
 def kick_off_new_child_process(
@@ -415,14 +421,12 @@ def subdivide_dem(
     if not os.path.exists(dem_name):
         raise FileNotFoundError(f"DEM {dem_name} does not exist.")
 
-    sub_dems = ivert.utils.split_dem.split(
+    return ivert.utils.split_dem.split(
         dem_name,
         factor=factor,
         output_dir=output_dir,
         verbose=verbose,
     )
-
-    return sub_dems
 
 
 def reset_results_indexes_after_merge(
@@ -1565,9 +1569,10 @@ def _run_parallel_cell_validation(
             num_chunks_started += 1
 
         while num_chunks_finished < num_chunks_started:
-            for i, (proc, pipe, pipe_child) in enumerate(
+            for i, procs_and_pipes in enumerate(
                 zip(running_procs, open_pipes_parent, open_pipes_child, strict=True),
             ):
+                proc, pipe, pipe_child = procs_and_pipes
                 if proc is None:
                     continue
 
@@ -2078,6 +2083,7 @@ def write_summary_stats_file(
             print(
                 "write_summary_stats_file(): No results dataframe to write. Returning",
             )
+        return
 
     if len(results_df) == 0:
         if verbose:
@@ -2295,18 +2301,20 @@ def _export_errors_xyz(results_dataframe, dem_ds, out_fname, verbose=True):
 
 
 def _normalize_export_formats(formats):
-    """Normalize a comma-separated string or iterable of format names into a de-duplicated
-    list of lower-case, recognized format names (others are dropped).
+    """Normalize format names into a de-duplicated list of recognized names.
+
+    Accepts a comma-separated string or an iterable. Names are lower-cased, and
+    unrecognized ones are dropped.
     """
     if isinstance(formats, str):
         formats = formats.split(",")
     elif formats is None:
         formats = []
     seen = []
-    for f in formats:
-        f = f.strip().lower().lstrip(".") if f else ""
-        if f and f in ERROR_EXPORT_FORMATS and f not in seen:
-            seen.append(f)
+    for fmt in formats:
+        name = fmt.strip().lower().lstrip(".") if fmt else ""
+        if name and name in ERROR_EXPORT_FORMATS and name not in seen:
+            seen.append(name)
     return seen
 
 

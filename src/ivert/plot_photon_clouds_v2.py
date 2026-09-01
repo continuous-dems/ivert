@@ -366,11 +366,15 @@ def _positions_for_dem_sampling(df, dlim):
     This ensures DEM sampling only covers the segment that will actually be plotted,
     so DEMs outside the window are skipped and don't appear in the legend.
     """
-    atk_km = df["along_track_m"].values / 1000.0
+    atk_km = df["along_track_m"].to_numpy() / 1000.0
     lo = dlim[0] if (dlim is not None and dlim[0] is not None) else -np.inf
     hi = dlim[1] if (dlim is not None and dlim[1] is not None) else np.inf
     mask = (atk_km >= lo) & (atk_km <= hi)
-    return df["x"].values[mask], df["y"].values[mask], df["along_track_m"].values[mask]
+    return (
+        df["x"].to_numpy()[mask],
+        df["y"].to_numpy()[mask],
+        df["along_track_m"].to_numpy()[mask],
+    )
 
 
 def plot_beam(
@@ -403,9 +407,9 @@ def plot_beam(
         unselected = (df_beam["class_code"] != 0) & ~df_beam["class_code"].isin(classes)
         df_beam.loc[unselected, "class_code"] = 0
 
-    along_track = df_beam["along_track_m"].values / 1000.0
-    z = df_beam["z"].values
-    cc = df_beam["class_code"].values
+    along_track = df_beam["along_track_m"].to_numpy() / 1000.0
+    z = df_beam["z"].to_numpy()
+    cc = df_beam["class_code"].to_numpy()
 
     fig, ax = plt.subplots(figsize=(12, 4))
 

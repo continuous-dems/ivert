@@ -79,9 +79,6 @@ ignore = [
     "ARG001",   # unused-function-argument
     "ARG002",   # unused-method-argument
     "BLE001",   # blind-except
-    "C401",     # unnecessary-generator-set
-    "C403",     # unnecessary-list-comprehension-set
-    "C414",     # unnecessary-double-cast-or-process
     "C901",     # complex-structure
     "CPY001",   # missing-copyright-notice
     "D100",     # undocumented-public-module
@@ -90,11 +87,7 @@ ignore = [
     "D103",     # undocumented-public-function
     "D104",     # undocumented-public-package
     "D107",     # undocumented-public-init
-    "D205",     # missing-blank-line-after-summary
-    "D301",     # escape-sequence-in-docstring
-    "D400",     # missing-trailing-period
     "D401",     # non-imperative-mood
-    "D415",     # missing-terminal-punctuation
     "D417",     # undocumented-param
     "DTZ001",   # call-datetime-without-tzinfo
     "DTZ005",   # call-datetime-now-without-tzinfo
@@ -109,11 +102,9 @@ ignore = [
     "FIX002",   # line-contains-todo
     "ICN001",   # unconventional-import-alias
     "N801",     # invalid-class-name
-    "N802",     # invalid-function-name
     "N803",     # invalid-argument-name
     "N806",     # non-lowercase-variable-in-function
     "PD002",    # pandas-use-of-inplace-argument
-    "PD011",    # pandas-use-of-dot-values
     "PLC0415",  # import-outside-top-level
     "PLR0912",  # too-many-branches
     "PLR0913",  # too-many-arguments
@@ -121,8 +112,6 @@ ignore = [
     "PLR0917",  # too-many-positional-arguments
     "PLR2004",  # magic-value-comparison
     "PLW0603",  # global-statement
-    "PLW1510",  # subprocess-run-without-check
-    "PLW2901",  # redefined-loop-name
     "PT018",    # pytest-composite-assertion
     "PTH100",   # os-path-abspath
     "PTH102",   # os-mkdir
@@ -140,21 +129,13 @@ ignore = [
     "PTH122",   # os-path-splitext
     "PTH123",   # builtin-open
     "PTH202",   # os-path-getsize
-    "PTH204",   # os-path-getmtime
     "PTH207",   # glob
     "PTH208",   # os-listdir
-    "RET504",   # unnecessary-assign
     "RUF001",   # ambiguous-unicode-character-string
     "RUF002",   # ambiguous-unicode-character-docstring
-    "RUF015",   # unnecessary-iterable-allocation-for-first-element
     "S101",     # assert
     "S110",     # try-except-pass
     "S301",     # suspicious-pickle-usage
-    "S603",     # subprocess-without-shell-equals-true
-    "S605",     # start-process-with-a-shell
-    "S607",     # start-process-with-partial-path
-    "SIM102",   # collapsible-if
-    "SIM105",   # suppressible-exception
     "SIM115",   # open-file-with-context-handler
     "SLF001",   # private-member-access
     "T201",     # print
@@ -162,7 +143,6 @@ ignore = [
     "TD003",    # missing-todo-link
     "TRY003",   # raise-vanilla-args
     "TRY004",   # type-check-without-type-error
-    "TRY300",   # try-consider-else
 ]
 
 [tool.ruff.lint.per-file-ignores]

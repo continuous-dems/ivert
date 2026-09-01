@@ -172,9 +172,8 @@ def process_parallel(
                 strict=True,
             ),
         ):
-            if (outfile is not None) and os.path.exists(outfile):
-                if overwrite_outfiles:
-                    os.remove(outfile)
+            if (outfile is not None) and os.path.exists(outfile) and overwrite_outfiles:
+                os.remove(outfile)
 
             process_started = False
             # Keep looping as long as (a) the process we've iterated to hasn't started yet, or
@@ -249,20 +248,23 @@ def process_parallel(
                     running_procnames.remove(d_pname)
 
                 if (not process_started) and len(running_procs) < max_nprocs:
-                    if type(outfile) is str and os.path.exists(outfile):
-                        if not overwrite_outfiles:
-                            num_finished += 1
-                            if verbose:
-                                outfile_name = (
-                                    os.path.basename(outfile)
-                                    if abbreviate_outfile_names_in_stdout
-                                    else outfile
-                                )
-                                report(
-                                    f"{num_finished:,}/{len(args_lists):,} {outfile_name} already exists.",
-                                )
-                            process_started = True
-                            continue
+                    if (
+                        type(outfile) is str
+                        and os.path.exists(outfile)
+                        and not overwrite_outfiles
+                    ):
+                        num_finished += 1
+                        if verbose:
+                            outfile_name = (
+                                os.path.basename(outfile)
+                                if abbreviate_outfile_names_in_stdout
+                                else outfile
+                            )
+                            report(
+                                f"{num_finished:,}/{len(args_lists):,} {outfile_name} already exists.",
+                            )
+                        process_started = True
+                        continue
 
                     if kwargs is not None:
                         proc = mp.Process(

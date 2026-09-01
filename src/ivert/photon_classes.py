@@ -1,6 +1,4 @@
-"""ivert.photon_classes
-~~~~~~~~~~~~~~~~~~~~~~
-Single source of truth for ICESat-2 photon classification codes.
+"""Single source of truth for ICESat-2 photon classification codes.
 
 The authoritative definitions live in globato's ``ATL03Reader.meta_desc``
 docstring. Parsing them here keeps IVERT's CLI help, vector exports, and plot

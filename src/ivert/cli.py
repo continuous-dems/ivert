@@ -1,8 +1,6 @@
-"""ivert.cli
-~~~~~~~~~
-Command-line interface for the ICESat-2 Validation of Elevations Reporting Tool (IVERT).
-"""
+"""Command-line interface for the ICESat-2 Validation of Elevations Reporting Tool (IVERT)."""
 
+import contextlib
 import glob
 import logging
 import os
@@ -158,10 +156,8 @@ def _append_earthdata_credentials(
         f.write(prefix + entry)
 
     # .netrc must be readable only by its owner or tools (and netrc parsers) reject it.
-    try:
+    with contextlib.suppress(OSError):
         Path(netrc_path).chmod(0o600)
-    except OSError:
-        pass
 
 
 def _stdin_is_interactive():
@@ -1562,7 +1558,7 @@ def database_export(
     (Note: Use the '--' delimiter to end command-line options if coordinates begin
     with a negative '-')
 
-    """
+    """  # noqa: D301  (\b is click's no-rewrap marker; r""" would break it)
     from ivert import export_vector as ev
     from ivert import icesat2_database_v2 as is2db_mod
     from ivert.icesat2_database_v2 import _yyyymmdd_to_delta_time
@@ -1855,6 +1851,9 @@ def _parse_exclude_spec(value, wsen=False):
     if len(parts) == 4:
         try:
             nums = [float(p) for p in parts]
+        except ValueError:
+            pass
+        else:
             if wsen:
                 # W/S/E/N → minx, miny, maxx, maxy
                 minx, miny, maxx, maxy = nums
@@ -1862,8 +1861,6 @@ def _parse_exclude_spec(value, wsen=False):
                 # W/E/S/N → minx, maxx, miny, maxy
                 minx, maxx, miny, maxy = nums
             return (minx, miny, maxx, maxy)
-        except ValueError:
-            pass
 
     if not os.path.exists(value):
         raise click.ClickException(
