@@ -90,7 +90,7 @@ def write_summary_csv_file(
 
 def validate_list_of_dems(
     dem_list_or_dir: str | list[str],
-    classes: list[int] | tuple[int] = [1, 6, 40],
+    classes: list[int] | tuple[int, ...] = (1, 6, 40),
     output_dir: str | None = None,
     fname_filter: str | None = r"\.tif\Z",
     fname_omit: str | None = None,
