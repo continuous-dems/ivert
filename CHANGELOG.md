@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - The database index column `downloaded_on` is now `downloaded_on_utc`, and records the UTC date rather than the date on the machine that ran the download (#95). Everything else in the database is already UTC — the `delta_time` epoch, the granule date ranges from NSIDC — so a provenance field that shifted with the operator's timezone was the odd one out, and the name now says which one it is. Databases written before the rename are still read: both read paths fall back to the old column name, so existing index files keep loading and rebuilding an index over an existing archive does not silently record `0` for every granule. Dates carried through that fallback are the old local ones and may be off by a day. The shapefile alias for the column becomes `dnld_utc`, and the fallback is meant to be removed once no pre-rename databases remain in circulation.
+- The `bcolors` class in `ivert.utils.bcolors` is now `Bcolors`, following the standard class-naming convention (#97). Nothing inside IVERT referenced it, so this only affects code importing it directly.
+- CLI help text writes numeric ranges with a plain hyphen — `1-4`, `0.0-1.0` — rather than an en dash (#97). Besides being what the linter asks for, the ASCII hyphen renders correctly on consoles that are not UTF-8.
 
 ## [0.6.10] - 2026-08-27
 
