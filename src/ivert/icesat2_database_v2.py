@@ -32,13 +32,16 @@ from ivert.icesat2_requests import ICESat2RequestsCSV
 logger = logging.getLogger(__name__)
 
 # ICESat-2 epoch: all delta_time values are seconds since 2018-01-01T00:00:00Z
-_ICESAT2_EPOCH = datetime.datetime(2018, 1, 1, 0, 0, 0)
+_ICESAT2_EPOCH = datetime.datetime(2018, 1, 1, 0, 0, 0, tzinfo=datetime.UTC)
 
 
 def _yyyymmdd_to_delta_time(yyyymmdd: int | str) -> float:
     """Convert a YYYYMMDD integer to ICESat-2 delta_time (seconds since 2018-01-01)."""
     return (
-        datetime.datetime.strptime(str(int(yyyymmdd)), "%Y%m%d") - _ICESAT2_EPOCH
+        datetime.datetime.strptime(str(int(yyyymmdd)), "%Y%m%d").replace(
+            tzinfo=datetime.UTC,
+        )
+        - _ICESAT2_EPOCH
     ).total_seconds()
 
 
@@ -89,8 +92,16 @@ class IS2Database:
         "numphotons_bathy_surface",
         "numphotons_buildings",
         "numphotons_inland_water_surface",
-        "downloaded_on",
+        "downloaded_on_utc",
     )
+    # Index columns renamed since earlier versions, mapped new name -> old name.
+    # Index files and granule .nc attrs written before a rename still carry the old
+    # name, so both read paths fall back to it rather than erroring (index) or
+    # silently defaulting to 0 (granule attrs). Note that pre-rename
+    # "downloaded_on" values are machine-local dates, not UTC ones.
+    _INDEX_LEGACY_COL_NAMES: ClassVar[dict[str, str]] = {
+        "downloaded_on_utc": "downloaded_on",
+    }
     # Bounding-box bases and per-axis suffixes. xmin/xmax/ymin/ymax are floats;
     # tmin/tmax are YYYYMMDD ints (the box's date range).
     _BBOX_BASES = ("query_bbox", "data_bbox")
@@ -111,6 +122,24 @@ class IS2Database:
         "data_bbox_tmax",
     )
     _INDEX_ZBOUNDS_COLS = ("zbounds_zmin", "zbounds_zmax")
+
+    @classmethod
+    def _stored_col_name(cls, col: str, source) -> str:
+        """Return the name `col` is actually stored under in `source`.
+
+        `source` is anything supporting `in` over its field names (an xarray
+        Dataset read from an index file, or a granule's global-attrs dict). Falls
+        back to the pre-rename name when only that one is present, so files
+        written by older versions still read correctly. Returns `col` unchanged
+        when neither is present, leaving the caller's own missing-field handling
+        (a KeyError, or a .get() default) to apply.
+        """
+        if col in source:
+            return col
+        legacy = cls._INDEX_LEGACY_COL_NAMES.get(col)
+        if legacy is not None and legacy in source:
+            return legacy
+        return col
 
     @staticmethod
     def _bbox_cols(base: str) -> tuple[str, ...]:
@@ -343,7 +372,7 @@ class IS2Database:
         record["zbounds_zmin"] = float(zb[0])
         record["zbounds_zmax"] = float(zb[1])
         for col in cls._INDEX_INT_COLS:
-            record[col] = int(attrs.get(col, 0))
+            record[col] = int(attrs.get(cls._stored_col_name(col, attrs), 0))
         record["horizontal_datum"] = str(attrs.get("horizontal_datum", ""))
         record["vertical_datum"] = str(attrs.get("vertical_datum", ""))
         return record
@@ -635,7 +664,9 @@ class IS2Database:
             "numphotons_bathy_floor": int(numpy.count_nonzero(cc == 40)),
             "numphotons_bathy_surface": int(numpy.count_nonzero(cc == 41)),
             "numphotons_inland_water_surface": int(numpy.count_nonzero(cc == 42)),
-            "downloaded_on": int(datetime.datetime.now().strftime("%Y%m%d")),
+            "downloaded_on_utc": int(
+                datetime.datetime.now(datetime.UTC).strftime("%Y%m%d"),
+            ),
             "horizontal_datum": "EPSG:4326",
             "vertical_datum": vertical_datum,
         }
@@ -757,7 +788,7 @@ class IS2Database:
             *cls._INDEX_BBOX_FLOAT_COLS,
             *cls._INDEX_ZBOUNDS_COLS,
         ):
-            data[col] = ds[col].to_numpy()
+            data[col] = ds[cls._stored_col_name(col, ds)].to_numpy()
 
         df = pandas.DataFrame(data)
         # Restore the canonical column order used elsewhere in the codebase.
@@ -1274,14 +1305,16 @@ class IS2Database:
 
             # fetchez region is "xmin/xmax/ymin/ymax"
             region_str = f"{sbbox[0]}/{sbbox[1]}/{sbbox[2]}/{sbbox[3]}"
-            time_start = datetime.datetime.strptime(
-                str(int(sbbox[4])),
-                "%Y%m%d",
-            ).strftime("%Y-%m-%dT00:00:00")
-            time_end = datetime.datetime.strptime(
-                str(int(sbbox[5])),
-                "%Y%m%d",
-            ).strftime("%Y-%m-%dT00:00:00")
+            time_start = (
+                datetime.datetime.strptime(str(int(sbbox[4])), "%Y%m%d")
+                .replace(tzinfo=datetime.UTC)
+                .strftime("%Y-%m-%dT00:00:00")
+            )
+            time_end = (
+                datetime.datetime.strptime(str(int(sbbox[5])), "%Y%m%d")
+                .replace(tzinfo=datetime.UTC)
+                .strftime("%Y-%m-%dT00:00:00")
+            )
 
             logger.info(
                 "Fetching ATL03 granules: region=%s  %s -> %s",
@@ -1738,9 +1771,9 @@ class IS2Database:
     def increment_yyyymmdd_by_n(yyyymmdd: float | str, days: int) -> int:
         """Increment a YYYYMMDD integer by N calendar days (positive or negative).."""
         ymd = int(yyyymmdd)
-        ymd_dt = datetime.datetime.strptime(str(ymd), "%Y%m%d") + datetime.timedelta(
-            days=int(days),
-        )
+        ymd_dt = datetime.datetime.strptime(str(ymd), "%Y%m%d").replace(
+            tzinfo=datetime.UTC,
+        ) + datetime.timedelta(days=int(days))
         return int(ymd_dt.strftime("%Y%m%d"))
 
 

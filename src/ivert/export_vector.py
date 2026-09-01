@@ -67,7 +67,7 @@ _INDEX_SHAPEFILE_ALIASES = {
     "numphotons_bathy_surface": "n_bathysrf",
     "numphotons_buildings": "n_bldg",
     "numphotons_inland_water_surface": "n_inlwater",
-    "downloaded_on": "dnld_on",
+    "downloaded_on_utc": "dnld_utc",
 }
 
 

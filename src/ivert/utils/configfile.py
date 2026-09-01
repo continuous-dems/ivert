@@ -144,7 +144,7 @@ def comment_out_options(
     with open(configfile, encoding="utf-8") as f:
         lines = f.readlines()
 
-    today = datetime.datetime.now().strftime("%Y-%m-%d")
+    today = datetime.datetime.now().astimezone().strftime("%Y-%m-%d")
     commented_out = []
     new_lines = []
     # True while walking the indented continuation lines of an assignment that
