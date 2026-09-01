@@ -1181,13 +1181,29 @@ def database_download(
         ),
     )
 
-    db.download_new_granules(
+    summary = db.download_new_granules(
         full_bbox,
         classes_to_keep=class_list,
         min_confidence_level=confidence_level,
         min_bathy_confidence=bathy_confidence,
         replace=replace,
     )
+
+    # A part that failed left a hole in the region the user asked for, so the
+    # command has not done what it was told even when other parts succeeded.
+    # Anything already downloaded is saved and is not re-fetched on a re-run.
+    if summary.parts_failed:
+        if summary.parts_failed == summary.parts_attempted:
+            raise click.ClickException(
+                "The download failed. No ICESat-2 data was retrieved. See the errors "
+                "above; re-running the same command will retry.",
+            )
+        raise click.ClickException(
+            f"{summary.parts_failed} of {summary.parts_attempted} parts of the "
+            f"requested region failed to download. The {summary.granules_added} "
+            "granule(s) that did download are saved; re-running the same command "
+            "will retry only the parts that are still missing.",
+        )
 
 
 # Formats offered by 'ivert database export' (a subset of export_vector's

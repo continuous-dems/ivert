@@ -13,7 +13,7 @@ import logging
 import os
 import re
 import shutil
-from typing import ClassVar
+from typing import ClassVar, NamedTuple
 
 import dateparser
 import fetchez
@@ -33,6 +33,30 @@ logger = logging.getLogger(__name__)
 
 # ICESat-2 epoch: all delta_time values are seconds since 2018-01-01T00:00:00Z
 _ICESAT2_EPOCH = datetime.datetime(2018, 1, 1, 0, 0, 0, tzinfo=datetime.UTC)
+
+
+class DownloadSummary(NamedTuple):
+    """The outcome of a call to :meth:`IS2Database.download_new_granules`.
+
+    A download is split into one sub-region ("part") per tile, and each part is
+    counted in exactly one of the first three fields. ``parts_failed`` counts
+    only real errors -- a Harmony request that came back with nothing -- while
+    ``parts_empty`` counts the parts Harmony served correctly that added no new
+    granules, either because the region holds no ICESat-2 data or because every
+    granule over it is already in the database. Only ``parts_failed`` means
+    something went wrong. Callers use this to decide an exit status; nothing
+    here reflects how *much* of the region was covered.
+    """
+
+    parts_downloaded: int = 0
+    parts_empty: int = 0
+    parts_failed: int = 0
+    granules_added: int = 0
+
+    @property
+    def parts_attempted(self) -> int:
+        """The number of sub-regions the download tried to fetch."""
+        return self.parts_downloaded + self.parts_empty + self.parts_failed
 
 
 def _yyyymmdd_to_delta_time(yyyymmdd: int | str) -> float:
@@ -1197,13 +1221,18 @@ class IS2Database:
         min_confidence_level: int = 1,
         cache_subdir: str | None = None,
         replace: bool = False,
-    ):
+    ) -> DownloadSummary:
         """Download ICESat-2 ATL03 granules from NASA using fetchez and register them in the database.
 
         Downloads raw HDF5 files into granules_dir; classification is deferred to read time via globato.
         Only downloads granules covering bboxes not already in the database, unless 'replace' is True,
         in which case the full requested bbox is (re-)downloaded and any existing granules it overlaps
         are replaced with the newly-downloaded data.
+
+        Returns a :class:`DownloadSummary` counting how each sub-region of the request
+        turned out, so callers can tell a download that failed from one that succeeded
+        and found no data. Errors are logged and counted rather than raised: one
+        unreachable sub-region does not abandon the rest of the request.
         """
         # Validate the configured water surface and derive the target vertical datum.
         vertical_datum_cfg = self._validate_vertical_datum(
@@ -1242,7 +1271,7 @@ class IS2Database:
                         target_vd,
                         vertical_datum_cfg,
                     )
-                    return
+                    return DownloadSummary(parts_failed=1)
 
         if replace:
             bboxes = [tuple(bbox)]
@@ -1257,7 +1286,7 @@ class IS2Database:
                 logger.info(
                     "All required granules already exist in the database. Nothing new to download.",
                 )
-                return
+                return DownloadSummary()
 
             if not (len(bboxes) == 1 and tuple(bboxes[0]) == tuple(bbox)):
                 logger.info(
@@ -1293,6 +1322,8 @@ class IS2Database:
         )
 
         os.makedirs(self.granules_dir, exist_ok=True)
+
+        parts_downloaded = parts_empty = parts_failed = granules_added = 0
 
         for i, sbbox in enumerate(bboxes):
             logger.info("=" * 85)
@@ -1401,6 +1432,7 @@ class IS2Database:
                     "You may re-run the command later if you feel this was in error.",
                     sbbox,
                 )
+                parts_failed += 1
                 continue
             h5_files = sorted(
                 os.path.abspath(entry["dst_fn"])
@@ -1412,6 +1444,7 @@ class IS2Database:
 
             if not h5_files:
                 logger.info("No granules downloaded for this bbox.")
+                parts_empty += 1
                 continue
 
             logger.info(
@@ -1460,6 +1493,7 @@ class IS2Database:
                     )
 
             if not new_records:
+                parts_empty += 1
                 continue
 
             new_gdf = pd.DataFrame(new_records)[list(self._empty_db_dict().keys())]
@@ -1520,6 +1554,8 @@ class IS2Database:
                     ignore_index=True,
                 )
 
+            parts_downloaded += 1
+            granules_added += len(new_records)
             logger.info("Created %d new record(s).", len(new_records))
 
             self._write_index(self.gdf)
@@ -1532,6 +1568,13 @@ class IS2Database:
                 )
             else:
                 raise OSError(f"Failed to write {os.path.basename(self.db_fname)}")
+
+        return DownloadSummary(
+            parts_downloaded=parts_downloaded,
+            parts_empty=parts_empty,
+            parts_failed=parts_failed,
+            granules_added=granules_added,
+        )
 
     def bounds(self, axis: str, data_or_query: str = "data") -> tuple | None:
         """Return the min, max bounds of each entry in the database, on the axis requested ('x', 'y', or 't').
