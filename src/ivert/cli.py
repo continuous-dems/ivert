@@ -1,7 +1,4 @@
-"""ivert.cli
-~~~~~~~~~
-Command-line interface for the ICESat-2 Validation of Elevations Reporting Tool (IVERT).
-"""
+"""Command-line interface for the ICESat-2 Validation of Elevations Reporting Tool (IVERT)."""
 
 import contextlib
 import glob

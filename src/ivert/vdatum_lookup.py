@@ -1,6 +1,4 @@
-"""ivert.vdatum_lookup
-~~~~~~~~~~~~~~~~~~~
-Translate common vertical datum names to formal EPSG code strings.
+"""Translate common vertical datum names to formal EPSG code strings.
 
 Builds its table from ``transformez.definitions.Datums`` when that package is
 importable, then merges in a curated fallback table of well-known aliases so

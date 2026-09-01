@@ -1,4 +1,11 @@
-"""Created on Tue Jun 22 16:06:21 2021
+"""Validate a DEM against ICESat-2 photon elevations.
+
+Samples classified ICESat-2 photons over a DEM, aggregates them per DEM cell,
+and reports per-cell and summary error statistics. Cell-level validation runs
+across child processes over shared-memory arrays; large DEMs are subdivided and
+their results merged back together.
+
+Created on Tue Jun 22 16:06:21 2021
 
 @author: mmacferrin
 """

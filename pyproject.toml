@@ -88,9 +88,7 @@ ignore = [
     "D104",     # undocumented-public-package
     "D107",     # undocumented-public-init
     "D205",     # missing-blank-line-after-summary
-    "D400",     # missing-trailing-period
     "D401",     # non-imperative-mood
-    "D415",     # missing-terminal-punctuation
     "D417",     # undocumented-param
     "DTZ001",   # call-datetime-without-tzinfo
     "DTZ005",   # call-datetime-now-without-tzinfo

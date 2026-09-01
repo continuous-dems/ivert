@@ -105,9 +105,10 @@ def plot_histograms_and_line(
     verbose=True,
 ):
     """Generate a 4-panel figure of error stats.
+
     1) Histograms of mean errors land-only (green)
     2) Histogram of mean errors bathy (blue)
-    3) 1:1 line of DEM vs ICESat-2 elevationss
+    3) 1:1 line of DEM vs ICESat-2 elevations
 
     If 'place_name' is provided, use it in the title of the plot.
     """
