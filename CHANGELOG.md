@@ -12,6 +12,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The `bcolors` class in `ivert.utils.bcolors` is now `Bcolors`, following the standard class-naming convention (#97). Nothing inside IVERT referenced it, so this only affects code importing it directly.
 - CLI help text writes numeric ranges with a plain hyphen — `1-4`, `0.0-1.0` — rather than an en dash (#97). Besides being what the linter asks for, the ASCII hyphen renders correctly on consoles that are not UTF-8.
 
+### Removed
+- The `ivert.plot_results_slope_centrality` module (#99). It was non-functional and no longer used: its first statement imported `import_parent_dir`, a module that exists nowhere in the package or its dependencies, so loading it always raised `ModuleNotFoundError`. Nothing in IVERT referenced it, and it is no longer part of the analysis workflow.
+
 ## [0.6.10] - 2026-08-27
 
 ### Fixed
