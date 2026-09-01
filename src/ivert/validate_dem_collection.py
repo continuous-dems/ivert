@@ -7,8 +7,8 @@ import re
 import traceback
 
 import click
-import numpy
-import pandas
+import numpy as np
+import pandas as pd
 
 import ivert.icesat2_database_v2
 import ivert.utils.query_yes_no as yes_no
@@ -16,16 +16,16 @@ from ivert import plot_validation_results, validate_dem
 
 
 def write_summary_csv_file(
-    total_results_df_or_file: pandas.DataFrame | str,
+    total_results_df_or_file: pd.DataFrame | str,
     list_of_empty_files: list[str] | tuple[str],
     csv_name: str,
     verbose: bool = True,
-) -> pandas.DataFrame:
+) -> pd.DataFrame:
     """Write a summary csv of all the results in a collection, after they've been run."""
     if type(total_results_df_or_file) is str:
-        total_df = pandas.read_hdf(total_results_df_or_file)
+        total_df = pd.read_hdf(total_results_df_or_file)
     else:
-        assert isinstance(total_results_df_or_file, pandas.DataFrame)
+        assert isinstance(total_results_df_or_file, pd.DataFrame)
         total_df = total_results_df_or_file
 
     if "filename" not in total_df.columns:
@@ -35,11 +35,11 @@ def write_summary_csv_file(
     all_filenames = list(unique_files) + list(list_of_empty_files)
     n = len(all_filenames)
 
-    means = numpy.empty((n,), dtype=float)
-    stds = numpy.empty((n,), dtype=float)
-    rmses = numpy.empty((n,), dtype=float)
-    n_cells = numpy.empty((n,), dtype=int)
-    photons_per_cell = numpy.empty((n,), dtype=float)
+    means = np.empty((n,), dtype=float)
+    stds = np.empty((n,), dtype=float)
+    rmses = np.empty((n,), dtype=float)
+    n_cells = np.empty((n,), dtype=int)
+    photons_per_cell = np.empty((n,), dtype=float)
     # canopy_mean = numpy.empty((n,), dtype=float)
     # canopy_mean_gt0 = numpy.empty((n,), dtype=float)
 
@@ -58,15 +58,15 @@ def write_summary_csv_file(
         else:
             # For files with no results, just list n/a for this.
             assert fname in list_of_empty_files
-            means[i] = numpy.nan
-            stds[i] = numpy.nan
-            rmses[i] = numpy.nan
+            means[i] = np.nan
+            stds[i] = np.nan
+            rmses[i] = np.nan
             n_cells[i] = 0
-            photons_per_cell[i] = numpy.nan
+            photons_per_cell[i] = np.nan
             # canopy_mean[i] = numpy.nan
             # canopy_mean_gt0[i] = numpy.nan
 
-    output_df = pandas.DataFrame(
+    output_df = pd.DataFrame(
         data={
             "filename": all_filenames,
             "rmse": rmses,
@@ -231,7 +231,7 @@ def validate_list_of_dems(
         results_df = None
 
         if not os.path.exists(statsfile_name):
-            results_df = pandas.read_hdf(results_h5)
+            results_df = pd.read_hdf(results_h5)
             if verbose:
                 print(results_df, "read.")
             validate_dem.write_summary_stats_file(
@@ -242,7 +242,7 @@ def validate_list_of_dems(
 
         if not os.path.exists(plot_file_name):
             if results_df is None:
-                results_df = pandas.read_hdf(results_h5)
+                results_df = pd.read_hdf(results_h5)
                 if verbose:
                     print(results_df, "read.")
             plot_validation_results.plot_histograms_and_line(

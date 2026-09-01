@@ -1673,7 +1673,7 @@ def database_export(
 
     # --- Read, subset, and merge granules. ---
     import geopandas
-    import pandas
+    import pandas as pd
 
     dt_min = _yyyymmdd_to_delta_time(tmin) if date_filtering else None
     dt_max = _yyyymmdd_to_delta_time(tmax) if date_filtering else None
@@ -1706,7 +1706,7 @@ def database_export(
         raise click.ClickException("No photons found to export after filtering.")
 
     merged = geopandas.GeoDataFrame(
-        pandas.concat(gdfs, ignore_index=True),
+        pd.concat(gdfs, ignore_index=True),
         crs=ev.WGS84_EPSG,
     )
 

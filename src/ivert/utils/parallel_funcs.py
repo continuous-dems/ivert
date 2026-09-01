@@ -4,7 +4,7 @@ import shutil
 import sys
 import time
 
-import numpy
+import numpy as np
 import psutil
 import tqdm
 
@@ -30,27 +30,27 @@ def physical_cpu_count():
 # For integers & floats... does not handle character/string arrays.
 # Reference: https://docs.python.org/3/library/array.html
 dtypes_dict = {
-    numpy.int8: "b",
-    numpy.uint8: "B",
-    numpy.int16: "h",
-    numpy.uint16: "H",
-    numpy.int32: "l",
-    numpy.uint32: "L",
-    numpy.int64: "q",
-    numpy.uint64: "Q",
-    numpy.float32: "f",
-    numpy.float64: "d",
+    np.int8: "b",
+    np.uint8: "B",
+    np.int16: "h",
+    np.uint16: "H",
+    np.int32: "l",
+    np.uint32: "L",
+    np.int64: "q",
+    np.uint64: "Q",
+    np.float32: "f",
+    np.float64: "d",
     # Repeat for these expressions of dtype as well.
-    numpy.dtype("int8"): "b",
-    numpy.dtype("uint8"): "B",
-    numpy.dtype("int16"): "h",
-    numpy.dtype("uint16"): "H",
-    numpy.dtype("int32"): "l",
-    numpy.dtype("uint32"): "L",
-    numpy.dtype("int64"): "q",
-    numpy.dtype("uint64"): "Q",
-    numpy.dtype("float32"): "f",
-    numpy.dtype("float64"): "d",
+    np.dtype("int8"): "b",
+    np.dtype("uint8"): "B",
+    np.dtype("int16"): "h",
+    np.dtype("uint16"): "H",
+    np.dtype("int32"): "l",
+    np.dtype("uint32"): "L",
+    np.dtype("int64"): "q",
+    np.dtype("uint64"): "Q",
+    np.dtype("float32"): "f",
+    np.dtype("float64"): "d",
 }
 
 

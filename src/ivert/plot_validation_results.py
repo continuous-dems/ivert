@@ -2,10 +2,10 @@ import collections
 import math
 import os
 
-import matplotlib
+import matplotlib as mpl
 import matplotlib.pyplot as plt
-import numpy
-import pandas
+import numpy as np
+import pandas as pd
 import six
 import tqdm
 from matplotlib import ticker
@@ -29,10 +29,10 @@ def get_data_from_h5_or_list(
     empty_val: float = ivert_config.dem_default_ndv,
     include_filenames: bool = False,
     verbose: bool = True,
-) -> pandas.DataFrame:
+) -> pd.DataFrame:
     """Return the data either from a single hdf5 results file, or a list of them. Filter out empty (bad data) values."""
     if type(h5_name_or_list) is str:
-        data = pandas.read_hdf(h5_name_or_list)
+        data = pd.read_hdf(h5_name_or_list)
         if include_filenames:
             if orig_filenames is None:
                 data["filename"] = os.path.basename(h5_name_or_list)
@@ -55,7 +55,7 @@ def get_data_from_h5_or_list(
             ),
         ):
             if os.path.exists(h5_file):
-                temp_data = pandas.read_hdf(h5_file)
+                temp_data = pd.read_hdf(h5_file)
                 if include_filenames:
                     if orig_filenames is None:
                         temp_data["filename"] = os.path.basename(h5_file)
@@ -65,7 +65,7 @@ def get_data_from_h5_or_list(
 
                 data_list.append(temp_data)
 
-        data = pandas.concat(data_list)
+        data = pd.concat(data_list)
     else:
         raise TypeError(
             "Non-iterable value for parameter 'results_h5_name_or_list':",
@@ -115,9 +115,9 @@ def plot_histograms_and_line(
     # If we're writing a PNG file, use the "Agg" backend (no display).
     # This helps avoid errors.
     if os.path.splitext(output_figure_name)[1].lower() == ".png":
-        matplotlib.use("Agg")
+        mpl.use("Agg")
 
-    if type(results_h5_or_list_or_df) is pandas.DataFrame:
+    if type(results_h5_or_list_or_df) is pd.DataFrame:
         data = results_h5_or_list_or_df
     else:
         data = get_data_from_h5_or_list(results_h5_or_list_or_df, empty_val=empty_val)
@@ -147,7 +147,7 @@ def plot_histograms_and_line(
 
     # Generate figure. Scale width proportionally to panel count.
     if figsize is None:
-        figsize = matplotlib.rcParams["figure.figsize"]
+        figsize = mpl.rcParams["figure.figsize"]
     scaled_figsize = (figsize[0] * ncols / 3, figsize[1])
     fig, axes = plt.subplots(
         1,
@@ -186,15 +186,15 @@ def plot_histograms_and_line(
         )
 
         # Add the lines for mean +- std
-        center = numpy.mean(meandiff_land)
-        std = numpy.std(meandiff_land)
+        center = np.mean(meandiff_land)
+        std = np.std(meandiff_land)
         ax1.axvline(x=center, color="black", linewidth=0.75)
         ax1.axvline(x=center + std, color="black", linestyle="--", linewidth=0.5)
         ax1.axvline(x=center - std, color="black", linestyle="--", linewidth=0.5)
 
         # Crop the left & right (only if greater than 20 points)
         if len(meandiff_land) >= 20:
-            cutoffs = numpy.percentile(meandiff_land, [1, 99])
+            cutoffs = np.percentile(meandiff_land, [1, 99])
         else:
             cutoffs = [min(meandiff_land), max(meandiff_land)]
 
@@ -211,7 +211,7 @@ def plot_histograms_and_line(
             cutoffs[0] = center - (std * hist_cutoff_num_stddevs)
 
         # Just error checking, if any of the cutoffs come back with NaN or Inf, just clip it to -1, 1, debug later.
-        if numpy.any(numpy.isnan(cutoffs) | numpy.isinf(cutoffs)):
+        if np.any(np.isnan(cutoffs) | np.isinf(cutoffs)):
             cutoffs = [-1, 1]
 
         ax1.set_xlim(cutoffs)
@@ -240,7 +240,7 @@ def plot_histograms_and_line(
 
         # If requested, add the RMSE value to the figure.
         if also_add_rmse_to_hist:
-            rmse = numpy.sqrt(numpy.mean(meandiff_land**2))
+            rmse = np.sqrt(np.mean(meandiff_land**2))
             txt_std = ax1.text(
                 0.97,
                 0.95,
@@ -287,15 +287,15 @@ def plot_histograms_and_line(
         )
 
         # Add the lines for mean +- std
-        center = numpy.mean(meandiff_bathy)
-        std = numpy.std(meandiff_bathy)
+        center = np.mean(meandiff_bathy)
+        std = np.std(meandiff_bathy)
         ax2.axvline(x=center, color="black", linewidth=0.75)
         ax2.axvline(x=center + std, color="black", linestyle="--", linewidth=0.5)
         ax2.axvline(x=center - std, color="black", linestyle="--", linewidth=0.5)
 
         # Crop the left & right (only if greater than 20 points)
         if len(meandiff_bathy) >= 20:
-            cutoffs = numpy.percentile(meandiff_bathy, [1, 99])
+            cutoffs = np.percentile(meandiff_bathy, [1, 99])
         else:
             cutoffs = [min(meandiff_bathy), max(meandiff_bathy)]
 
@@ -312,7 +312,7 @@ def plot_histograms_and_line(
             cutoffs[0] = center - (std * hist_cutoff_num_stddevs)
 
         # Just error checking, if any of the cutoffs come back with NaN or Inf, just clip it to -1, 1, debug later.
-        if numpy.any(numpy.isnan(cutoffs) | numpy.isinf(cutoffs)):
+        if np.any(np.isnan(cutoffs) | np.isinf(cutoffs)):
             cutoffs = [-1, 1]
 
         ax2.set_xlim(cutoffs)
@@ -341,7 +341,7 @@ def plot_histograms_and_line(
 
         # If requested, add the RMSE value to the figure.
         if also_add_rmse_to_hist:
-            rmse = numpy.sqrt(numpy.mean(meandiff_bathy**2))
+            rmse = np.sqrt(np.mean(meandiff_bathy**2))
             txt_std = ax2.text(
                 0.97,
                 0.95,
@@ -427,7 +427,7 @@ def plot_histograms_and_line(
     if place_name is None:
         place_name = "DEM"
 
-    rmse = (numpy.sum(meandiff**2) / len(meandiff)) ** 0.5
+    rmse = (np.sum(meandiff**2) / len(meandiff)) ** 0.5
 
     fig.suptitle(
         f"{place_name}: Errors and Distributions\nRMSE = {rmse:0.3f} m,   N = {len(meandiff):,} cells",
@@ -476,9 +476,9 @@ def plot_histogram_and_error_stats_4_panels(
     # If we're writing a PNG file, use the "Agg" backend (no display).
     # This helps avoid errors.
     if os.path.splitext(output_figure_name)[1].lower() == ".png":
-        matplotlib.use("Agg")
+        mpl.use("Agg")
 
-    if type(results_h5_or_list_or_df) is pandas.DataFrame:
+    if type(results_h5_or_list_or_df) is pd.DataFrame:
         data = results_h5_or_list_or_df
     else:
         data = get_data_from_h5_or_list(results_h5_or_list_or_df, empty_val=empty_val)
@@ -517,7 +517,7 @@ def plot_histogram_and_error_stats_4_panels(
 
     # Generate figure. If a figure size isn't given, use the matplotlib.rcParams default.
     if figsize is None:
-        figsize = matplotlib.rcParams["figure.figsize"]
+        figsize = mpl.rcParams["figure.figsize"]
     fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(
         2,
         2,
@@ -545,14 +545,14 @@ def plot_histogram_and_error_stats_4_panels(
     )
 
     # Add the lines for mean +- std
-    center = numpy.mean(meandiff)
-    std = numpy.std(meandiff)
+    center = np.mean(meandiff)
+    std = np.std(meandiff)
     ax1.axvline(x=center, color="darkred", linewidth=0.75)
     ax1.axvline(x=center + std, color="darkred", linestyle="--", linewidth=0.5)
     ax1.axvline(x=center - std, color="darkred", linestyle="--", linewidth=0.5)
 
     # Crop the left & right
-    cutoffs = numpy.percentile(meandiff, [1, 99])
+    cutoffs = np.percentile(meandiff, [1, 99])
     # cutoffs = [-max(numpy.abs(cutoffs)), max(numpy.abs(cutoffs))]
     # Do not crop the photo to make the stddev lines fall outside the plot.
     # If they do, reset the min/max cutoff to be 2 stddev away from the mean on that side.
@@ -584,7 +584,7 @@ def plot_histogram_and_error_stats_4_panels(
 
     # If requested, as the RMSE value to the figure.
     if also_add_rmse_to_hist:
-        rmse = numpy.sqrt(numpy.mean(meandiff**2))
+        rmse = np.sqrt(np.mean(meandiff**2))
         txt_std = ax1.text(
             0.97,  # 0.12 if text_left else 0.97,
             0.95,
@@ -672,17 +672,17 @@ def plot_histogram_and_error_stats_4_panels(
     )
 
     # Crop the left & right, right at 98 percentile.
-    cutoff = numpy.percentile(numphotons_intd, 99)
+    cutoff = np.percentile(numphotons_intd, 99)
     xmin = ax3.get_xlim()[0]
     ax3.set_xlim(xmin * 0.5, cutoff)
 
-    center = numpy.mean(numphotons_intd)
-    std = numpy.std(numphotons_intd)
+    center = np.mean(numphotons_intd)
+    std = np.std(numphotons_intd)
 
     ax3.text(
         0.95,
         0.95,
-        f"{int(numpy.round(center)):d} $\\pm$ {int(numpy.round(std)):d}\nphotons per cell",
+        f"{int(np.round(center)):d} $\\pm$ {int(np.round(std)):d}\nphotons per cell",
         ha="right",
         va="top",
         fontsize="small",
@@ -713,7 +713,7 @@ def plot_histogram_and_error_stats_4_panels(
     )
 
     # Crop the right edge at the 99th percentile
-    cutoff = numpy.percentile(canopy_fraction, 99)
+    cutoff = np.percentile(canopy_fraction, 99)
     # Add just a bit of padding on the left to make more room for the "D" label.
     xmin = ax4.get_xlim()[0] - 0.025 * (cutoff - ax4.get_xlim()[0])
     ax4.set_xlim(xmin, cutoff)
@@ -723,14 +723,14 @@ def plot_histogram_and_error_stats_4_panels(
     # median = numpy.median(canopy_fraction)
     canopy_mask = (
         (canopy_fraction > 0.0)
-        & numpy.isfinite(canopy_fraction)
-        & ~numpy.isnan(canopy_fraction)
+        & np.isfinite(canopy_fraction)
+        & ~np.isnan(canopy_fraction)
     )
 
     ax4.text(
         0.95,
         0.95,
-        f"{numpy.count_nonzero(canopy_mask) * 100 / canopy_fraction.size:0.1f} % of cells have >0 cover:\n{numpy.mean(canopy_fraction[canopy_mask]):0.1f} $\\pm$ {numpy.std(canopy_fraction[canopy_mask]):0.1f} % canopy cover\nin non-zero cells",
+        f"{np.count_nonzero(canopy_mask) * 100 / canopy_fraction.size:0.1f} % of cells have >0 cover:\n{np.mean(canopy_fraction[canopy_mask]):0.1f} $\\pm$ {np.std(canopy_fraction[canopy_mask]):0.1f} % canopy cover\nin non-zero cells",
         ha="right",
         va="top",
         transform=ax4.transAxes,
@@ -763,7 +763,7 @@ def plot_histogram_and_error_stats_4_panels(
         print(output_figure_name, "written.")
 
         # Compute the RMSE and spit that out too.
-        rmse = (numpy.sum(meandiff**2) / len(meandiff)) ** 0.5
+        rmse = (np.sum(meandiff**2) / len(meandiff)) ** 0.5
         print(f"\tRMSE: {rmse:0.3f} m")
 
     # Clear the figure and close the plot.
@@ -862,7 +862,7 @@ def plot_histogram_and_error_stats_4_panels(
 
 
 if __name__ == "__main__":
-    results_df = pandas.read_hdf(
+    results_df = pd.read_hdf(
         "/home/mmacferrin/Research/DEMs/CUDEMs_1_9_Oregon_2025/dems/2025.10.10_w_metadata/icesat2/ncei19_n45x50_w124x00_2025v1_results.h5",
     )
     plot_histograms_and_line(

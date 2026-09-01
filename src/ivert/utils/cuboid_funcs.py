@@ -1,4 +1,4 @@
-import numpy
+import numpy as np
 
 # from itertools import product
 
@@ -477,12 +477,12 @@ def cuboids_intersect_vectorized(
             f"Invalid bbox_order: {bbox_order}. Must be 'point' or 'axis'.",
         )
 
-    xmin = numpy.asarray(xmin)
-    xmax = numpy.asarray(xmax)
-    ymin = numpy.asarray(ymin)
-    ymax = numpy.asarray(ymax)
-    zmin = numpy.asarray(zmin)
-    zmax = numpy.asarray(zmax)
+    xmin = np.asarray(xmin)
+    xmax = np.asarray(xmax)
+    ymin = np.asarray(ymin)
+    ymax = np.asarray(ymax)
+    zmin = np.asarray(zmin)
+    zmax = np.asarray(zmax)
 
     return (
         (xmin < qxmax - tol)
