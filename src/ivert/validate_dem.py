@@ -193,7 +193,12 @@ def validate_dem_child_process(
             else:
                 r_coverage_frac = None
 
-            for counter, (i, j) in enumerate(zip(dem_i_list, dem_j_list)):
+            # 'i' and 'j' look unused, but numexpr.evaluate() resolves the names in
+            # its expression string against this frame's locals, so they are read
+            # below and must keep these names.
+            for counter, (i, j) in enumerate(  # noqa: B007
+                zip(dem_i_list, dem_j_list, strict=True),
+            ):
                 # Using numexpr.evaluate here is far more memory-and-time efficient than just doing it with the numpy arrays.
                 ph_subset_mask = numexpr.evaluate("(photon_i == i) & (photon_j == j)")
                 # Generate a small pandas dataframe from the subset
@@ -465,7 +470,7 @@ def validate_dem(
     dem_name: str,
     output_dir: str | None = None,
     dates: list[int, int] | tuple[int, int] | None = None,
-    classes: list[int] | tuple[int] = [1, 6, 40],
+    classes: list[int] | tuple[int, ...] = (1, 6, 40),
     shared_ret_values: dict | None = None,
     icesat2_photon_database_obj: ivert.icesat2_database_v2.IS2Database | None = None,
     band_num: int = 1,
@@ -653,6 +658,7 @@ def validate_dem(
         for sub_dem_name, sub_shared_ret_dict in zip(
             sub_dem_names,
             sub_shared_ret_values,
+            strict=True,
         ):
             validate_dem(
                 sub_dem_name,
@@ -1560,7 +1566,7 @@ def _run_parallel_cell_validation(
 
         while num_chunks_finished < num_chunks_started:
             for i, (proc, pipe, pipe_child) in enumerate(
-                zip(running_procs, open_pipes_parent, open_pipes_child),
+                zip(running_procs, open_pipes_parent, open_pipes_child, strict=True),
             ):
                 if proc is None:
                     continue
@@ -1841,7 +1847,7 @@ def validate_dem_parallel(
     dem_name: str,
     output_dir: str | None = None,
     dates: list[int, int] | tuple[int, int] | None = None,
-    classes: list[int] | tuple[int] = [1, 6, 40],
+    classes: list[int] | tuple[int, ...] = (1, 6, 40),
     shared_ret_values: dict | None = None,
     icesat2_photon_database_obj: ivert.icesat2_database_v2.IS2Database
     | None = None,  # Used only if we've already created this, for efficiency.
@@ -2123,7 +2129,7 @@ def write_summary_stats_file(
 
     percentile_levels = [0, 1, 5, 10, 20, 30, 40, 50, 60, 70, 80, 90, 95, 99, 100]
     percentile_values = numpy.percentile(mean_diff, percentile_levels)
-    for level, v in zip(percentile_levels, percentile_values):
+    for level, v in zip(percentile_levels, percentile_values, strict=True):
         lines.append(f"    {level:>3d} percentile error level (m): {_format_stat(v)}")
 
     if "coverage_frac" in results_df.columns:
@@ -2359,7 +2365,7 @@ def export_error_results(
     formats = _normalize_export_formats(formats)
     filenames = _error_export_filenames(results_dataframe_file, formats)
 
-    for fmt, out_fname in zip(formats, filenames):
+    for fmt, out_fname in zip(formats, filenames, strict=True):
         if fmt == "tif":
             generate_result_geotiff(
                 results_dataframe,

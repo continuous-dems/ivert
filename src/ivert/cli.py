@@ -279,11 +279,11 @@ def classes():
 
     try:
         classes_list = photon_classes()
-    except ImportError:
+    except ImportError as e:
         raise click.ClickException(
             "Could not import globato to read photon class definitions. "
             "Ensure the globato package is installed.",
-        )
+        ) from e
 
     if not classes_list:
         click.echo("No photon class definitions found.")
@@ -1928,7 +1928,7 @@ def _run_validate(
             except ValueError:
                 raise click.ClickException(
                     f"Invalid --ndv value '{ndv}'. Provide a number or 'nan'.",
-                )
+                ) from None
 
     # Resolve the export-formats override. None means "use the config default"; an
     # explicit 'none'/empty value means "skip error exports for this run".

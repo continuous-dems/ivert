@@ -45,7 +45,8 @@ def convert_ivert_error_map_to_vector(
         data_dict = {
             "error_val": good_data,
             "geometry": [
-                shapely.geometry.Point(x, y) for (x, y) in zip(good_xs, good_ys)
+                shapely.geometry.Point(x, y)
+                for (x, y) in zip(good_xs, good_ys, strict=True)
             ],
         }
 

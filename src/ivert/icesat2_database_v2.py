@@ -950,7 +950,7 @@ class IS2Database:
         photon_classes: list | tuple | None = (1, 6, 40),
         min_bathy_confidence=0.75,
         min_confidence_level: int = 1,
-        omit_bboxes=[],
+        omit_bboxes=None,
         # download_new_data: bool = False,
     ) -> pandas.DataFrame | None:
         """Query the database for photons in a given bounding box and date range.
@@ -996,7 +996,7 @@ class IS2Database:
         )
 
         granule_dfs = []
-        for idx, granule_line in gdf_subset.iterrows():
+        for _idx, granule_line in gdf_subset.iterrows():
             fpath = os.path.join(self.granules_dir, granule_line["filename"])
             # print(os.path.basename(fpath))
             granule_dfs.append(
@@ -1794,6 +1794,7 @@ def split_bbox_into_parts(
                 bin_xmaxs,
                 bin_ymins,
                 bin_ymaxs,
+                strict=True,
             )
         ]
     else:
@@ -1804,6 +1805,7 @@ def split_bbox_into_parts(
                 bin_xmaxs,
                 bin_ymins,
                 bin_ymaxs,
+                strict=True,
             )
         ]
 

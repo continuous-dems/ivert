@@ -163,7 +163,14 @@ def process_parallel(
     try:
         num_finished = 0
         for i, (args, kwargs, outfile, temp_dir, proc_name) in enumerate(
-            zip(args_lists, kwargs_list, outfiles, temp_working_dirs, proc_names),
+            zip(
+                args_lists,
+                kwargs_list,
+                outfiles,
+                temp_working_dirs,
+                proc_names,
+                strict=True,
+            ),
         ):
             if (outfile is not None) and os.path.exists(outfile):
                 if overwrite_outfiles:
@@ -187,6 +194,7 @@ def process_parallel(
                     running_outfiles,
                     running_tempdirs,
                     running_procnames,
+                    strict=True,
                 ):
                     if not r_proc.is_alive():
                         r_proc.join()
@@ -202,6 +210,7 @@ def process_parallel(
                     outfiles_to_check,
                     tempdirs_to_remove,
                     procnames_to_remove,
+                    strict=True,
                 ):
                     num_finished += 1
                     # Print a confirmation line if we've asked it to. Either confirm:

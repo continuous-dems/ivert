@@ -58,8 +58,8 @@ def split(
             X_steps = evenly_split(X, factor)
             Y_steps = evenly_split(Y, factor)
 
-            for xi, xb in zip(range(factor), X_steps):
-                for yj, yb in zip(range(factor), Y_steps):
+            for xi, xb in zip(range(factor), X_steps, strict=True):
+                for yj, yb in zip(range(factor), Y_steps, strict=True):
                     assert len(xb) == 2
                     assert len(yb) == 2
                     fn_out = os.path.join(
