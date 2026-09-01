@@ -39,7 +39,11 @@ dependencies = [
     "tabulate",
     "tqdm",
     "xarray",
-    "fetchez",
+    # 0.6.13 is the first release carrying the redirect-safe requests.Session
+    # (fetchez#277). Before it, Harmony -> Earthdata Login -> Harmony dropped the
+    # injected auth headers and the download died on a JSONDecodeError parsing the
+    # login page it got back instead of JSON (#23).
+    "fetchez>=0.6.13",
     "globato",
     "transformez",
 ]
