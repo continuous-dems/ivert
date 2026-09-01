@@ -2300,8 +2300,10 @@ def _export_errors_xyz(results_dataframe, dem_ds, out_fname, verbose=True):
 
 
 def _normalize_export_formats(formats):
-    """Normalize a comma-separated string or iterable of format names into a de-duplicated
-    list of lower-case, recognized format names (others are dropped).
+    """Normalize format names into a de-duplicated list of recognized names.
+
+    Accepts a comma-separated string or an iterable. Names are lower-cased, and
+    unrecognized ones are dropped.
     """
     if isinstance(formats, str):
         formats = formats.split(",")

@@ -465,6 +465,7 @@ def plot_histogram_and_error_stats_4_panels(
     verbose=True,
 ):
     """Generate a 4-panel figure of error stats.
+
     1) Histograms of mean errors
     2) 1:1 line of DEM vs ICESat-2 elevations.
     3) Histogram of canopy cover

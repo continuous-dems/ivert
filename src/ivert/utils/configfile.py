@@ -184,8 +184,9 @@ def comment_out_options(
 
 
 class Config:
-    r"""A subclass implementation of configparser.ConfigParser(), expect that Config attributes are referenced as object
-    attributes rather than in a dictionary.
+    r"""A configparser.ConfigParser() subclass whose options are read as object attributes.
+
+    Config attributes are referenced as object attributes rather than in a dictionary.
 
     So if the .ini file contains the attribute:
          varname = 0
@@ -534,8 +535,9 @@ class Config:
             )
 
     def _parse_config_into_attrs(self):
-        """Read all the Config lines, put into object attributes. If we're running in an AWS instance, also read the
-        [AWS] section.
+        """Read all the Config lines, put into object attributes.
+
+        If we're running in an AWS instance, also read the [AWS] section.
         """
         # First input the default values from the Config file.
         for k, v in self._config["DEFAULT"].items():

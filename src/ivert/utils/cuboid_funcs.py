@@ -128,8 +128,10 @@ import numpy
 
 
 def subtract_cuboids(a, b, tol=1e-10, bbox_order="point"):
-    """Subtract cuboid `b` from cuboid `a`, returning the list of non-overlapping cuboids
-    that exactly fill the remaining volume (a - b).
+    """Subtract cuboid `b` from cuboid `a`.
+
+    Returns the list of non-overlapping cuboids that exactly fill the remaining
+    volume (a - b).
 
     Parameters
     ----------

@@ -87,7 +87,6 @@ ignore = [
     "D103",     # undocumented-public-function
     "D104",     # undocumented-public-package
     "D107",     # undocumented-public-init
-    "D205",     # missing-blank-line-after-summary
     "D401",     # non-imperative-mood
     "D417",     # undocumented-param
     "DTZ001",   # call-datetime-without-tzinfo
