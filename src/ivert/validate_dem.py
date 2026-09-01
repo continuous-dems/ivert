@@ -74,6 +74,83 @@ def read_dataframe_file(df_filename: str) -> pandas.DataFrame:
     return dataframe
 
 
+def _check_dem_geotransform(dem_name, xstep, ystep, xrot, yrot):
+    """Raise if a DEM's geotransform is rotated or not north-up.
+
+    Every photon's (i, j) cell index and every grid-cell bounding box is computed
+    straight from these terms. A rotated or flipped raster therefore does not fail
+    loudly; it assigns photons to the wrong cells and reports confident, wrong
+    accuracy numbers, so it is rejected here rather than validated incorrectly.
+    """
+    problems = []
+    if xrot != 0 or yrot != 0:
+        problems.append(f"its rotation terms are non-zero (xrot={xrot}, yrot={yrot})")
+    if xstep <= 0:
+        problems.append(f"its x pixel size must be positive, but is {xstep}")
+    if ystep >= 0:
+        problems.append(f"its y pixel size must be negative (north-up), but is {ystep}")
+
+    if problems:
+        raise ValueError(
+            f"Cannot validate DEM {dem_name}: " + "; and ".join(problems) + ". "
+            "IVERT requires a north-up, unrotated raster. Reproject or flip the "
+            "DEM (gdalwarp will do it) and try again.",
+        )
+
+
+def _check_cell_validation_params(photon_limit, min_photons, num_subdivisions):
+    """Raise if the per-cell validation parameters cannot produce usable results.
+
+    Checked once up front rather than per grid cell: none of these vary over the
+    run, and a bad value otherwise surfaces as a dead child process partway
+    through, whose chunk the parent counts as finished and silently drops.
+    """
+    if num_subdivisions < 1:
+        raise ValueError(
+            f"num_subdivisions must be a positive integer, not {num_subdivisions}. "
+            "It sets the sub-grid used to measure each cell's photon coverage.",
+        )
+
+    if photon_limit is None:
+        return
+
+    if photon_limit < 2:
+        raise ValueError(
+            f"photon_limit must be at least 2, not {photon_limit}. A cell needs "
+            "two or more photons for its elevation statistics to be meaningful.",
+        )
+    if photon_limit < min_photons:
+        raise ValueError(
+            f"photon_limit ({photon_limit}) is below min_photons ({min_photons}), "
+            "so every cell sampled down to the limit would then be discarded for "
+            "having too few photons, and no cells would be validated.",
+        )
+
+
+def _check_chunk_payload(dem_i_list, dem_j_list, dem_elev_list, bbox_lists):
+    """Raise if the arrays in one work chunk disagree in length.
+
+    The validation loop indexes all of these with a single counter, so a short
+    array otherwise raises IndexError partway through a chunk, naming neither the
+    array at fault nor the fact that the parent sent a malformed message.
+    """
+    lengths = {
+        "dem_i_list": len(dem_i_list),
+        "dem_j_list": len(dem_j_list),
+        "dem_elev_list": len(dem_elev_list),
+    }
+    bbox_names = ("cell_xmin", "cell_xmax", "cell_ymin", "cell_ymax")
+    for name, arr in zip(bbox_names, bbox_lists, strict=True):
+        if arr is not None:
+            lengths[f"{name}_list"] = len(arr)
+
+    if len(set(lengths.values())) > 1:
+        raise ValueError(
+            "The parent process sent a malformed work chunk; its arrays disagree "
+            "in length: " + ", ".join(f"{k}={v}" for k, v in lengths.items()) + ".",
+        )
+
+
 def validate_dem_child_process(
     height_array_name,
     height_dtype,
@@ -109,7 +186,13 @@ def validate_dem_child_process(
 
     Cells with at least INTERDECILE_MIN_PHOTONS photons have their outliers trimmed to the interdecile range
     before their statistics are computed. Cells below that use every photon they contain.
+
+    Raises ValueError on unusable parameters or a malformed work chunk. The parent
+    validates the same parameters before spawning, so reaching either here means a
+    caller drove this function directly.
     """
+    _check_cell_validation_params(photon_limit, min_photons, num_subdivisions)
+
     # Define shared memory arrays here.
     h_shm = shared_memory.SharedMemory(name=height_array_name)
     heights = numpy.ndarray(array_shape, dtype=height_dtype, buffer=h_shm.buf)
@@ -178,7 +261,12 @@ def validate_dem_child_process(
                     y_shm.close()
                 return
 
-            assert len(dem_i_list) == len(dem_j_list)
+            _check_chunk_payload(
+                dem_i_list,
+                dem_j_list,
+                dem_elev_list,
+                (cell_xmin_list, cell_xmax_list, cell_ymin_list, cell_ymax_list),
+            )
             N = len(dem_i_list)
 
             # Do the work.
@@ -227,13 +315,14 @@ def validate_dem_child_process(
                     cell_xmax = cell_xmax_list[counter]
                     cell_ymin = cell_ymin_list[counter]
                     cell_ymax = cell_ymax_list[counter]
-                    assert (cell_xmax > cell_xmin) and (cell_ymax > cell_ymin)
 
+                    # These bounds are derived from the DEM geotransform in
+                    # _compute_photon_overlap(), which _check_dem_geotransform()
+                    # has already confirmed is north-up and unrotated. That makes
+                    # cell_xstep > 0 and cell_ystep < 0 hold for every cell.
                     cell_xstep = (cell_xmax - cell_xmin) / num_subdivisions
                     # Equal to the geotransform, the y-value starts at the top (max) and iterate downward (negative step.)
                     cell_ystep = (cell_ymin - cell_ymax) / num_subdivisions
-
-                    assert (cell_xstep > 0) and (cell_ystep < 0)
 
                     subset_df["subset_i"] = numpy.floor(
                         (subset_df.ycoord - cell_ymax) / cell_ystep,
@@ -255,7 +344,6 @@ def validate_dem_child_process(
                 # After calculating the coverage, if we want to limit the number of photons we're dealing with total,
                 # do it here.
                 if photon_limit is not None and len(subset_df) > photon_limit:
-                    assert photon_limit >= 2
                     subset_df = subset_df.sample(n=photon_limit)
 
                 n_photons = len(subset_df)
@@ -1219,7 +1307,8 @@ def _compute_photon_overlap(
                 )
             photon_df = photon_df[~excluded_mask]
 
-    xstart, xstep, _, ystart, _, ystep = dem_ds.transform.to_gdal()
+    xstart, xstep, xrot, ystart, yrot, ystep = dem_ds.transform.to_gdal()
+    _check_dem_geotransform(dem_ds.name, xstep, ystep, xrot, yrot)
     photon_df["i"] = numpy.floor((photon_df["dem_y"] - ystart) / ystep).astype(int)
     photon_df["j"] = numpy.floor((photon_df["dem_x"] - xstart) / xstep).astype(int)
 
@@ -1396,6 +1485,15 @@ def _run_parallel_cell_validation(
 
     Returns a list of per-chunk result DataFrames (possibly empty on error or no data).
     """
+    # Fail here rather than in every child: a child that raises is restarted by the
+    # loop below, which counts its chunk as finished, so the run would report
+    # success having silently dropped those cells.
+    _check_cell_validation_params(
+        max_photons_per_cell,
+        min_photons_per_cell,
+        num_subdivisions=15,
+    )
+
     if verbose:
         if max_photons_per_cell is not None:
             print(

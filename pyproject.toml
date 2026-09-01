@@ -112,7 +112,6 @@ ignore = [
     "PLR0917",  # too-many-positional-arguments
     "PLR2004",  # magic-value-comparison
     "PLW0603",  # global-statement
-    "PT018",    # pytest-composite-assertion
     "PTH100",   # os-path-abspath
     "PTH102",   # os-mkdir
     "PTH103",   # os-makedirs
