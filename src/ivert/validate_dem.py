@@ -464,7 +464,7 @@ def reset_results_indexes_after_merge(
 def validate_dem(
     dem_name: str,
     output_dir: str | None = None,
-    dates: None | list[int, int] | tuple[int, int] = None,
+    dates: list[int, int] | tuple[int, int] | None = None,
     classes: list[int] | tuple[int] = [1, 6, 40],
     shared_ret_values: dict | None = None,
     icesat2_photon_database_obj: ivert.icesat2_database_v2.IS2Database | None = None,
@@ -1840,7 +1840,7 @@ def _write_validation_outputs(
 def validate_dem_parallel(
     dem_name: str,
     output_dir: str | None = None,
-    dates: None | list[int, int] | tuple[int, int] = None,
+    dates: list[int, int] | tuple[int, int] | None = None,
     classes: list[int] | tuple[int] = [1, 6, 40],
     shared_ret_values: dict | None = None,
     icesat2_photon_database_obj: ivert.icesat2_database_v2.IS2Database
@@ -1857,7 +1857,7 @@ def validate_dem_parallel(
     plot_results: bool = True,
     location_name: str | None = None,
     mark_empty_results: bool = True,
-    omit_bboxes: None | list[float] | tuple[float] = None,
+    omit_bboxes: list[float] | tuple[float] | None = None,
     measure_coverage: bool = False,
     min_coverage_pct: float | None = None,
     max_photons_per_cell: int | None = None,

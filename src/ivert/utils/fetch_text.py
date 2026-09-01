@@ -6,7 +6,7 @@ import re
 def fetch_email_address(
     text: str,
     fetch_all: bool = False,
-) -> str | None | list[str]:
+) -> str | list[str] | None:
     """Get a valid email address from a string.
 
     Args:
@@ -27,7 +27,7 @@ def fetch_email_address(
 def fetch_aws_bucketname(
     text: str,
     fetch_all: bool = False,
-) -> str | None | list[str]:
+) -> str | list[str] | None:
     """Get an AWS bucket name from a string.
 
     Args:
@@ -49,7 +49,7 @@ def fetch_aws_bucketname(
 def fetch_access_key_id(
     text: str,
     fetch_all: bool = False,
-) -> str | None | list[str]:
+) -> str | list[str] | None:
     """Get an AWS access key ID from a string.
 
     Args:
@@ -71,7 +71,7 @@ def fetch_access_key_id(
 def fetch_secret_access_key(
     text: str,
     fetch_all: bool = False,
-) -> str | None | list[str]:
+) -> str | list[str] | None:
     """Get an AWS secret access key from a string.
 
     Args:
@@ -96,7 +96,7 @@ def _fetch_text(
     text: str,
     regex: str,
     fetch_all: bool = False,
-) -> str | None | list[str]:
+) -> str | list[str] | None:
     """Fetch text from a string. A generic function that the others use.
 
     Args:
