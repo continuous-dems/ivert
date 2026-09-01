@@ -53,13 +53,13 @@ def split(
     # some bug here?
     for fname in infiles:
         with rasterio.open(fname) as src:
-            Y, X = src.height, src.width
+            y, x = src.height, src.width
             # How to cover all the DEM when it can't be split evenly?
-            X_steps = evenly_split(X, factor)
-            Y_steps = evenly_split(Y, factor)
+            x_steps = evenly_split(x, factor)
+            y_steps = evenly_split(y, factor)
 
-            for xi, xb in zip(range(factor), X_steps, strict=True):
-                for yj, yb in zip(range(factor), Y_steps, strict=True):
+            for xi, xb in zip(range(factor), x_steps, strict=True):
+                for yj, yb in zip(range(factor), y_steps, strict=True):
                     assert len(xb) == 2
                     assert len(yb) == 2
                     fn_out = os.path.join(
@@ -104,14 +104,14 @@ def split(
     return outfiles
 
 
-def evenly_split(N: int, factor: int) -> list:
-    """Split N evenly into factor pieces by index.
+def evenly_split(n: int, factor: int) -> list:
+    """Split n evenly into factor pieces by index.
 
     If it doesn't split evenly, add an extra to the last (remainder) pieces to make it as even as possible.
 
     Returns the starting and ending index of each sub-segment.
     """
-    batches_all = list(itertools.batched(range(N), N // factor))
+    batches_all = list(itertools.batched(range(n), n // factor))
     if len(batches_all) == factor:
         batches = [(b[0], b[-1]) for b in batches_all]
     else:
@@ -120,10 +120,10 @@ def evenly_split(N: int, factor: int) -> list:
         extras = batches_all[-1]
         assert len(extras) < len(batches)
 
-        M = len(extras)
-        for i in range(M):
+        m = len(extras)
+        for i in range(m):
             j = -(i + 1)
-            batches[j] = (batches[j][0] + (M + j), batches[j][1] + (M + j + 1))
+            batches[j] = (batches[j][0] + (m + j), batches[j][1] + (m + j + 1))
 
         assert len(batches) == factor
 

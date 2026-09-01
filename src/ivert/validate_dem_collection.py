@@ -33,15 +33,15 @@ def write_summary_csv_file(
 
     unique_files = total_df["filename"].unique().tolist()
     all_filenames = list(unique_files) + list(list_of_empty_files)
-    N = len(all_filenames)
+    n = len(all_filenames)
 
-    means = numpy.empty((N,), dtype=float)
-    stds = numpy.empty((N,), dtype=float)
-    rmses = numpy.empty((N,), dtype=float)
-    n_cells = numpy.empty((N,), dtype=int)
-    photons_per_cell = numpy.empty((N,), dtype=float)
-    # canopy_mean = numpy.empty((N,), dtype=float)
-    # canopy_mean_gt0 = numpy.empty((N,), dtype=float)
+    means = numpy.empty((n,), dtype=float)
+    stds = numpy.empty((n,), dtype=float)
+    rmses = numpy.empty((n,), dtype=float)
+    n_cells = numpy.empty((n,), dtype=int)
+    photons_per_cell = numpy.empty((n,), dtype=float)
+    # canopy_mean = numpy.empty((n,), dtype=float)
+    # canopy_mean_gt0 = numpy.empty((n,), dtype=float)
 
     # Fill in the values
     for i, fname in enumerate(all_filenames):

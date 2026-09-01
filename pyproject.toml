@@ -74,8 +74,6 @@ ignore = [
     "ANN001",   # missing-type-function-argument
     "ANN201",   # missing-return-type-undocumented-public-function
     "ANN202",   # missing-return-type-private-function
-    "ANN204",   # missing-return-type-special-method
-    "ANN205",   # missing-return-type-static-method
     "ARG001",   # unused-function-argument
     "ARG002",   # unused-method-argument
     "BLE001",   # blind-except
@@ -95,13 +93,8 @@ ignore = [
     "ERA001",   # commented-out-code
     "FBT001",   # boolean-type-hint-positional-argument
     "FBT002",   # boolean-default-value-positional-argument
-    "FBT003",   # boolean-positional-value-in-call
     "FIX002",   # line-contains-todo
     "ICN001",   # unconventional-import-alias
-    "N801",     # invalid-class-name
-    "N803",     # invalid-argument-name
-    "N806",     # non-lowercase-variable-in-function
-    "PD002",    # pandas-use-of-inplace-argument
     "PLC0415",  # import-outside-top-level
     "PLR0912",  # too-many-branches
     "PLR0913",  # too-many-arguments
@@ -127,8 +120,6 @@ ignore = [
     "PTH202",   # os-path-getsize
     "PTH207",   # glob
     "PTH208",   # os-listdir
-    "RUF001",   # ambiguous-unicode-character-string
-    "RUF002",   # ambiguous-unicode-character-docstring
     "S101",     # assert
     "S110",     # try-except-pass
     "S301",     # suspicious-pickle-usage

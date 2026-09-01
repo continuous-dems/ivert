@@ -162,7 +162,7 @@ def load_nc(nc_path):
 
 def _get_vdatum_label(epsg_int):
     """Return a short human-readable label for a vertical datum EPSG code."""
-    _KNOWN = {
+    _known = {
         3855: "EGM2008",
         5703: "NAVD88",
         5714: "MSL",
@@ -178,7 +178,7 @@ def _get_vdatum_label(epsg_int):
             return desc.replace(" height", "").replace(" Height", "")
     except Exception:
         pass
-    return _KNOWN.get(epsg_int, f"EPSG:{epsg_int}")
+    return _known.get(epsg_int, f"EPSG:{epsg_int}")
 
 
 def _apply_vdatum_to_df(df, target_vert_epsg_int, cache_dir=None):
@@ -453,7 +453,7 @@ def plot_beam(
     if dlim is not None:
         ax.set_xlim(left=dlim[0], right=dlim[1])
     ax.legend(loc="upper right", fontsize=7, markerscale=2)
-    ax.grid(True, linewidth=0.3, alpha=0.5)
+    ax.grid(visible=True, linewidth=0.3, alpha=0.5)
     fig.tight_layout()
     fig.savefig(outpath, dpi=200)
     plt.close(fig)

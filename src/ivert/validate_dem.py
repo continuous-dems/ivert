@@ -267,25 +267,25 @@ def validate_dem_child_process(
                 dem_elev_list,
                 (cell_xmin_list, cell_xmax_list, cell_ymin_list, cell_ymax_list),
             )
-            N = len(dem_i_list)
+            n = len(dem_i_list)
 
             # Do the work.
             # r_keep marks the cells that had enough photons to validate. Cells left
             # False are dropped from the results below, not reported as empty.
-            r_keep = numpy.zeros((N,), dtype=bool)
-            r_mean = numpy.zeros((N,), dtype=float)
-            r_numphotons = numpy.zeros((N,), dtype=numpy.uint32)
+            r_keep = numpy.zeros((n,), dtype=bool)
+            r_mean = numpy.zeros((n,), dtype=float)
+            r_numphotons = numpy.zeros((n,), dtype=numpy.uint32)
             r_numphotons_bathy = r_numphotons.copy()
             r_numphotons_intd = r_numphotons.copy()
-            r_std = numpy.zeros((N,), dtype=float)
-            r_interdecile = numpy.zeros((N,), float)
-            r_range = numpy.zeros((N,), heights.dtype)
-            r_10p = numpy.zeros((N,), float)
-            r_90p = numpy.zeros((N,), float)
-            r_dem_elev = numpy.zeros((N,), dtype=float)
-            r_mean_diff = numpy.zeros((N,), dtype=float)
+            r_std = numpy.zeros((n,), dtype=float)
+            r_interdecile = numpy.zeros((n,), float)
+            r_range = numpy.zeros((n,), heights.dtype)
+            r_10p = numpy.zeros((n,), float)
+            r_90p = numpy.zeros((n,), float)
+            r_dem_elev = numpy.zeros((n,), dtype=float)
+            r_mean_diff = numpy.zeros((n,), dtype=float)
             if measure_coverage:
-                r_coverage_frac = numpy.zeros((N,), dtype=float)
+                r_coverage_frac = numpy.zeros((n,), dtype=float)
             else:
                 r_coverage_frac = None
 
@@ -553,9 +553,7 @@ def reset_results_indexes_after_merge(
     sub_results_df["j"] = sub_results_df.index.get_level_values("j") + x_offset
 
     # Re-create an (i,j) multi-index into the array, dropping the old index and the new columns.
-    sub_results_df.set_index(["i", "j"], drop=True, inplace=True)
-
-    return sub_results_df
+    return sub_results_df.set_index(["i", "j"], drop=True)
 
 
 def validate_dem(
@@ -1272,7 +1270,7 @@ def _compute_photon_overlap(
     processes, the photon-level outputs) holds only the requested classes.
 
     Returns (photon_df, height_field, dem_overlap_i, dem_overlap_j,
-             dem_overlap_elevs, N, coverage_coords) or None if no valid overlap exists.
+             dem_overlap_elevs, n, coverage_coords) or None if no valid overlap exists.
     coverage_coords is (xmin_arr, xmax_arr, ymin_arr, ymax_arr) when measure_coverage=True, else None.
     """
     try:
@@ -1383,7 +1381,7 @@ def _compute_photon_overlap(
             )
         return None
 
-    N = len(dem_overlap_i)
+    n = len(dem_overlap_i)
     coverage_coords = None
     if measure_coverage:
         xmin_arr = xstart + (xstep * dem_overlap_j)
@@ -1398,7 +1396,7 @@ def _compute_photon_overlap(
         dem_overlap_i,
         dem_overlap_j,
         dem_overlap_elevs,
-        N,
+        n,
         coverage_coords,
     )
 
@@ -1473,7 +1471,7 @@ def _run_parallel_cell_validation(
     dem_overlap_i,
     dem_overlap_j,
     dem_overlap_elevs,
-    N,
+    n,
     max_photons_per_cell,
     min_photons_per_cell,
     measure_coverage,
@@ -1592,7 +1590,7 @@ def _run_parallel_cell_validation(
     # Cells in the chunk currently out with each child process. Progress is measured
     # in cells *handed out*, not rows handed back: a child omits any cell that fell
     # below 'min_photons_per_cell', so len(chunk_result_df) undercounts the work done
-    # and the bar would stall short of N. Each pipe has at most one chunk outstanding,
+    # and the bar would stall short of n. Each pipe has at most one chunk outstanding,
     # so this is an exact count.
     chunk_sizes = [0] * cpu_count
 
@@ -1605,7 +1603,7 @@ def _run_parallel_cell_validation(
     # 'disable=None' tells tqdm to draw the bar only when attached to a terminal, and
     # stay silent when the output is redirected to a file or a pipe.
     progress = tqdm.tqdm(
-        total=N,
+        total=n,
         disable=None if verbose else True,
         unit="cell",
         file=sys.stdout,
@@ -1613,7 +1611,7 @@ def _run_parallel_cell_validation(
 
     try:
         for i in range(cpu_count):
-            if counter_started >= N:
+            if counter_started >= n:
                 running_procs = running_procs[:i]
                 open_pipes_parent = open_pipes_parent[:i]
                 open_pipes_child = open_pipes_child[:i]
@@ -1641,7 +1639,7 @@ def _run_parallel_cell_validation(
                 )
             )
 
-            counter_chunk_end = min(counter_started + items_per_process_chunk, N)
+            counter_chunk_end = min(counter_started + items_per_process_chunk, n)
             if measure_coverage:
                 open_pipes_parent[i].send(
                     (
@@ -1706,7 +1704,7 @@ def _run_parallel_cell_validation(
                     open_pipes_child[i] = pipe_child
                     # The chunk this child was working on died with it and is never
                     # retried, so count it as accounted for. Otherwise the bar could
-                    # never reach N once a child has crashed.
+                    # never reach n once a child has crashed.
                     counter_finished += chunk_sizes[i]
                     chunk_sizes[i] = 0
                     num_chunks_finished += 1
@@ -1720,10 +1718,10 @@ def _run_parallel_cell_validation(
                     results_dataframes_list.append(chunk_result_df)
                     progress.update(counter_finished - progress.n)
 
-                    if counter_started < N:
+                    if counter_started < n:
                         counter_chunk_end = min(
                             counter_started + items_per_process_chunk,
-                            N,
+                            n,
                         )
                         if measure_coverage:
                             pipe.send(
@@ -1788,11 +1786,11 @@ def _run_parallel_cell_validation(
             print(
                 f"{total_time_m:d} minute"
                 + ("s" if total_time_m > 1 else "")
-                + f" {partial_time_s:0.1f} seconds total, ({(total_time_s / N) if N > 0 else 0:0.4f} s/iteration)",
+                + f" {partial_time_s:0.1f} seconds total, ({(total_time_s / n) if n > 0 else 0:0.4f} s/iteration)",
             )
         else:
             print(
-                f"{total_time_s:0.1f} seconds total, ({(total_time_s / N) if N > 0 else 0:0.4f} s/iteration)",
+                f"{total_time_s:0.1f} seconds total, ({(total_time_s / n) if n > 0 else 0:0.4f} s/iteration)",
             )
 
     clean_procs_and_pipes(
@@ -2085,7 +2083,7 @@ def validate_dem_parallel(
         dem_overlap_i,
         dem_overlap_j,
         dem_overlap_elevs,
-        N,
+        n,
         coverage_coords,
     ) = overlap_result
 
@@ -2107,7 +2105,7 @@ def validate_dem_parallel(
         dem_overlap_i,
         dem_overlap_j,
         dem_overlap_elevs,
-        N,
+        n,
         max_photons_per_cell,
         min_photons_per_cell,
         measure_coverage,

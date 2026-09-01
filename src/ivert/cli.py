@@ -55,7 +55,7 @@ def ivert_cli(ctx, user_config, verbosity):
             os.path.expanduser(user_config),
         )
 
-    _VERBOSITY_LEVELS = {
+    _verbosity_levels = {
         "debug": (logging.DEBUG, "%(levelname)s: %(message)s"),
         "info": (logging.INFO, "%(message)s"),
         "warning": (logging.WARNING, "%(message)s"),
@@ -68,13 +68,13 @@ def ivert_cli(ctx, user_config, verbosity):
         verbosity = Config().verbosity
 
     verbosity_key = str(verbosity).strip().lower()
-    if verbosity_key not in _VERBOSITY_LEVELS:
+    if verbosity_key not in _verbosity_levels:
         raise click.BadParameter(
             f"'{verbosity}' is not a valid verbosity level. "
             "Choose from: debug, info, warning, error.",
             param_hint="--verbosity",
         )
-    level, fmt = _VERBOSITY_LEVELS[verbosity_key]
+    level, fmt = _verbosity_levels[verbosity_key]
     logging.basicConfig(level=level, format=fmt)
     logging.getLogger().setLevel(level)
 
@@ -1017,7 +1017,7 @@ def database_size():
     default=1,
     show_default=True,
     help=(
-        "Minimum ATL03 signal confidence level to save (1–4). Photons below this "
+        "Minimum ATL03 signal confidence level to save (1-4). Photons below this "
         "level are discarded before writing to the database. "
         "1=low (keep all), 2=medium, 3=high, 4=very-high."
     ),
@@ -1030,7 +1030,7 @@ def database_size():
     default=0.01,
     show_default=True,
     help=(
-        "Minimum ATL24 bathymetry confidence to save (0.0–1.0). "
+        "Minimum ATL24 bathymetry confidence to save (0.0-1.0). "
         "Bathy-floor photons (class 40) below this confidence are discarded "
         "before writing to the database."
     ),
@@ -2186,7 +2186,7 @@ def _run_validate(
     default=4,
     show_default=True,
     help=(
-        "Minimum ATL03 signal confidence level to use (1–4). Photons below this "
+        "Minimum ATL03 signal confidence level to use (1-4). Photons below this "
         "level are excluded from validation. "
         "1=low (keep all), 2=medium, 3=high, 4=very-high."
     ),
@@ -2199,7 +2199,7 @@ def _run_validate(
     default=0.90,
     show_default=True,
     help=(
-        "Minimum ATL24 bathymetry confidence to use (0.0–1.0). "
+        "Minimum ATL24 bathymetry confidence to use (0.0-1.0). "
         "Bathy-floor photons (class 40) below this confidence are excluded "
         "from validation."
     ),

@@ -166,7 +166,10 @@ class IS2Database:
             c[5]: int(bbox[5]),
         }
 
-    def __init__(self, ivert_config: ivert.utils.configfile.Config | None = None):
+    def __init__(
+        self,
+        ivert_config: ivert.utils.configfile.Config | None = None,
+    ) -> None:
         # Define the structure of the object.
         if ivert_config is None:
             self.config = ivert.utils.configfile.Config()
@@ -605,7 +608,7 @@ class IS2Database:
             return None
 
         df = pandas.concat(chunks, ignore_index=True)
-        df.rename(columns={"ph_h_classed": "class_code"}, inplace=True)
+        df = df.rename(columns={"ph_h_classed": "class_code"})
 
         # Temporal filter
         if "delta_time" in df.columns:
@@ -996,9 +999,9 @@ class IS2Database:
                 Photon classes to include in the query. See globato/streams/readers/icesat2.py for the full list.
                 Defaults to (1, 6, 40) (ground, land_ice, and bathy_floor photons).
             min_bathy_confidence : float
-                The minimum ATL24 confidence for bathymetric (class 40) photons to include (0.0–1.0).
+                The minimum ATL24 confidence for bathymetric (class 40) photons to include (0.0-1.0).
             min_confidence_level : int
-                The minimum ATL03 signal confidence level to include (1–4). 1 keeps all photons.
+                The minimum ATL03 signal confidence level to include (1-4). 1 keeps all photons.
             # download_new_data : bool
             #     Whether to download new ICESat-2 data from NASA if the current database doesn't contain the entire bounding box.
 
@@ -1342,13 +1345,13 @@ class IS2Database:
                 # Ping Harmony to verify the cached job completed without errors.
                 # Jobs with "complete_with_errors", "failed", or "canceled" status
                 # cannot be reliably re-used, so a new job must be submitted instead.
-                _ERROR_STATES = {"complete_with_errors", "failed", "canceled"}
+                _error_states = {"complete_with_errors", "failed", "canceled"}
                 cached_job_id = cached["jobID"]
                 current_status = mod.harmony_ping_for_status(cached_job_id)
                 current_state = (
                     current_status.get("status", "") if current_status else ""
                 )
-                if current_state in _ERROR_STATES:
+                if current_state in _error_states:
                     logger.warning(
                         "Cached Harmony job %s has status '%s'; submitting a new job.",
                         cached_job_id,

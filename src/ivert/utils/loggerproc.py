@@ -20,7 +20,7 @@ class LoggerProc(mp.Process):
         args: list | tuple | None = None,
         kwargs: dict | None = None,
         output_to_terminal: bool = False,
-    ):
+    ) -> None:
 
         self.filename = filename_out
         self.target = target
@@ -69,7 +69,7 @@ class Logger(io.TextIOWrapper):
     At some point we may add support for logging stderr to a separate file.
     """
 
-    def __init__(self, filename: str, output_to_terminal: bool = True):
+    def __init__(self, filename: str, output_to_terminal: bool = True) -> None:
 
         self.output_to_terminal = output_to_terminal
         if self.output_to_terminal:
@@ -88,7 +88,7 @@ class Logger(io.TextIOWrapper):
         self.log.flush()
 
     @staticmethod
-    def isatty():
+    def isatty() -> bool:
         """Return True if the log is a terminal."""
         return False
 
