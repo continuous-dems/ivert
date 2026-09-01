@@ -1561,7 +1561,7 @@ def database_export(
     (Note: Use the '--' delimiter to end command-line options if coordinates begin
     with a negative '-')
 
-    """
+    """  # noqa: D301  (\b is click's no-rewrap marker; r""" would break it)
     from ivert import export_vector as ev
     from ivert import icesat2_database_v2 as is2db_mod
     from ivert.icesat2_database_v2 import _yyyymmdd_to_delta_time

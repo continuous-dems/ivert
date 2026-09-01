@@ -88,7 +88,6 @@ ignore = [
     "D104",     # undocumented-public-package
     "D107",     # undocumented-public-init
     "D205",     # missing-blank-line-after-summary
-    "D301",     # escape-sequence-in-docstring
     "D400",     # missing-trailing-period
     "D401",     # non-imperative-mood
     "D415",     # missing-terminal-punctuation

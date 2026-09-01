@@ -102,10 +102,10 @@ def parse_option_descriptions(configfile: str = ivert_default_configfile):
 
 
 def _is_absolute_path(value):
-    """Return True if 'value' is an absolute filesystem path on any platform.
+    r"""Return True if 'value' is an absolute filesystem path on any platform.
 
-    Recognizes Unix roots ("/..."), Windows drive-letter roots ("C:\\..." or
-    "C:/..."), and UNC roots ("\\\\server\\share"), independent of the OS this is
+    Recognizes Unix roots ("/..."), Windows drive-letter roots ("C:\..." or
+    "C:/..."), and UNC roots ("\\server\share"), independent of the OS this is
     running on, so config files can be resolved consistently across platforms.
     """
     stripped = value.strip()
@@ -184,7 +184,7 @@ def comment_out_options(
 
 
 class Config:
-    """A subclass implementation of configparser.ConfigParser(), expect that Config attributes are referenced as object
+    r"""A subclass implementation of configparser.ConfigParser(), expect that Config attributes are referenced as object
     attributes rather than in a dictionary.
 
     So if the .ini file contains the attribute:
