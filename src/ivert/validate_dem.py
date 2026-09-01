@@ -2075,6 +2075,7 @@ def write_summary_stats_file(
             print(
                 "write_summary_stats_file(): No results dataframe to write. Returning",
             )
+        return
 
     if len(results_df) == 0:
         if verbose:
