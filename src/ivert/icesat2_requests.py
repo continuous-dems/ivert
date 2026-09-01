@@ -29,7 +29,7 @@ class ICESat2RequestsCSV:
         json            — full Harmony status dict, str-repr of a Python dict
     """
 
-    def __init__(self, config=None):
+    def __init__(self, config=None) -> None:
         if config is None:
             self.config = ivert.utils.configfile.Config()
         else:

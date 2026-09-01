@@ -212,7 +212,7 @@ class Config:
         self,
         configfile: str = ivert_default_configfile,
         ignore_errors: bool = False,
-    ):
+    ) -> None:
         """Initializes a new instance of the Config class."""
         self._configfile = os.path.abspath(os.path.realpath(configfile))
         self._config = configparser.ConfigParser()
