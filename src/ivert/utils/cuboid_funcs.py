@@ -289,9 +289,9 @@ def merge_cuboids(cuboids, tol=1e-10, bbox_order="point"):
             and abs(ay2 - by2) < tol
             and abs(az1 - bz1) < tol
             and abs(az2 - bz2) < tol
+            and (abs(ax2 - bx1) < tol or abs(bx2 - ax1) < tol or overlap_x)
         ):
-            if abs(ax2 - bx1) < tol or abs(bx2 - ax1) < tol or overlap_x:
-                return (min(ax1, bx1), ay1, az1, max(ax2, bx2), ay2, az2)
+            return (min(ax1, bx1), ay1, az1, max(ax2, bx2), ay2, az2)
 
         # Case 2: merge along Y
         if (
@@ -299,9 +299,9 @@ def merge_cuboids(cuboids, tol=1e-10, bbox_order="point"):
             and abs(ax2 - bx2) < tol
             and abs(az1 - bz1) < tol
             and abs(az2 - bz2) < tol
+            and (abs(ay2 - by1) < tol or abs(by2 - ay1) < tol or overlap_y)
         ):
-            if abs(ay2 - by1) < tol or abs(by2 - ay1) < tol or overlap_y:
-                return (ax1, min(ay1, by1), az1, ax2, max(ay2, by2), az2)
+            return (ax1, min(ay1, by1), az1, ax2, max(ay2, by2), az2)
 
         # Case 3: merge along Z
         if (
@@ -309,9 +309,9 @@ def merge_cuboids(cuboids, tol=1e-10, bbox_order="point"):
             and abs(ax2 - bx2) < tol
             and abs(ay1 - by1) < tol
             and abs(ay2 - by2) < tol
+            and (abs(az2 - bz1) < tol or abs(bz2 - az1) < tol or overlap_z)
         ):
-            if abs(az2 - bz1) < tol or abs(bz2 - az1) < tol or overlap_z:
-                return (ax1, ay1, min(az1, bz1), ax2, ay2, max(az2, bz2))
+            return (ax1, ay1, min(az1, bz1), ax2, ay2, max(az2, bz2))
 
         # Case 4: One completely supercedes the other, even if edges don't align.
         if (
@@ -369,9 +369,8 @@ def merge_cuboids(cuboids, tol=1e-10, bbox_order="point"):
     result = []
     for c in cuboids:
         x1, y1, z1, x2, y2, z2 = c
-        if (x2 - x1 > tol) and (y2 - y1 > tol) and (z2 - z1 > tol):
-            if c not in result:
-                result.append(c)
+        if (x2 - x1 > tol) and (y2 - y1 > tol) and (z2 - z1 > tol) and c not in result:
+            result.append(c)
 
     # Convert back to axis order if needed
     if bbox_order == "axis":

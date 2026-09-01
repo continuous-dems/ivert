@@ -1135,17 +1135,21 @@ class IS2Database:
         Falls back to 'EPSG:4326+3855' for databases created before datum fields were added.
         """
         gdf = self.open_gdf(verbose=False)
-        if gdf is not None and len(gdf) > 0:
-            if "horizontal_datum" in gdf.columns and "vertical_datum" in gdf.columns:
-                hd_vals = gdf["horizontal_datum"].dropna()
-                hd_vals = hd_vals[hd_vals != ""]
-                vd_vals = gdf["vertical_datum"].dropna()
-                vd_vals = vd_vals[vd_vals != ""]
-                if len(hd_vals) > 0 and len(vd_vals) > 0:
-                    hd = str(hd_vals.iloc[0])  # e.g. "EPSG:4326"
-                    vd = str(vd_vals.iloc[0])  # e.g. "EPSG:3855" or "EPSG:4979"
-                    vd_num = vd.rsplit(":", maxsplit=1)[-1]  # strip "EPSG:" prefix
-                    return f"{hd}+{vd_num}"  # e.g. "EPSG:4326+3855"
+        if (
+            gdf is not None
+            and len(gdf) > 0
+            and "horizontal_datum" in gdf.columns
+            and "vertical_datum" in gdf.columns
+        ):
+            hd_vals = gdf["horizontal_datum"].dropna()
+            hd_vals = hd_vals[hd_vals != ""]
+            vd_vals = gdf["vertical_datum"].dropna()
+            vd_vals = vd_vals[vd_vals != ""]
+            if len(hd_vals) > 0 and len(vd_vals) > 0:
+                hd = str(hd_vals.iloc[0])  # e.g. "EPSG:4326"
+                vd = str(vd_vals.iloc[0])  # e.g. "EPSG:3855" or "EPSG:4979"
+                vd_num = vd.rsplit(":", maxsplit=1)[-1]  # strip "EPSG:" prefix
+                return f"{hd}+{vd_num}"  # e.g. "EPSG:4326+3855"
         return "EPSG:4326+4979"
 
     def download_new_granules(
@@ -1175,35 +1179,36 @@ class IS2Database:
 
         # Reject the download if existing records use a different datum.
         existing_gdf_check = self.open_gdf(verbose=False)
-        if existing_gdf_check is not None and len(existing_gdf_check) > 0:
-            if "vertical_datum" in existing_gdf_check.columns:
-                existing_vd_vals = existing_gdf_check["vertical_datum"].dropna()
-                existing_vd_vals = existing_vd_vals[existing_vd_vals != ""]
-                if len(existing_vd_vals) > 0:
-                    existing_vd = str(existing_vd_vals.iloc[0])
-                    existing_hd = "EPSG:4326"
-                    if "horizontal_datum" in existing_gdf_check.columns:
-                        existing_hd_vals = existing_gdf_check[
-                            "horizontal_datum"
-                        ].dropna()
-                        existing_hd_vals = existing_hd_vals[existing_hd_vals != ""]
-                        if len(existing_hd_vals) > 0:
-                            existing_hd = str(existing_hd_vals.iloc[0])
-                    if existing_vd != target_vd:
-                        logger.error(
-                            "Datum mismatch: the existing database stores data in "
-                            "horizontal datum %s and vertical datum %s, but the current "
-                            "configuration requests vertical datum %s "
-                            "(icesat2_vertical_datum=%r). All granules in a single database "
-                            "must share the same datum. Change 'icesat2_vertical_datum' in "
-                            "your user config to match the existing database, or create a "
-                            "new database.",
-                            existing_hd,
-                            existing_vd,
-                            target_vd,
-                            vertical_datum_cfg,
-                        )
-                        return
+        if (
+            existing_gdf_check is not None
+            and len(existing_gdf_check) > 0
+            and "vertical_datum" in existing_gdf_check.columns
+        ):
+            existing_vd_vals = existing_gdf_check["vertical_datum"].dropna()
+            existing_vd_vals = existing_vd_vals[existing_vd_vals != ""]
+            if len(existing_vd_vals) > 0:
+                existing_vd = str(existing_vd_vals.iloc[0])
+                existing_hd = "EPSG:4326"
+                if "horizontal_datum" in existing_gdf_check.columns:
+                    existing_hd_vals = existing_gdf_check["horizontal_datum"].dropna()
+                    existing_hd_vals = existing_hd_vals[existing_hd_vals != ""]
+                    if len(existing_hd_vals) > 0:
+                        existing_hd = str(existing_hd_vals.iloc[0])
+                if existing_vd != target_vd:
+                    logger.error(
+                        "Datum mismatch: the existing database stores data in "
+                        "horizontal datum %s and vertical datum %s, but the current "
+                        "configuration requests vertical datum %s "
+                        "(icesat2_vertical_datum=%r). All granules in a single database "
+                        "must share the same datum. Change 'icesat2_vertical_datum' in "
+                        "your user config to match the existing database, or create a "
+                        "new database.",
+                        existing_hd,
+                        existing_vd,
+                        target_vd,
+                        vertical_datum_cfg,
+                    )
+                    return
 
         if replace:
             bboxes = [tuple(bbox)]

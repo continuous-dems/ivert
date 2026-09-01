@@ -142,7 +142,6 @@ ignore = [
     "S101",     # assert
     "S110",     # try-except-pass
     "S301",     # suspicious-pickle-usage
-    "SIM102",   # collapsible-if
     "SIM115",   # open-file-with-context-handler
     "SLF001",   # private-member-access
     "T201",     # print
