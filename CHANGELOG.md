@@ -5,6 +5,11 @@ All notable changes to IVERT are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+- The database index column `downloaded_on` is now `downloaded_on_utc`, and records the UTC date rather than the date on the machine that ran the download (#95). Everything else in the database is already UTC — the `delta_time` epoch, the granule date ranges from NSIDC — so a provenance field that shifted with the operator's timezone was the odd one out, and the name now says which one it is. Databases written before the rename are still read: both read paths fall back to the old column name, so existing index files keep loading and rebuilding an index over an existing archive does not silently record `0` for every granule. Dates carried through that fallback are the old local ones and may be off by a day. The shapefile alias for the column becomes `dnld_utc`, and the fallback is meant to be removed once no pre-rename databases remain in circulation.
+
 ## [0.6.10] - 2026-08-27
 
 ### Fixed
@@ -144,6 +149,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - First release with a tracked changelog.
 
+[Unreleased]: https://github.com/continuous-dems/ivert/compare/0.6.10...HEAD
 [0.6.10]: https://github.com/continuous-dems/ivert/compare/0.6.9...0.6.10
 [0.6.9]: https://github.com/continuous-dems/ivert/compare/0.6.8...0.6.9
 [0.6.8]: https://github.com/continuous-dems/ivert/compare/0.6.7...0.6.8
