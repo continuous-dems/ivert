@@ -94,7 +94,6 @@ ignore = [
     "FBT001",   # boolean-type-hint-positional-argument
     "FBT002",   # boolean-default-value-positional-argument
     "FIX002",   # line-contains-todo
-    "ICN001",   # unconventional-import-alias
     "PLC0415",  # import-outside-top-level
     "PLR0912",  # too-many-branches
     "PLR0913",  # too-many-arguments

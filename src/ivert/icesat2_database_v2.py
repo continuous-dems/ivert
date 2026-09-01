@@ -20,8 +20,8 @@ import fetchez
 import fetchez.core
 import fetchez.spatial
 import globato
-import numpy
-import pandas
+import numpy as np
+import pandas as pd
 import xarray
 from fetchez.modules.earthdata import IceSat2 as _FetchezIceSat2
 
@@ -193,7 +193,7 @@ class IS2Database:
         self,
         populate: bool = True,
         overwrite: bool = False,
-    ) -> pandas.DataFrame:
+    ) -> pd.DataFrame:
         """Create a new database from scratch.
 
         Parameters
@@ -232,15 +232,15 @@ class IS2Database:
                     records.append(meta)
 
             if records:
-                gdf = pandas.DataFrame(records)[list(self._empty_db_dict().keys())]
+                gdf = pd.DataFrame(records)[list(self._empty_db_dict().keys())]
             else:
-                gdf = pandas.DataFrame(self._empty_db_dict()).drop(
+                gdf = pd.DataFrame(self._empty_db_dict()).drop(
                     labels=0,
                     axis="rows",
                 )
 
         else:
-            gdf = pandas.DataFrame(self._empty_db_dict()).drop(labels=0, axis="rows")
+            gdf = pd.DataFrame(self._empty_db_dict()).drop(labels=0, axis="rows")
 
         self._write_index(gdf)
         if os.path.exists(self.db_fname):
@@ -443,7 +443,7 @@ class IS2Database:
         return cls._NC_SUFFIX_RE.sub("", filename)
 
     @staticmethod
-    def _h5_along_track_m(h5_fn: str, beams) -> pandas.DataFrame:
+    def _h5_along_track_m(h5_fn: str, beams) -> pd.DataFrame:
         """Return per-photon cumulative along-track distance (m) for the given beams.
 
         Cumulative distance = sum of segment_length values up to each photon's segment
@@ -468,20 +468,20 @@ class IS2Database:
                     continue
 
                 # Cumulative distance at the start of each segment
-                seg_cumul_start = numpy.concatenate(
-                    [[0.0], numpy.cumsum(seg_length[:-1])],
+                seg_cumul_start = np.concatenate(
+                    [[0.0], np.cumsum(seg_length[:-1])],
                 )
 
                 # Map each photon to its segment via ph_index_beg
                 n = len(delta_time)
-                seg_of_ph = numpy.clip(
-                    numpy.searchsorted(ph_index_beg, numpy.arange(n), side="right") - 1,
+                seg_of_ph = np.clip(
+                    np.searchsorted(ph_index_beg, np.arange(n), side="right") - 1,
                     0,
                     len(ph_index_beg) - 1,
                 )
 
                 dfs.append(
-                    pandas.DataFrame(
+                    pd.DataFrame(
                         {
                             "laser": beam,
                             "delta_time": delta_time,
@@ -493,9 +493,9 @@ class IS2Database:
                 )
 
         return (
-            pandas.concat(dfs, ignore_index=True)
+            pd.concat(dfs, ignore_index=True)
             if dfs
-            else pandas.DataFrame(
+            else pd.DataFrame(
                 columns=["laser", "delta_time", "x", "y", "along_track_m"],
             )
         )
@@ -602,12 +602,12 @@ class IS2Database:
             use_external_masks=use_external_masks,
         )
 
-        chunks = [pandas.DataFrame(chunk) for chunk in stream]
+        chunks = [pd.DataFrame(chunk) for chunk in stream]
 
         if not chunks:
             return None
 
-        df = pandas.concat(chunks, ignore_index=True)
+        df = pd.concat(chunks, ignore_index=True)
         df = df.rename(columns={"ph_h_classed": "class_code"})
 
         # Temporal filter
@@ -657,16 +657,16 @@ class IS2Database:
             "data_bbox": [xmin, xmax, ymin, ymax, tmin, tmax],
             "zbounds": [zmin, zmax],
             "numphotons": len(df),
-            "numphotons_unclassified": int(numpy.count_nonzero(cc == -1)),
-            "numphotons_noise": int(numpy.count_nonzero(cc == 0)),
-            "numphotons_ground": int(numpy.count_nonzero(cc == 1)),
-            "numphotons_canopy": int(numpy.count_nonzero(cc == 2)),
-            "numphotons_canopy_top": int(numpy.count_nonzero(cc == 3)),
-            "numphotons_ice_surface": int(numpy.count_nonzero(cc == 6)),
-            "numphotons_buildings": int(numpy.count_nonzero(cc == 7)),
-            "numphotons_bathy_floor": int(numpy.count_nonzero(cc == 40)),
-            "numphotons_bathy_surface": int(numpy.count_nonzero(cc == 41)),
-            "numphotons_inland_water_surface": int(numpy.count_nonzero(cc == 42)),
+            "numphotons_unclassified": int(np.count_nonzero(cc == -1)),
+            "numphotons_noise": int(np.count_nonzero(cc == 0)),
+            "numphotons_ground": int(np.count_nonzero(cc == 1)),
+            "numphotons_canopy": int(np.count_nonzero(cc == 2)),
+            "numphotons_canopy_top": int(np.count_nonzero(cc == 3)),
+            "numphotons_ice_surface": int(np.count_nonzero(cc == 6)),
+            "numphotons_buildings": int(np.count_nonzero(cc == 7)),
+            "numphotons_bathy_floor": int(np.count_nonzero(cc == 40)),
+            "numphotons_bathy_surface": int(np.count_nonzero(cc == 41)),
+            "numphotons_inland_water_surface": int(np.count_nonzero(cc == 42)),
             "downloaded_on_utc": int(
                 datetime.datetime.now(datetime.UTC).strftime("%Y%m%d"),
             ),
@@ -725,30 +725,30 @@ class IS2Database:
 
         for col in self._INDEX_STR_COLS:
             values = (
-                numpy.array(
+                np.array(
                     ["" if v is None else str(v) for v in df[col]],
                     dtype=object,
                 )
                 if n
-                else numpy.array([], dtype=object)
+                else np.array([], dtype=object)
             )
             data_vars[col] = ("record", values)
 
         int_cols = (*self._INDEX_INT_COLS, *self._INDEX_BBOX_INT_COLS)
         for col in int_cols:
             values = (
-                numpy.asarray(df[col].to_list(), dtype="int64")
+                np.asarray(df[col].to_list(), dtype="int64")
                 if n
-                else numpy.array([], dtype="int64")
+                else np.array([], dtype="int64")
             )
             data_vars[col] = ("record", values)
 
         float_cols = (*self._INDEX_BBOX_FLOAT_COLS, *self._INDEX_ZBOUNDS_COLS)
         for col in float_cols:
             values = (
-                numpy.asarray(df[col].to_list(), dtype="float64")
+                np.asarray(df[col].to_list(), dtype="float64")
                 if n
-                else numpy.array([], dtype="float64")
+                else np.array([], dtype="float64")
             )
             data_vars[col] = ("record", values)
 
@@ -770,7 +770,7 @@ class IS2Database:
         ds.to_netcdf(self.db_fname, encoding=encoding)
 
     @classmethod
-    def read_index_file(cls, index_fname: str) -> pandas.DataFrame:
+    def read_index_file(cls, index_fname: str) -> pd.DataFrame:
         """Read any IVERT NetCDF index file into a plain pandas DataFrame.
 
         Every column comes back as a numpy array with no per-row Python loops and
@@ -793,7 +793,7 @@ class IS2Database:
         ):
             data[col] = ds[cls._stored_col_name(col, ds)].to_numpy()
 
-        df = pandas.DataFrame(data)
+        df = pd.DataFrame(data)
         # Restore the canonical column order used elsewhere in the codebase.
         return df[list(cls._empty_db_dict().keys())]
 
@@ -886,7 +886,7 @@ class IS2Database:
     def omit_photons_from_exclusion_bbox(
         dataframe,
         bbox_to_exclude,
-    ) -> pandas.DataFrame:
+    ) -> pd.DataFrame:
         """Exclude any photons that fall within the particular bounding box."""
         x = dataframe["x"]
         y = dataframe["y"]
@@ -924,7 +924,7 @@ class IS2Database:
         granule_fn: str,
         subset_bbox: list | tuple | None = None,
         photon_classes: list | tuple | None = None,
-    ) -> pandas.DataFrame:
+    ) -> pd.DataFrame:
         """Read classified photons from a NetCDF granule file.
 
         Parameters
@@ -987,7 +987,7 @@ class IS2Database:
         min_confidence_level: int = 1,
         omit_bboxes=None,
         # download_new_data: bool = False,
-    ) -> pandas.DataFrame | None:
+    ) -> pd.DataFrame | None:
         """Query the database for photons in a given bounding box and date range.
 
         Parameters
@@ -1025,7 +1025,7 @@ class IS2Database:
         )
         logger.info(
             "%d granules exist with %s ground photons and %s bathy_floor photons.",
-            numpy.count_nonzero(fnames.apply(os.path.exists)),
+            np.count_nonzero(fnames.apply(os.path.exists)),
             f"{gdf_subset['numphotons_ground'].sum():,}",
             f"{gdf_subset['numphotons_bathy_floor'].sum():,}",
         )
@@ -1046,7 +1046,7 @@ class IS2Database:
         if len(granule_dfs) == 0:
             return None
 
-        photons_df = pandas.concat(granule_dfs, ignore_index=True)
+        photons_df = pd.concat(granule_dfs, ignore_index=True)
 
         if min_bathy_confidence > 0.0:
             photons_df = photons_df[
@@ -1064,7 +1064,7 @@ class IS2Database:
             omit_bboxes = []
 
         # If we're given a single bounding box of exclusions as a 4- or 6-tuple of numbers (not iterables), put it in a 1-length list.
-        if len(omit_bboxes) in (4, 6) and not numpy.any(
+        if len(omit_bboxes) in (4, 6) and not np.any(
             [self.is_iterable(num) for num in omit_bboxes],
         ):
             omit_bboxes = [omit_bboxes]
@@ -1078,8 +1078,8 @@ class IS2Database:
                 "Trimmed granules from %s to %s photons (%s ground, %s bathy).",
                 f"{gdf_subset['numphotons'].sum():,}",
                 f"{len(photons_df):,}",
-                f"{numpy.count_nonzero(photons_df['class_code'] == 1):,}",
-                f"{numpy.count_nonzero(photons_df['class_code'] == 40):,}",
+                f"{np.count_nonzero(photons_df['class_code'] == 1):,}",
+                f"{np.count_nonzero(photons_df['class_code'] == 40):,}",
             )
         else:
             logger.info("No photons in bbox.")
@@ -1126,7 +1126,7 @@ class IS2Database:
                 "Date must be an int, str, datetime.datetime, or datetime.date.",
             )
 
-    def query_granules(self, bbox: list | tuple) -> pandas.DataFrame | None:
+    def query_granules(self, bbox: list | tuple) -> pd.DataFrame | None:
         """Return a sub-dataframe of granules in the database that possibly intersect the bounding box, using data bounding boxes."""
         gdf = self.open_gdf()
         if gdf is None or len(gdf) == 0:
@@ -1462,7 +1462,7 @@ class IS2Database:
             if not new_records:
                 continue
 
-            new_gdf = pandas.DataFrame(new_records)[list(self._empty_db_dict().keys())]
+            new_gdf = pd.DataFrame(new_records)[list(self._empty_db_dict().keys())]
             if existing_gdf is None or len(existing_gdf) == 0:
                 self.gdf = new_gdf
             else:
@@ -1490,7 +1490,7 @@ class IS2Database:
                     # granule but a non-overlapping query bbox are legitimately distinct data
                     # (e.g. a different date range or region) and must not be dropped, since
                     # doing so would discard original data rather than de-duplicate it.
-                    bbox_overlaps = pandas.Series(
+                    bbox_overlaps = pd.Series(
                         ivert.utils.cuboid_funcs.cuboids_intersect_vectorized(
                             existing_gdf["query_bbox_xmin"].to_numpy(),
                             existing_gdf["query_bbox_xmax"].to_numpy(),
@@ -1515,7 +1515,7 @@ class IS2Database:
                             if os.path.exists(old_fpath):
                                 os.remove(old_fpath)
                         existing_gdf = existing_gdf[~is_replaced]
-                self.gdf = pandas.concat(
+                self.gdf = pd.concat(
                     [existing_gdf, new_gdf],
                     ignore_index=True,
                 )
@@ -1586,7 +1586,7 @@ class IS2Database:
 
     def unique_bboxes(
         self,
-        gdf: pandas.DataFrame | None = None,
+        gdf: pd.DataFrame | None = None,
         data_or_query: str = "query",
     ) -> list | None:
         """Return a numpy array of unique query bounding boxes in the database.
@@ -1796,22 +1796,22 @@ def split_bbox_into_parts(
     xmin, xmax, ymin, ymax = bbox
     max_deg_size = tile_size_deg * max_tile_scale_factor
 
-    xbins = numpy.arange(xmin, xmax, tile_size_deg)
-    ybins = numpy.arange(ymin, ymax, tile_size_deg)
+    xbins = np.arange(xmin, xmax, tile_size_deg)
+    ybins = np.arange(ymin, ymax, tile_size_deg)
 
     if xbins[-1] < xmax:
         if len(xbins) == 1 or ((xmax - xbins[-2]) > max_deg_size):
-            xbins = numpy.append(xbins, xmax)
+            xbins = np.append(xbins, xmax)
         else:
             xbins[-1] = xmax
 
     if ybins[-1] < ymax:
         if len(ybins) == 1 or ((ymax - ybins[-2]) > max_deg_size):
-            ybins = numpy.append(ybins, ymax)
+            ybins = np.append(ybins, ymax)
         else:
             ybins[-1] = ymax
 
-    binxs, binys = numpy.meshgrid(xbins, ybins)
+    binxs, binys = np.meshgrid(xbins, ybins)
     bin_xmins = binxs[:-1, :-1].flatten()
     bin_xmaxs = binxs[1:, 1:].flatten()
     bin_ymins = binys[:-1, :-1].flatten()

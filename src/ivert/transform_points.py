@@ -2,7 +2,7 @@ import logging
 import math
 import os
 
-import numpy
+import numpy as np
 import pyproj
 import rasterio
 import transformez
@@ -19,12 +19,12 @@ _GRID_SNAP_DEGREES = 0.1
 
 
 def transform_points(
-    x: list | tuple | numpy.ndarray,
-    y: list | tuple | numpy.ndarray,
-    z: list | tuple | numpy.ndarray,
+    x: list | tuple | np.ndarray,
+    y: list | tuple | np.ndarray,
+    z: list | tuple | np.ndarray,
     src_epsg: str | int,
     dst_epsg: str | int,
-    src_region: list | tuple | numpy.ndarray | None = None,
+    src_region: list | tuple | np.ndarray | None = None,
     cache_dir: str | None = None,
 ) -> tuple:
     """Transform a set of 3D points from one coordinate reference system to another.
@@ -62,9 +62,9 @@ def transform_points(
     if src_crs.is_exact_same(dst_crs):
         return x, y, z
 
-    x = numpy.asarray(x, dtype=float)
-    y = numpy.asarray(y, dtype=float)
-    z = numpy.asarray(z, dtype=float)
+    x = np.asarray(x, dtype=float)
+    y = np.asarray(y, dtype=float)
+    z = np.asarray(z, dtype=float)
 
     src_horz, src_vert_epsg = _decompose_crs(src_crs)
     dst_horz, dst_vert_epsg = _decompose_crs(dst_crs)
@@ -165,14 +165,14 @@ def _grid_covers_region(grid_fn: str, region_bounds: list[float], tol=1e-9) -> b
 
 
 def _apply_vertical_transform(
-    x: numpy.ndarray,
-    y: numpy.ndarray,
-    z: numpy.ndarray,
+    x: np.ndarray,
+    y: np.ndarray,
+    z: np.ndarray,
     src_vert_epsg: str,
     dst_vert_epsg: str,
-    src_region: list | tuple | numpy.ndarray | None,
+    src_region: list | tuple | np.ndarray | None,
     cache_dir: str | None,
-) -> numpy.ndarray:
+) -> np.ndarray:
     """Compute and apply a vertical datum shift to z via a cached transformez grid."""
     from scipy.interpolate import RegularGridInterpolator
 
@@ -240,11 +240,11 @@ def _apply_vertical_transform(
         shift_data = src.read(1).astype(float)
         grid_bounds = src.bounds
         if src.nodata is not None:
-            shift_data[numpy.isclose(shift_data, src.nodata, atol=1e-4)] = numpy.nan
+            shift_data[np.isclose(shift_data, src.nodata, atol=1e-4)] = np.nan
 
     height, width = shift_data.shape
-    lons = numpy.linspace(grid_bounds.left, grid_bounds.right, width)
-    lats = numpy.linspace(grid_bounds.bottom, grid_bounds.top, height)
+    lons = np.linspace(grid_bounds.left, grid_bounds.right, width)
+    lats = np.linspace(grid_bounds.bottom, grid_bounds.top, height)
 
     # A point outside the grid must never come back as a 0.0 shift: an unconverted
     # height is indistinguishable from a legitimate zero separation, and silently
@@ -258,7 +258,7 @@ def _apply_vertical_transform(
         | (y > grid_bounds.top)
     )
     if outside.any():
-        n_outside = int(numpy.count_nonzero(outside))
+        n_outside = int(np.count_nonzero(outside))
         raise ValueError(
             f"Vertical transform failed: {n_outside:,} of {outside.size:,} points fall "
             f"outside the shift grid {grid_fn} "
@@ -274,15 +274,15 @@ def _apply_vertical_transform(
         shift_data[::-1, :],
         method="linear",
         bounds_error=False,
-        fill_value=numpy.nan,
+        fill_value=np.nan,
     )
 
-    shifts = interp(numpy.column_stack([y, x]))
+    shifts = interp(np.column_stack([y, x]))
 
     # In-bounds NaNs mean the grid itself has nodata there (a genuine gap in the
     # datum model), not a caching problem. Those heights cannot be converted, so
     # they stay NaN and are dropped downstream rather than silently passed through.
-    n_nan = int(numpy.count_nonzero(numpy.isnan(shifts)))
+    n_nan = int(np.count_nonzero(np.isnan(shifts)))
     if n_nan:
         logger.warning(
             "%d of %d points fall on nodata cells of shift grid %s; "

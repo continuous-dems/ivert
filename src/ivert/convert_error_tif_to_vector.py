@@ -2,7 +2,7 @@ import os
 import sys
 
 import geopandas
-import numpy
+import numpy as np
 import rasterio
 import shapely.geometry
 
@@ -29,8 +29,8 @@ def convert_ivert_error_map_to_vector(
 
         ndv = src.nodatavals[0]
 
-        good_rows, good_cols = numpy.where(
-            (~array.isnan()) if numpy.isnan(ndv) else (array != ndv),
+        good_rows, good_cols = np.where(
+            (~array.isnan()) if np.isnan(ndv) else (array != ndv),
         )
         good_xs, good_ys = rasterio.transform.xy(
             src.transform,

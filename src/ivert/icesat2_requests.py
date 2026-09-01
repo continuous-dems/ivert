@@ -11,8 +11,8 @@ import os
 import time
 
 import dateparser
-import numpy
-import pandas
+import numpy as np
+import pandas as pd
 
 import ivert.utils.configfile
 
@@ -49,7 +49,7 @@ class ICESat2RequestsCSV:
         only_unexpired: bool = True,
         tolerance: float = 1e-9,
         return_rows: bool = False,
-    ) -> dict | pandas.DataFrame | None:
+    ) -> dict | pd.DataFrame | None:
         """Return the cached Harmony JSON for a matching request, or None.
 
         Parameters
@@ -79,7 +79,7 @@ class ICESat2RequestsCSV:
                 self._is_expired,
             )
 
-        if numpy.any(matching_mask):
+        if np.any(matching_mask):
             if return_rows:
                 return self.df[matching_mask]
             return self._read_json(self.df[matching_mask].iloc[0]["json"])
@@ -104,7 +104,7 @@ class ICESat2RequestsCSV:
         if isinstance(json_dict, str):
             json_dict = self._read_json(json_dict)
 
-        new_row = pandas.DataFrame(
+        new_row = pd.DataFrame(
             [
                 {
                     "atl_dataset": atl_dataset,
@@ -117,7 +117,7 @@ class ICESat2RequestsCSV:
             ],
         )
 
-        self.df = pandas.concat([self.df, new_row], ignore_index=True)
+        self.df = pd.concat([self.df, new_row], ignore_index=True)
 
         if write_file:
             self.export()
@@ -172,9 +172,9 @@ class ICESat2RequestsCSV:
             num_tries = 0
             while num_tries < 20:
                 try:
-                    self.df = pandas.read_csv(self.csv_file, index_col=False)
+                    self.df = pd.read_csv(self.csv_file, index_col=False)
                     break
-                except (TypeError, pandas.errors.ParserError):
+                except (TypeError, pd.errors.ParserError):
                     num_tries += 1
                     if num_tries >= 20:
                         raise
@@ -198,7 +198,7 @@ class ICESat2RequestsCSV:
             self.open()
 
         expired = self.df["expiration_date"].apply(self._is_expired)
-        if numpy.any(expired):
+        if np.any(expired):
             if verbose:
                 print(f"Removing {expired.sum()} expired Harmony request record(s).")
             self.df = self.df[~expired]
@@ -211,7 +211,7 @@ class ICESat2RequestsCSV:
 
     def _create_empty(self):
         """Create an empty CSV with the correct columns."""
-        self.df = pandas.DataFrame(
+        self.df = pd.DataFrame(
             columns=[
                 "atl_dataset",
                 "bbox",

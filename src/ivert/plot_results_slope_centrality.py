@@ -6,8 +6,8 @@ import re
 # Include the base /src/ directory of thie project, to add all the other modules.
 import import_parent_dir
 import matplotlib.pyplot as plt
-import numpy
-import pandas
+import numpy as np
+import pandas as pd
 import rasterio
 from matplotlib import ticker
 
@@ -21,8 +21,8 @@ import ivert.icesat2.plot_validation_results  # noqa: E402
 
 def add_lat_lons(df):
     """From the filename, get the lat/lon of each grid-cell point, from the filename and the i,j position of the pixel."""
-    lat = numpy.empty((len(df),), dtype=float)
-    lon = numpy.empty((len(df),), dtype=float)
+    lat = np.empty((len(df),), dtype=float)
+    lon = np.empty((len(df),), dtype=float)
 
     for idx, ((i, j), row) in enumerate(df.iterrows()):
         fname = row["filename"]
@@ -50,7 +50,7 @@ def get_slopes(df, files_dirname):
     }
 
     fn_array_dict = {}
-    slopes = numpy.empty((len(df),), dtype=float)
+    slopes = np.empty((len(df),), dtype=float)
     for idx, ((i, j), row) in enumerate(df.iterrows()):
         fname = row.filename
         if fname in fn_array_dict:
@@ -85,7 +85,7 @@ def plot_errors_against_slope_centrality(
         "total_results.h5",
     )
     if os.path.exists(total_results_h5):
-        data = pandas.read_hdf(total_results_h5)
+        data = pd.read_hdf(total_results_h5)
         if verbose:
             print(os.path.basename(total_results_h5), "read.")
     else:
@@ -131,15 +131,15 @@ def plot_errors_against_slope_centrality(
     # slope           = data["slope"]
 
     fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, dpi=dpi, figsize=(8, 5))
-    low, hi = numpy.percentile(meandiff, [2.5, 97.5])
+    low, hi = np.percentile(meandiff, [2.5, 97.5])
     ax1.hist(meandiff, bins=100, range=(low, hi))
     ax1.set_ylabel("% of data cells")
     ax1.set_xlabel("Elevation difference (m)")
     ax1.yaxis.set_major_formatter(ticker.PercentFormatter(len(meandiff), decimals=0))
 
     # Add the lines for mean +- std
-    center = numpy.mean(meandiff)
-    std = numpy.std(meandiff)
+    center = np.mean(meandiff)
+    std = np.std(meandiff)
     ax1.axvline(x=center, color="darkgreen", linewidth=0.75)
     ax1.axvline(x=center + std, color="darkgreen", linestyle="--", linewidth=0.5)
     ax1.axvline(x=center - std, color="darkgreen", linestyle="--", linewidth=0.5)
@@ -171,15 +171,15 @@ def plot_errors_against_slope_centrality(
     ax2.set_ylabel("Error (m)")
 
     # There definitely seems to be a relationship between errors and % coverage of each pixel. Plot it over this.
-    unique_coverages = numpy.unique(coverage_pct)
-    coverage_lo = numpy.zeros((len(unique_coverages),))
-    coverage_hi = numpy.zeros((len(unique_coverages),))
-    coverage_rmse = numpy.zeros(
+    unique_coverages = np.unique(coverage_pct)
+    coverage_lo = np.zeros((len(unique_coverages),))
+    coverage_hi = np.zeros((len(unique_coverages),))
+    coverage_rmse = np.zeros(
         len(
             unique_coverages,
         ),
     )
-    coverage_counts = numpy.zeros(
+    coverage_counts = np.zeros(
         len(
             unique_coverages,
         ),
@@ -187,8 +187,8 @@ def plot_errors_against_slope_centrality(
     for i, c in enumerate(unique_coverages):
         cmask = coverage_pct == c
         diff_subset = meandiff[cmask]
-        coverage_lo[i], coverage_hi[i] = numpy.percentile(diff_subset, (2, 98))
-        coverage_rmse[i] = numpy.sqrt(numpy.mean(diff_subset**2))
+        coverage_lo[i], coverage_hi[i] = np.percentile(diff_subset, (2, 98))
+        coverage_rmse[i] = np.sqrt(np.mean(diff_subset**2))
         coverage_counts[i] = diff_subset.size
 
     ax2.fill_between(
@@ -221,7 +221,7 @@ def plot_errors_against_slope_centrality(
     meandiff_good = meandiff[good_coverage_mask]
     # coverage_good = coverage_pct[good_coverage_mask]
 
-    low, hi = numpy.percentile(meandiff, [5, 90])
+    low, hi = np.percentile(meandiff, [5, 90])
     ax4.hist(meandiff_good, bins=100, range=(low, hi), color="darkred", alpha=0.6)
     ax4.set_ylabel("% of data cells")
     ax4.set_xlabel("Elevation difference (m)")
@@ -230,8 +230,8 @@ def plot_errors_against_slope_centrality(
     )
 
     # Add the lines for mean +- std
-    center = numpy.mean(meandiff_good)
-    std = numpy.std(meandiff_good)
+    center = np.mean(meandiff_good)
+    std = np.std(meandiff_good)
     ax4.axvline(x=center, color="darkred", linewidth=0.75)
     ax4.axvline(x=center + std, color="darkred", linestyle="--", linewidth=0.5)
     ax4.axvline(x=center - std, color="darkred", linestyle="--", linewidth=0.5)

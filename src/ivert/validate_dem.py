@@ -23,8 +23,8 @@ from multiprocessing import shared_memory
 import click
 import geopandas
 import numexpr
-import numpy
-import pandas
+import numpy as np
+import pandas as pd
 import pyproj
 import rasterio
 import shapely
@@ -50,7 +50,7 @@ TRANSFORMEZ_CACHE_DIR = ivert_config.cache_directory
 INTERDECILE_MIN_PHOTONS = 5
 
 
-def read_dataframe_file(df_filename: str) -> pandas.DataFrame:
+def read_dataframe_file(df_filename: str) -> pd.DataFrame:
     """Read a dataframe file, either from a picklefile, HDF, CSV, or feather.
 
     (Can handle other formats by adding more "elif ..." statements in the function.)
@@ -59,13 +59,13 @@ def read_dataframe_file(df_filename: str) -> pandas.DataFrame:
     ext = os.path.splitext(df_filename)[1]
     ext = ext.lower()
     if ext == ".pickle":
-        dataframe = pandas.read_pickle(df_filename)
+        dataframe = pd.read_pickle(df_filename)
     elif ext in (".h5", ".hdf"):
-        dataframe = pandas.read_hdf(df_filename, mode="r")
+        dataframe = pd.read_hdf(df_filename, mode="r")
     elif ext in (".csv", ".txt"):
-        dataframe = pandas.read_csv(df_filename)
+        dataframe = pd.read_csv(df_filename)
     elif ext == ".feather":
-        dataframe = pandas.read_feather(df_filename)
+        dataframe = pd.read_feather(df_filename)
     else:
         raise NotImplementedError(
             f"ERROR: Unknown dataframe file extension '{ext}'. (Currently supporting .pickle, .h5, .hdf, .csv, .txt, or .feather)",
@@ -195,31 +195,31 @@ def validate_dem_child_process(
 
     # Define shared memory arrays here.
     h_shm = shared_memory.SharedMemory(name=height_array_name)
-    heights = numpy.ndarray(array_shape, dtype=height_dtype, buffer=h_shm.buf)
+    heights = np.ndarray(array_shape, dtype=height_dtype, buffer=h_shm.buf)
 
     pi_shm = shared_memory.SharedMemory(name=i_array_name)
-    photon_i = numpy.ndarray(  # noqa: F841 (used by name inside numexpr.evaluate() below)
+    photon_i = np.ndarray(  # noqa: F841 (used by name inside numexpr.evaluate() below)
         array_shape,
         dtype=i_dtype,
         buffer=pi_shm.buf,
     )
 
     pj_shm = shared_memory.SharedMemory(name=j_array_name)
-    photon_j = numpy.ndarray(  # noqa: F841 (used by name inside numexpr.evaluate() below)
+    photon_j = np.ndarray(  # noqa: F841 (used by name inside numexpr.evaluate() below)
         array_shape,
         dtype=j_dtype,
         buffer=pj_shm.buf,
     )
 
     pc_shm = shared_memory.SharedMemory(name=code_array_name)
-    ph_codes = numpy.ndarray(array_shape, dtype=code_dtype, buffer=pc_shm.buf)
+    ph_codes = np.ndarray(array_shape, dtype=code_dtype, buffer=pc_shm.buf)
 
     if measure_coverage:
         x_shm = shared_memory.SharedMemory(name=x_array_name)
-        ph_x = numpy.ndarray(array_shape, dtype=x_dtype, buffer=x_shm.buf)
+        ph_x = np.ndarray(array_shape, dtype=x_dtype, buffer=x_shm.buf)
 
         y_shm = shared_memory.SharedMemory(name=y_array_name)
-        ph_y = numpy.ndarray(array_shape, dtype=y_dtype, buffer=y_shm.buf)
+        ph_y = np.ndarray(array_shape, dtype=y_dtype, buffer=y_shm.buf)
     else:
         x_shm = None
         y_shm = None
@@ -272,22 +272,19 @@ def validate_dem_child_process(
             # Do the work.
             # r_keep marks the cells that had enough photons to validate. Cells left
             # False are dropped from the results below, not reported as empty.
-            r_keep = numpy.zeros((n,), dtype=bool)
-            r_mean = numpy.zeros((n,), dtype=float)
-            r_numphotons = numpy.zeros((n,), dtype=numpy.uint32)
+            r_keep = np.zeros((n,), dtype=bool)
+            r_mean = np.zeros((n,), dtype=float)
+            r_numphotons = np.zeros((n,), dtype=np.uint32)
             r_numphotons_bathy = r_numphotons.copy()
             r_numphotons_intd = r_numphotons.copy()
-            r_std = numpy.zeros((n,), dtype=float)
-            r_interdecile = numpy.zeros((n,), float)
-            r_range = numpy.zeros((n,), heights.dtype)
-            r_10p = numpy.zeros((n,), float)
-            r_90p = numpy.zeros((n,), float)
-            r_dem_elev = numpy.zeros((n,), dtype=float)
-            r_mean_diff = numpy.zeros((n,), dtype=float)
-            if measure_coverage:
-                r_coverage_frac = numpy.zeros((n,), dtype=float)
-            else:
-                r_coverage_frac = None
+            r_std = np.zeros((n,), dtype=float)
+            r_interdecile = np.zeros((n,), float)
+            r_range = np.zeros((n,), heights.dtype)
+            r_10p = np.zeros((n,), float)
+            r_90p = np.zeros((n,), float)
+            r_dem_elev = np.zeros((n,), dtype=float)
+            r_mean_diff = np.zeros((n,), dtype=float)
+            r_coverage_frac = np.zeros((n,), dtype=float) if measure_coverage else None
 
             # 'i' and 'j' look unused, but numexpr.evaluate() resolves the names in
             # its expression string against this frame's locals, so they are read
@@ -298,7 +295,7 @@ def validate_dem_child_process(
                 # Using numexpr.evaluate here is far more memory-and-time efficient than just doing it with the numpy arrays.
                 ph_subset_mask = numexpr.evaluate("(photon_i == i) & (photon_j == j)")
                 # Generate a small pandas dataframe from the subset
-                subset_df = pandas.DataFrame(
+                subset_df = pd.DataFrame(
                     {
                         "height": heights[ph_subset_mask],
                         "ph_code": ph_codes[ph_subset_mask],
@@ -324,10 +321,10 @@ def validate_dem_child_process(
                     # Equal to the geotransform, the y-value starts at the top (max) and iterate downward (negative step.)
                     cell_ystep = (cell_ymin - cell_ymax) / num_subdivisions
 
-                    subset_df["subset_i"] = numpy.floor(
+                    subset_df["subset_i"] = np.floor(
                         (subset_df.ycoord - cell_ymax) / cell_ystep,
                     ).astype(int)
-                    subset_df["subset_j"] = numpy.floor(
+                    subset_df["subset_j"] = np.floor(
                         (subset_df.xcoord - cell_xmin) / cell_xstep,
                     ).astype(int)
 
@@ -359,7 +356,7 @@ def validate_dem_child_process(
                 r_keep[counter] = True
                 r_numphotons[counter] = n_photons
                 r_dem_elev[counter] = dem_elev_list[counter]
-                r_numphotons_bathy[counter] = numpy.count_nonzero(
+                r_numphotons_bathy[counter] = np.count_nonzero(
                     subset_df.ph_code == 40,
                 )
                 r_range[counter] = subset_df.height.max() - subset_df.height.min()
@@ -395,10 +392,10 @@ def validate_dem_child_process(
             # Generate a little dataframe of the outputs for the grid cells that had
             # enough photons to validate. Cells below 'min_photons' were skipped in
             # the loop above and are omitted here rather than reported as empty.
-            results_df = pandas.DataFrame(
+            results_df = pd.DataFrame(
                 {
-                    "i": numpy.asarray(dem_i_list)[r_keep],
-                    "j": numpy.asarray(dem_j_list)[r_keep],
+                    "i": np.asarray(dem_i_list)[r_keep],
+                    "j": np.asarray(dem_j_list)[r_keep],
                     "mean": r_mean[r_keep],
                     "stddev": r_std[r_keep],
                     "numphotons": r_numphotons[r_keep],
@@ -518,10 +515,10 @@ def subdivide_dem(
 
 
 def reset_results_indexes_after_merge(
-    sub_results_df: pandas.DataFrame,
+    sub_results_df: pd.DataFrame,
     sub_dem_fname: str,
     parent_dem_fname: str,
-) -> pandas.DataFrame:
+) -> pd.DataFrame:
     """DEM results dataframes are indexed by (i, j).  Reset the index after merging."""
     if (
         "i" not in sub_results_df.columns and "i" not in sub_results_df.index.names
@@ -806,7 +803,7 @@ def validate_dem(
             # Concatenate the results dataframes.
             output_dfs = []
             for fname in all_fnames:
-                dem_results_df = pandas.read_hdf(fname)
+                dem_results_df = pd.read_hdf(fname)
                 # Now I gotta reset the i,j indexes.
                 sub_dem_name = fname.replace("_results.h5", ".tif")
                 parent_dem_name = dem_name
@@ -817,7 +814,7 @@ def validate_dem(
                 )
                 output_dfs.append(dem_results_df)
 
-            shared_results_df = pandas.concat(output_dfs, ignore_index=False, axis=0)
+            shared_results_df = pd.concat(output_dfs, ignore_index=False, axis=0)
             # After we've combined all the resutls, *then* filter out outliers if they exist.
             if outliers_sd_threshold is not None:
                 assert type(outliers_sd_threshold) in (int, float)
@@ -908,8 +905,8 @@ def validate_dem(
                 for i in range(len(sub_shared_ret_values))
                 if common_key in sub_shared_ret_values[i]
             ]
-            results_df = pandas.concat(
-                [pandas.read_hdf(fname) for fname in all_fnames],
+            results_df = pd.concat(
+                [pd.read_hdf(fname) for fname in all_fnames],
                 ignore_index=True,
                 axis=0,
             )
@@ -1300,15 +1297,15 @@ def _compute_photon_overlap(
             )
             if verbose and excluded_mask.any():
                 print(
-                    f"{numpy.count_nonzero(excluded_mask):,}",
+                    f"{np.count_nonzero(excluded_mask):,}",
                     "photons excluded by exclusion zone(s).",
                 )
             photon_df = photon_df[~excluded_mask]
 
     xstart, xstep, xrot, ystart, yrot, ystep = dem_ds.transform.to_gdal()
     _check_dem_geotransform(dem_ds.name, xstep, ystep, xrot, yrot)
-    photon_df["i"] = numpy.floor((photon_df["dem_y"] - ystart) / ystep).astype(int)
-    photon_df["j"] = numpy.floor((photon_df["dem_x"] - xstart) / xstep).astype(int)
+    photon_df["i"] = np.floor((photon_df["dem_y"] - ystart) / ystep).astype(int)
+    photon_df["j"] = np.floor((photon_df["dem_x"] - xstart) / xstep).astype(int)
 
     photon_df = photon_df[
         (photon_df["i"] >= 0)
@@ -1320,11 +1317,11 @@ def _compute_photon_overlap(
     # Keep only the photon classes requested for this validation. Doing it here,
     # rather than inside each child process, means the height/class arrays copied
     # into shared memory carry only the photons that will actually be used.
-    class_mask = numpy.isin(photon_df["class_code"], classes)
+    class_mask = np.isin(photon_df["class_code"], classes)
     if not class_mask.all():
         if verbose:
             print(
-                f"{numpy.count_nonzero(~class_mask):,} photons dropped as outside the",
+                f"{np.count_nonzero(~class_mask):,} photons dropped as outside the",
                 "requested photon classes",
                 f"({'/'.join(str(c) for c in classes)}).",
             )
@@ -1347,21 +1344,21 @@ def _compute_photon_overlap(
         if dem_ndv is None:
             dem_ndv = EMPTY_VAL
 
-    if numpy.isnan(dem_ndv):
-        dem_goodpixel_mask = ~numpy.isnan(dem_array)
+    if np.isnan(dem_ndv):
+        dem_goodpixel_mask = ~np.isnan(dem_array)
     else:
         dem_goodpixel_mask = dem_array != dem_ndv
 
     photon_df = photon_df.set_index(["i", "j"], drop=False)
-    dem_mask_w_photons = numpy.zeros(dem_array.shape, dtype=bool)
+    dem_mask_w_photons = np.zeros(dem_array.shape, dtype=bool)
     dem_mask_w_photons[photon_df.i, photon_df.j] = 1
 
     dem_overlap_mask = dem_goodpixel_mask & dem_mask_w_photons
-    dem_overlap_i, dem_overlap_j = numpy.where(dem_overlap_mask)
+    dem_overlap_i, dem_overlap_j = np.where(dem_overlap_mask)
     dem_overlap_elevs = dem_array[dem_overlap_mask]
 
     if verbose:
-        num_goodpixels = numpy.count_nonzero(dem_goodpixel_mask)
+        num_goodpixels = np.count_nonzero(dem_goodpixel_mask)
         print(f"{num_goodpixels:,}", "land cells exist in the DEM.")
         if num_goodpixels == 0:
             print(
@@ -1371,10 +1368,10 @@ def _compute_photon_overlap(
         print(
             f"{len(photon_df):,} ICESat-2 photons overlap",
             f"{len(dem_overlap_i):,}",
-            f"DEM cells ({numpy.count_nonzero(dem_overlap_mask) * 100 / num_goodpixels:0.2f}% of total DEM data).",
+            f"DEM cells ({np.count_nonzero(dem_overlap_mask) * 100 / num_goodpixels:0.2f}% of total DEM data).",
         )
 
-    if numpy.count_nonzero(dem_overlap_mask) == 0:
+    if np.count_nonzero(dem_overlap_mask) == 0:
         if verbose:
             print(
                 "No overlapping ICESat-2 data with valid land cells. Stopping and moving on.",
@@ -1418,9 +1415,9 @@ def _run_photon_level_validation(
         print("Performing photon-level validation...")
         print("\tGenerating DEM elevation dataframe... ", end="")
 
-    dem_elev_df = pandas.DataFrame(
+    dem_elev_df = pd.DataFrame(
         {"dem_elevation": dem_overlap_elevs},
-        index=pandas.MultiIndex.from_arrays(
+        index=pd.MultiIndex.from_arrays(
             (dem_overlap_i, dem_overlap_j),
             names=("i", "j"),
         ),
@@ -1431,7 +1428,7 @@ def _run_photon_level_validation(
 
     photon_df_with_dem_elevs = photon_df.join(dem_elev_df, how="left")
     photon_df_with_dem_elevs = photon_df_with_dem_elevs[
-        pandas.notna(photon_df_with_dem_elevs["dem_elevation"])
+        pd.notna(photon_df_with_dem_elevs["dem_elevation"])
     ]
     if verbose:
         print(f"Done with {len(photon_df_with_dem_elevs)} records.")
@@ -1828,13 +1825,11 @@ def _write_validation_outputs(
     if len(results_dataframes_list) == 0:
         return files_to_export
 
-    results_dataframe = pandas.concat(results_dataframes_list)
+    results_dataframe = pd.concat(results_dataframes_list)
     # Cells with too few photons were already dropped by the child processes, which
     # enforce 'min_photons_per_cell'. This only guards against a non-finite mean
     # arising from bad photon elevations.
-    results_dataframe = results_dataframe[
-        numpy.isfinite(results_dataframe["mean"])
-    ].copy()
+    results_dataframe = results_dataframe[np.isfinite(results_dataframe["mean"])].copy()
 
     # Drop cells below the requested minimum ICESat-2 coverage. Coverage is a
     # per-cell property, so filtering here (per subset, before any outlier removal)
@@ -2149,17 +2144,17 @@ def _format_stat(value) -> str:
 
     """
     x = float(value)
-    if not numpy.isfinite(x):
+    if not np.isfinite(x):
         return str(x)
     if x != 0 and abs(x) < 0.10:
         # Enough decimals to show 2 significant digits for small magnitudes.
-        decimals = 1 - int(numpy.floor(numpy.log10(abs(x))))
+        decimals = 1 - int(np.floor(np.log10(abs(x))))
         return f"{x:.{decimals}f}"
     return f"{x:.2f}"
 
 
 def write_summary_stats_file(
-    results_df: pandas.DataFrame,
+    results_df: pd.DataFrame,
     statsfile_name: str,
     verbose: bool = True,
 ) -> None:
@@ -2207,12 +2202,12 @@ def write_summary_stats_file(
         f"Mean bias error (DEM - ICESat-2) (m): {_format_stat(mean_diff.mean())}",
     )
     lines.append(
-        f"RMSE (m): {_format_stat(numpy.sqrt(numpy.mean(numpy.power(mean_diff, 2))))}",
+        f"RMSE (m): {_format_stat(np.sqrt(np.mean(np.power(mean_diff, 2))))}",
     )
 
     lines.append(
         "Number of cells with bathymetry photons: {:d}".format(
-            numpy.count_nonzero(results_df["numphotons_bathy"] > 0),
+            np.count_nonzero(results_df["numphotons_bathy"] > 0),
         ),
     )
 
@@ -2230,7 +2225,7 @@ def write_summary_stats_file(
     )
 
     percentile_levels = [0, 1, 5, 10, 20, 30, 40, 50, 60, 70, 80, 90, 95, 99, 100]
-    percentile_values = numpy.percentile(mean_diff, percentile_levels)
+    percentile_values = np.percentile(mean_diff, percentile_levels)
     for level, v in zip(percentile_levels, percentile_values, strict=True):
         lines.append(f"    {level:>3d} percentile error level (m): {_format_stat(v)}")
 
@@ -2246,10 +2241,10 @@ def write_summary_stats_file(
         )
         for pct_of_cells in range(100, 0, -10):
             # The coverage threshold that retains this fraction of the best-covered cells.
-            coverage_threshold = numpy.percentile(coverage_frac, 100 - pct_of_cells)
+            coverage_threshold = np.percentile(coverage_frac, 100 - pct_of_cells)
             mask = coverage_frac >= coverage_threshold
             subset_diff = mean_diff[mask]
-            rmse = numpy.sqrt(numpy.mean(numpy.power(subset_diff, 2)))
+            rmse = np.sqrt(np.mean(np.power(subset_diff, 2)))
             lines.append(
                 f"    RMSE for grid cells with >{coverage_threshold * 100:0.1f}% coverage ({pct_of_cells:d}% of cells) (m): {_format_stat(rmse)}",
             )
@@ -2282,7 +2277,7 @@ def generate_result_geotiff(
     """
     xsize, ysize = dem_ds.width, dem_ds.height
     emptyval = float(EMPTY_VAL)
-    result_array = numpy.zeros([ysize, xsize], dtype=numpy.float32) + emptyval
+    result_array = np.zeros([ysize, xsize], dtype=np.float32) + emptyval
 
     indices = results_dataframe.index.to_numpy()
     ivals = [idx[0] for idx in indices]
@@ -2336,8 +2331,8 @@ def _results_cell_centers(results_dataframe, dem_ds):
     """
     gt = dem_ds.transform.to_gdal()
     indices = results_dataframe.index.to_numpy()
-    ivals = numpy.array([idx[0] for idx in indices], dtype=float)
-    jvals = numpy.array([idx[1] for idx in indices], dtype=float)
+    ivals = np.array([idx[0] for idx in indices], dtype=float)
+    jvals = np.array([idx[1] for idx in indices], dtype=float)
     x = gt[0] + (jvals + 0.5) * gt[1] + (ivals + 0.5) * gt[2]
     y = gt[3] + (jvals + 0.5) * gt[4] + (ivals + 0.5) * gt[5]
     return x, y
@@ -2365,7 +2360,7 @@ def _export_errors_vector(results_dataframe, dem_ds, out_fname, fmt, verbose=Tru
     for name, col in fields:
         vals = results_dataframe[col].to_numpy()
         data[name] = (
-            vals.astype(numpy.int32)
+            vals.astype(np.int32)
             if col.startswith("numphotons")
             else vals.astype(float)
         )
@@ -2387,9 +2382,9 @@ def _export_errors_xyz(results_dataframe, dem_ds, out_fname, verbose=True):
     """Write a whitespace-delimited 'x y error' text file, one cell-center point per line."""
     x_centers, y_centers = _results_cell_centers(results_dataframe, dem_ds)
     errors = results_dataframe["diff_mean"].to_numpy()
-    numpy.savetxt(
+    np.savetxt(
         out_fname,
-        numpy.column_stack([x_centers, y_centers, errors]),
+        np.column_stack([x_centers, y_centers, errors]),
         fmt="%.8g",
     )
     if verbose:
