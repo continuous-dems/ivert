@@ -89,6 +89,7 @@ ignore = [
     "C403",     # unnecessary-list-comprehension-set
     "C414",     # unnecessary-double-cast-or-process
     "C901",     # complex-structure
+    "CPY001",   # missing-copyright-notice
     "D100",     # undocumented-public-module
     "D101",     # undocumented-public-class
     "D102",     # undocumented-public-method
@@ -123,6 +124,7 @@ ignore = [
     "PLR0912",  # too-many-branches
     "PLR0913",  # too-many-arguments
     "PLR0915",  # too-many-statements
+    "PLR0917",  # too-many-positional-arguments
     "PLR2004",  # magic-value-comparison
     "PLW0603",  # global-statement
     "PLW1510",  # subprocess-run-without-check

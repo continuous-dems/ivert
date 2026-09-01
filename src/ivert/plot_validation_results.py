@@ -25,7 +25,7 @@ def is_iterable(obj):
 
 def get_data_from_h5_or_list(
     h5_name_or_list: str | list[str],
-    orig_filenames: None | str | list[str] = None,
+    orig_filenames: str | list[str] | None = None,
     empty_val: float = ivert_config.dem_default_ndv,
     include_filenames: bool = False,
     verbose: bool = True,
