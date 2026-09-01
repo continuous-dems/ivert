@@ -750,14 +750,14 @@ class IS2Database:
 
         data = {}
         for col in cls._INDEX_STR_COLS:
-            data[col] = ds[col].values.astype(str)
+            data[col] = ds[col].to_numpy().astype(str)
         for col in (
             *cls._INDEX_INT_COLS,
             *cls._INDEX_BBOX_INT_COLS,
             *cls._INDEX_BBOX_FLOAT_COLS,
             *cls._INDEX_ZBOUNDS_COLS,
         ):
-            data[col] = ds[col].values
+            data[col] = ds[col].to_numpy()
 
         df = pandas.DataFrame(data)
         # Restore the canonical column order used elsewhere in the codebase.
