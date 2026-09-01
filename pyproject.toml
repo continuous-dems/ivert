@@ -79,9 +79,6 @@ ignore = [
     "ARG001",   # unused-function-argument
     "ARG002",   # unused-method-argument
     "BLE001",   # blind-except
-    "C401",     # unnecessary-generator-set
-    "C403",     # unnecessary-list-comprehension-set
-    "C414",     # unnecessary-double-cast-or-process
     "C901",     # complex-structure
     "CPY001",   # missing-copyright-notice
     "D100",     # undocumented-public-module
@@ -109,7 +106,6 @@ ignore = [
     "FIX002",   # line-contains-todo
     "ICN001",   # unconventional-import-alias
     "N801",     # invalid-class-name
-    "N802",     # invalid-function-name
     "N803",     # invalid-argument-name
     "N806",     # non-lowercase-variable-in-function
     "PD002",    # pandas-use-of-inplace-argument
@@ -121,7 +117,6 @@ ignore = [
     "PLR0917",  # too-many-positional-arguments
     "PLR2004",  # magic-value-comparison
     "PLW0603",  # global-statement
-    "PLW1510",  # subprocess-run-without-check
     "PLW2901",  # redefined-loop-name
     "PT018",    # pytest-composite-assertion
     "PTH100",   # os-path-abspath
@@ -140,19 +135,14 @@ ignore = [
     "PTH122",   # os-path-splitext
     "PTH123",   # builtin-open
     "PTH202",   # os-path-getsize
-    "PTH204",   # os-path-getmtime
     "PTH207",   # glob
     "PTH208",   # os-listdir
     "RET504",   # unnecessary-assign
     "RUF001",   # ambiguous-unicode-character-string
     "RUF002",   # ambiguous-unicode-character-docstring
-    "RUF015",   # unnecessary-iterable-allocation-for-first-element
     "S101",     # assert
     "S110",     # try-except-pass
     "S301",     # suspicious-pickle-usage
-    "S603",     # subprocess-without-shell-equals-true
-    "S605",     # start-process-with-a-shell
-    "S607",     # start-process-with-partial-path
     "SIM102",   # collapsible-if
     "SIM105",   # suppressible-exception
     "SIM115",   # open-file-with-context-handler
