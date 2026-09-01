@@ -1569,9 +1569,10 @@ def _run_parallel_cell_validation(
             num_chunks_started += 1
 
         while num_chunks_finished < num_chunks_started:
-            for i, (proc, pipe, pipe_child) in enumerate(
+            for i, procs_and_pipes in enumerate(
                 zip(running_procs, open_pipes_parent, open_pipes_child, strict=True),
             ):
+                proc, pipe, pipe_child = procs_and_pipes
                 if proc is None:
                     continue
 
@@ -2310,10 +2311,10 @@ def _normalize_export_formats(formats):
     elif formats is None:
         formats = []
     seen = []
-    for f in formats:
-        f = f.strip().lower().lstrip(".") if f else ""
-        if f and f in ERROR_EXPORT_FORMATS and f not in seen:
-            seen.append(f)
+    for fmt in formats:
+        name = fmt.strip().lower().lstrip(".") if fmt else ""
+        if name and name in ERROR_EXPORT_FORMATS and name not in seen:
+            seen.append(name)
     return seen
 
 

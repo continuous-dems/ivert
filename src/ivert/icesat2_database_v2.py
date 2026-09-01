@@ -745,8 +745,8 @@ class IS2Database:
         data_bbox_* / query_bbox_* columns. Columns are in the canonical order
         given by _empty_db_dict().
         """
-        with xarray.open_dataset(index_fname) as ds:
-            ds = ds.load()
+        with xarray.open_dataset(index_fname) as ds_on_disk:
+            ds = ds_on_disk.load()
 
         data = {}
         for col in cls._INDEX_STR_COLS:
