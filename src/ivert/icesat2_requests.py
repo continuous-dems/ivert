@@ -7,6 +7,7 @@ than re-submitting to Harmony.
 
 import ast
 import datetime
+import logging
 import os
 import time
 
@@ -15,6 +16,8 @@ import numpy as np
 import pandas as pd
 
 import ivert.utils.configfile
+
+logger = logging.getLogger(__name__)
 
 
 class ICESat2RequestsCSV:
@@ -192,15 +195,14 @@ class ICESat2RequestsCSV:
         os.makedirs(os.path.dirname(self.csv_file), exist_ok=True)
         self.df.to_csv(self.csv_file, index=False, header=True)
 
-    def clean_csv(self, verbose: bool = True):
+    def clean_csv(self):
         """Remove expired records from the CSV."""
         if self.df is None:
             self.open()
 
         expired = self.df["expiration_date"].apply(self._is_expired)
         if np.any(expired):
-            if verbose:
-                print(f"Removing {expired.sum()} expired Harmony request record(s).")
+            logger.info("Removing %s expired Harmony request record(s).", expired.sum())
             self.df = self.df[~expired]
             self.export()
         return self.df

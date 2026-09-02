@@ -9,12 +9,15 @@ This module is the library backing the 'ivert database export' command; it has
 no command-line interface of its own.
 """
 
+import logging
 import os
 
 import geopandas
 import netCDF4
 import numpy as np
 import pandas as pd
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -225,8 +228,9 @@ def write_vector(
     """
     if os.path.exists(outpath):
         if not overwrite:
-            print(
-                f"  Skipping existing {os.path.basename(outpath)} (use -ow to overwrite).",
+            logger.info(
+                "  Skipping existing %s (use -ow to overwrite).",
+                os.path.basename(outpath),
             )
             return
         os.remove(outpath)
@@ -242,7 +246,7 @@ def write_vector(
         gdf.to_file(outpath, driver=driver)
 
     noun = "granules" if kind == KIND_INDEX else "photons"
-    print(f"  → {outpath}  ({len(gdf):,} {noun})")
+    logger.info("  → %s  (%s %s)", outpath, f"{len(gdf):,}", noun)
 
 
 # ---------------------------------------------------------------------------

@@ -19,6 +19,8 @@ import click
 
 from ivert import __version__ as ivert_version
 
+logger = logging.getLogger(__name__)
+
 
 @click.group()
 @click.version_option(version=ivert_version, prog_name="ivert")
@@ -55,28 +57,26 @@ def ivert_cli(ctx, user_config, verbosity):
             os.path.expanduser(user_config),
         )
 
-    _verbosity_levels = {
-        "debug": (logging.DEBUG, "%(levelname)s: %(message)s"),
-        "info": (logging.INFO, "%(message)s"),
-        "warning": (logging.WARNING, "%(message)s"),
-        "error": (logging.ERROR, "%(message)s"),
-    }
+    from ivert.utils import logging_config
 
     if verbosity is None:
+        # Reading the user config can itself emit warnings (an unparseable file, an
+        # unrecognized setting), so install a handler at the default level before
+        # asking it for the verbosity we actually want.
+        logging_config.configure_logging(logging_config.DEFAULT_VERBOSITY)
+
         from ivert.utils.configfile import Config
 
         verbosity = Config().verbosity
 
-    verbosity_key = str(verbosity).strip().lower()
-    if verbosity_key not in _verbosity_levels:
+    try:
+        logging_config.configure_logging(verbosity)
+    except KeyError:
         raise click.BadParameter(
             f"'{verbosity}' is not a valid verbosity level. "
             "Choose from: debug, info, warning, error.",
             param_hint="--verbosity",
-        )
-    level, fmt = _verbosity_levels[verbosity_key]
-    logging.basicConfig(level=level, format=fmt)
-    logging.getLogger().setLevel(level)
+        ) from None
 
 
 ###############################################################
@@ -765,7 +765,7 @@ def database_list(show_all, boxes):
     from ivert import icesat2_database_v2 as is2db_mod
 
     db = is2db_mod.IS2Database()
-    gdf = db.open_gdf(verbose=False)
+    gdf = db.open_gdf()
 
     if gdf is None:
         click.echo(f"No IVERT database found at: {db.db_fname}")
@@ -1579,8 +1579,6 @@ def database_export(
     from ivert import icesat2_database_v2 as is2db_mod
     from ivert.icesat2_database_v2 import _yyyymmdd_to_delta_time
 
-    verbose = logging.getLogger().level <= logging.INFO
-
     # --- Parse output formats. ---
     try:
         fmt_keys = ev.normalize_format_keys(output_format, allowed=_EXPORT_FORMATS)
@@ -1648,7 +1646,7 @@ def database_export(
         return
 
     # --- Open the database index. ---
-    gdf_index = db.open_gdf(verbose=False)
+    gdf_index = db.open_gdf()
     if gdf_index is None or len(gdf_index) == 0:
         raise click.ClickException(
             f"No IVERT database found (or it is empty) at: {db.db_fname}\n"
@@ -1715,8 +1713,13 @@ def database_export(
         if len(gdf) > 0:
             gdfs.append(gdf)
 
-        if verbose:
-            click.echo(f"  [{i}/{total}] {row['filename']}: {len(gdf):,} photons")
+        logger.info(
+            "  [%s/%s] %s: %s photons",
+            i,
+            total,
+            row["filename"],
+            f"{len(gdf):,}",
+        )
 
     if not gdfs:
         raise click.ClickException("No photons found to export after filtering.")
@@ -1913,7 +1916,6 @@ def _run_validate(
     minimum_coverage_pct=None,
 ):
     """Branch to validate_dem or validate_list_of_dems based on the number of input files."""
-    verbose = logging.getLogger().level <= logging.INFO
     from ivert import validate_dem as vd_module
     from ivert import validate_dem_collection as vdc_module
     from ivert import vdatum_lookup
@@ -2017,7 +2019,6 @@ def _run_validate(
             "min_photons_per_cell": min_photons,
             "min_confidence_level": confidence_level,
             "min_bathy_confidence": bathy_confidence,
-            "verbose": verbose,
             "overwrite": overwrite,
         }
         if vdatum != "NONE_PROVIDED":
@@ -2054,7 +2055,6 @@ def _run_validate(
             "outliers_sd_threshold": outlier_sd_threshold,
             "min_confidence_level": confidence_level,
             "min_bathy_confidence": bathy_confidence,
-            "verbose": verbose,
             "overwrite": overwrite,
         }
         if vdatum != "NONE_PROVIDED":

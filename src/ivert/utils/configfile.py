@@ -2,12 +2,14 @@ import ast
 import configparser
 import datetime
 import importlib.resources
+import logging
 import math
 import os
 import re
-import sys
 
 from ivert.utils import is_aws
+
+logger = logging.getLogger(__name__)
 
 ivert_default_configfile = str(
     importlib.resources.files("ivert").joinpath("config", "ivert_defaults.ini"),
@@ -388,12 +390,13 @@ class Config:
         try:
             user_config.read(user_path)
         except configparser.Error as e:
-            print(
-                f"WARNING: Could not parse the IVERT user config file {user_path}:"
-                f"\n  {e}"
+            logger.warning(
+                "Could not parse the IVERT user config file %s:"
+                "\n  %s"
                 "\n  Ignoring it and using IVERT's default settings. Fix or delete"
                 " that file, or run 'ivert options reset' to start over.",
-                file=sys.stderr,
+                user_path,
+                e,
             )
             return
 
@@ -428,9 +431,11 @@ class Config:
                     except configparser.Error as e:
                         # e.g. a hand-edited "%(...)s" reference that can't be
                         # resolved. Skip that option instead of crashing.
-                        print(
-                            f"WARNING: Ignoring setting '{k}' in {user_path}:\n  {e}",
-                            file=sys.stderr,
+                        logger.warning(
+                            "Ignoring setting '%s' in %s:\n  %s",
+                            k,
+                            user_path,
+                            e,
                         )
                         continue
                     self._read_option(k, v)
@@ -469,27 +474,32 @@ class Config:
         try:
             commented = comment_out_options(user_path, unknown_keys)
         except OSError as e:
-            print(
-                f"WARNING: The IVERT user config file {user_path} contains settings"
-                f" that IVERT v{__version__} does not recognize:"
-                f"\n{key_list}"
-                f"\n  They will be ignored. IVERT tried to comment them out of that"
-                f" file but could not write to it:\n    {e}",
-                file=sys.stderr,
+            logger.warning(
+                "The IVERT user config file %s contains settings"
+                " that IVERT v%s does not recognize:"
+                "\n%s"
+                "\n  They will be ignored. IVERT tried to comment them out of that"
+                " file but could not write to it:\n    %s",
+                user_path,
+                __version__,
+                key_list,
+                e,
             )
             return
 
         if commented:
-            print(
-                f"WARNING: The IVERT user config file {user_path} contained settings"
-                f" that IVERT v{__version__} does not recognize:"
-                f"\n{key_list}"
+            logger.warning(
+                "The IVERT user config file %s contained settings"
+                " that IVERT v%s does not recognize:"
+                "\n%s"
                 "\n  They may have been renamed or removed in a newer version of"
                 " IVERT, or misspelled when entered by hand."
                 "\n  They have been commented out of that file (with a dated note)"
                 " and ignored."
                 "\n  Run 'ivert options list' to see the settings IVERT supports.",
-                file=sys.stderr,
+                user_path,
+                __version__,
+                key_list,
             )
 
     def _handle_bootstrap_user_keys(self, user_path: str, keys: set[str]) -> None:
@@ -503,7 +513,7 @@ class Config:
         """
         key_list = "\n".join(f"    - {k}" for k in sorted(keys))
         preamble = (
-            f"WARNING: The IVERT user config file {user_path} sets options that"
+            f"The IVERT user config file {user_path} sets options that"
             f" determine where that file itself lives:"
             f"\n{key_list}"
             "\n  IVERT resolves those before opening your config file, so they"
@@ -519,19 +529,19 @@ class Config:
                 reason="this setting cannot be applied from a user config file.",
             )
         except OSError as e:
-            print(
-                f"{preamble}"
-                f"\n  IVERT tried to comment them out of that file but could not"
-                f" write to it:\n    {e}",
-                file=sys.stderr,
+            logger.warning(
+                "%s"
+                "\n  IVERT tried to comment them out of that file but could not"
+                " write to it:\n    %s",
+                preamble,
+                e,
             )
             return
 
         if commented:
-            print(
-                f"{preamble}"
-                "\n  They have been commented out of that file, with a dated note.",
-                file=sys.stderr,
+            logger.warning(
+                "%s\n  They have been commented out of that file, with a dated note.",
+                preamble,
             )
 
     def _parse_config_into_attrs(self):

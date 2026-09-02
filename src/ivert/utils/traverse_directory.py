@@ -1,9 +1,12 @@
 """Function for traversing and getting all the files from a directory, including recursively into sub-directories."""
 
+import logging
 import os
 import re
 
 import click
+
+logger = logging.getLogger(__name__)
 
 
 def list_files(
@@ -32,8 +35,8 @@ def _list_files_recurse(dirname, regex_match=None, depth=-1):
         try:
             fpath = os.path.join(dirname, entryname)
         except TypeError:
-            print("dirname:", dirname)
-            print("entryname:", entryname)
+            logger.info("dirname: %s", dirname)
+            logger.info("entryname: %s", entryname)
             raise
         if (depth == -1 or depth > 0) and os.path.isdir(fpath):
             file_list.extend(
@@ -94,10 +97,10 @@ def main(directory, text, depth, delete):
 
     for fn in fnames:
         if delete and response == "y":
-            print("Removing", fn)
+            logger.info("Removing %s", fn)
             os.remove(fn)
         else:
-            print(fn)
+            logger.info("%s", fn)
 
 
 if __name__ == "__main__":

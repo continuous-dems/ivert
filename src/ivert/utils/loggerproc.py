@@ -114,13 +114,18 @@ def dummy_test():
     import time
 
     def do_stuff(foobar, barfoo=None):
-        """A dummy function that prints random crap to the screen, both to stdout and stderr (raising expection)."""
-        print(foobar)
+        """A dummy function that prints random crap to the screen, both to stdout and stderr (raising expection).
+
+        These stay as print() deliberately: they are the fixture under test. The point
+        of LoggerProc is to capture whatever a child process writes to stdout/stderr,
+        so exercising it requires writing to those streams directly.
+        """
+        print(foobar)  # noqa: T201
         time.sleep(1)
         for i in range(10):
-            print(i, barfoo)
+            print(i, barfoo)  # noqa: T201
             time.sleep(1.25)
-        print(foobar, "again")
+        print(foobar, "again")  # noqa: T201
         raise ValueError("Testing stderr too.")
 
     var1 = "hello"
@@ -139,7 +144,7 @@ def dummy_test():
     proc.start()
     proc.join()
 
-    print("Process 1 done! Now test with enabling terminal output.")
+    print("Process 1 done! Now test with enabling terminal output.")  # noqa: T201
 
     proc = LoggerProc(
         do_stuff,

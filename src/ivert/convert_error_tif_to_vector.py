@@ -1,3 +1,4 @@
+import logging
 import os
 import sys
 
@@ -5,6 +6,8 @@ import geopandas
 import numpy as np
 import rasterio
 import shapely.geometry
+
+logger = logging.getLogger(__name__)
 
 format_dict = {
     "gpkg": ".gpkg",
@@ -19,7 +22,6 @@ def convert_ivert_error_map_to_vector(
     ivert_error_tifs,
     output_format="gpkg",
     overwrite=True,
-    verbose=True,
 ):
     """Convert an IVERT raster error_map.tif file into a vector file for easier viewing in GIS programs."""
     # Open the raster
@@ -62,13 +64,11 @@ def convert_ivert_error_map_to_vector(
             if overwrite:
                 os.remove(vector_fname)
             else:
-                if verbose:
-                    print(vector_fname, "already exists.")
+                logger.info("%s already exists.", vector_fname)
                 return
 
         gdf.to_file(vector_fname)
-        if verbose:
-            print(vector_fname, "written with", len(gdf), "points.")
+        logger.info("%s written with %s points.", vector_fname, len(gdf))
 
     return
 

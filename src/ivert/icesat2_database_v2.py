@@ -834,7 +834,6 @@ class IS2Database:
     def open_gdf(
         self,
         force_reread: bool = False,
-        verbose: bool = True,
     ):
         """Get the index DataFrame from the database.
 
@@ -842,8 +841,6 @@ class IS2Database:
         ----------
         force_reread : bool
             If True, read the file again even if we've already read the database into memory.
-        verbose: bool
-            Output text if the file was read.
 
         Returns
         -------
@@ -860,12 +857,11 @@ class IS2Database:
             return None
 
         self.gdf = gdf
-        if verbose:
-            logger.info(
-                "Loaded %s with %d records.",
-                os.path.basename(self.db_fname),
-                len(self.gdf),
-            )
+        logger.info(
+            "Loaded %s with %d records.",
+            os.path.basename(self.db_fname),
+            len(self.gdf),
+        )
 
         return self.gdf
 
@@ -1192,7 +1188,7 @@ class IS2Database:
         a compound string (e.g. 'EPSG:4326+3855' or 'EPSG:4326+4979').
         Falls back to 'EPSG:4326+3855' for databases created before datum fields were added.
         """
-        gdf = self.open_gdf(verbose=False)
+        gdf = self.open_gdf()
         if (
             gdf is not None
             and len(gdf) > 0
@@ -1241,7 +1237,7 @@ class IS2Database:
         target_vd = self._vertical_datum_to_vertical_epsg(vertical_datum_cfg)
 
         # Reject the download if existing records use a different datum.
-        existing_gdf_check = self.open_gdf(verbose=False)
+        existing_gdf_check = self.open_gdf()
         if (
             existing_gdf_check is not None
             and len(existing_gdf_check) > 0
@@ -1454,7 +1450,7 @@ class IS2Database:
 
             use_external_masks = True
 
-            existing_gdf = self.open_gdf(verbose=False)
+            existing_gdf = self.open_gdf()
             existing_filenames = (
                 set(existing_gdf["filename"].values)
                 if existing_gdf is not None
@@ -1898,10 +1894,10 @@ def _cmd_list():
     import tabulate as tabulate_mod
 
     db = IS2Database()
-    gdf = db.open_gdf(verbose=False)
+    gdf = db.open_gdf()
 
     if gdf is None or len(gdf) == 0:
-        print("No granules in database.")
+        logger.info("No granules in database.")
         return
 
     rows = []
@@ -1917,8 +1913,12 @@ def _cmd_list():
         )
 
     headers = ["File", "Total", "Ground", "BathyFloor", "BathySurf"]
-    print(tabulate_mod.tabulate(rows, headers=headers, tablefmt="simple", intfmt=","))
-    print(f"\n{len(gdf)} granule(s)  —  db: {db.db_fname}")
+    # Formatted table output for a person reading the terminal, not a log record:
+    # keep it on stdout so it can be piped, and unadorned by any level prefix.
+    print(  # noqa: T201
+        tabulate_mod.tabulate(rows, headers=headers, tablefmt="simple", intfmt=","),
+    )
+    logger.info("\n%s granule(s)  —  db: %s", len(gdf), db.db_fname)
 
 
 def _cmd_delete(delete_all):
@@ -1927,9 +1927,9 @@ def _cmd_delete(delete_all):
 
     if os.path.exists(db.db_fname):
         os.remove(db.db_fname)
-        print(f"Deleted {db.db_fname}")
+        logger.info("Deleted %s", db.db_fname)
     else:
-        print(f"Not found (skipping): {db.db_fname}")
+        logger.info("Not found (skipping): %s", db.db_fname)
 
     if delete_all:
         nc_files = (
@@ -1944,16 +1944,20 @@ def _cmd_delete(delete_all):
         if nc_files:
             for fpath in sorted(nc_files):
                 os.remove(fpath)
-            print(f"Deleted {len(nc_files)} .nc granule file(s) from {db.granules_dir}")
+            logger.info(
+                "Deleted %s .nc granule file(s) from %s",
+                len(nc_files),
+                db.granules_dir,
+            )
         else:
-            print(f"No .nc files found in {db.granules_dir}")
+            logger.info("No .nc files found in %s", db.granules_dir)
 
 
 def _cmd_rebuild():
     """Implementation of the 'rebuild' subcommand."""
     db = IS2Database()
     gdf = db.create_new_database(populate=True, overwrite=True)
-    print(f"Rebuilt database with {len(gdf)} granule(s).")
+    logger.info("Rebuilt database with %s granule(s).", len(gdf))
 
 
 if __name__ == "__main__":
