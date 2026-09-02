@@ -2,11 +2,14 @@
 
 import glob
 import itertools
+import logging
 import os
 
 import click
 import rasterio
 import rasterio.windows
+
+logger = logging.getLogger(__name__)
 
 
 def contains_glob_flags(fname: str) -> bool:
@@ -18,7 +21,6 @@ def split(
     dem_name: str | list[str],
     factor: int = 2,
     output_dir: str | None = None,
-    verbose: bool = True,
 ) -> list[str]:
     """Split a DEM into sub-segments, each side split by a factor. 2 will create 4 sub-segments.
 
@@ -26,7 +28,6 @@ def split(
         dem_name (str, list): The name of the DEM, with path, or a list of DEM names.
         factor (int): The factor by which to split the DEM.
         output_dir (str): The directory to which the sub-segments will be written. Defaults to the same directory as the DEM.
-        verbose (bool): Whether to print messages.
 
     Returns:
         list[str]: The names of the new DEM files.
@@ -68,7 +69,7 @@ def split(
                     )
 
                     if os.path.exists(fn_out):
-                        print(fn_out, "already exists.")
+                        logger.info("%s already exists.", fn_out)
                         continue
 
                     window = rasterio.windows.Window(
@@ -95,11 +96,9 @@ def split(
                         dst.write(src.read(window=window))
 
                     if os.path.exists(fn_out):
-                        if verbose:
-                            print(fn_out, "written.")
-                            outfiles.append(fn_out)
-                    elif verbose:
-                        print(fn_out, "failed.")
+                        logger.info("%s written.", fn_out)
+                        outfiles.append(fn_out)
+                    logger.error("%s failed.", fn_out)
 
     return outfiles
 

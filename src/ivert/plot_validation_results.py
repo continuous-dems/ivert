@@ -1,4 +1,5 @@
 import collections
+import logging
 import math
 import os
 
@@ -11,6 +12,8 @@ import tqdm
 from matplotlib import ticker
 
 import ivert.utils.configfile
+
+logger = logging.getLogger(__name__)
 
 ivert_config = ivert.utils.configfile.Config()
 
@@ -28,7 +31,6 @@ def get_data_from_h5_or_list(
     orig_filenames: str | list[str] | None = None,
     empty_val: float = ivert_config.dem_default_ndv,
     include_filenames: bool = False,
-    verbose: bool = True,
 ) -> pd.DataFrame:
     """Return the data either from a single hdf5 results file, or a list of them. Filter out empty (bad data) values."""
     if type(h5_name_or_list) is str:
@@ -41,8 +43,7 @@ def get_data_from_h5_or_list(
                 data["filename"] = os.path.basename(orig_filenames)
 
     elif is_iterable(h5_name_or_list):
-        if verbose:
-            print(f"Reading {len(h5_name_or_list)} h5 results files.")
+        logger.info("Reading %s h5 results files.", len(h5_name_or_list))
         data_list = []
 
         # 'disable=None' tells tqdm to draw the bar only when attached to a terminal,
@@ -50,7 +51,7 @@ def get_data_from_h5_or_list(
         for i, h5_file in enumerate(
             tqdm.tqdm(
                 h5_name_or_list,
-                disable=None if verbose else True,
+                disable=None if logger.isEnabledFor(logging.INFO) else True,
                 unit="file",
             ),
         ):
@@ -86,8 +87,8 @@ def get_data_from_h5_or_list(
     #                  & (meandiff != empty_val) & (canopy_fraction != empty_val) & (cellstd != empty_val)
 
     # data_subset = data[good_data_mask].copy()
-    if (len(data) == 0) and verbose:
-        print("No reliable results contained in list of results h5 files.")
+    if len(data) == 0:
+        logger.info("No reliable results contained in list of results h5 files.")
 
     return data
 
@@ -102,7 +103,6 @@ def plot_histograms_and_line(
     dpi=600,
     hist_cutoff_num_stddevs=2.5,
     also_add_rmse_to_hist=False,
-    verbose=True,
 ):
     """Generate a 4-panel figure of error stats.
 
@@ -130,8 +130,7 @@ def plot_histograms_and_line(
     mean_elev = data["mean"]
 
     if len(meandiff) < 3:
-        if verbose:
-            print("Not enough cells to plot statistics. Aborting.")
+        logger.info("Not enough cells to plot statistics. Aborting.")
         return
 
     # Determine which histogram panels have data before creating the figure.
@@ -436,11 +435,10 @@ def plot_histograms_and_line(
 
     # Save the figure to disk.
     fig.savefig(output_figure_name)
-    if verbose:
-        print(output_figure_name, "written.")
+    logger.info("%s written.", output_figure_name)
 
-        # Compute the RMSE and spit that out too.
-        print(f"\tRMSE: {rmse:0.3f} m")
+    # Compute the RMSE and spit that out too.
+    logger.info("\tRMSE: %s m", f"{rmse:0.3f}")
 
     # Clear the figure and close the plot.
     # If the plot is not "plt.close()"'ed, MatPlotLib keeps it in memory indefinitely
@@ -462,7 +460,6 @@ def plot_histogram_and_error_stats_4_panels(
     dpi=600,
     hist_cutoff_num_stddevs=2,
     also_add_rmse_to_hist=False,
-    verbose=True,
 ):
     """Generate a 4-panel figure of error stats.
 
@@ -511,8 +508,7 @@ def plot_histogram_and_error_stats_4_panels(
     # mean_elev          =       mean_elev[good_data_mask]
 
     if len(meandiff) < 3:
-        if verbose:
-            print("Not enough cells to plot statistics. Aborting.")
+        logger.info("Not enough cells to plot statistics. Aborting.")
         return
 
     # Generate figure. If a figure size isn't given, use the matplotlib.rcParams default.
@@ -759,12 +755,11 @@ def plot_histogram_and_error_stats_4_panels(
 
     # Save the figure to disk.
     fig.savefig(output_figure_name)
-    if verbose:
-        print(output_figure_name, "written.")
+    logger.info("%s written.", output_figure_name)
 
-        # Compute the RMSE and spit that out too.
-        rmse = (np.sum(meandiff**2) / len(meandiff)) ** 0.5
-        print(f"\tRMSE: {rmse:0.3f} m")
+    # Compute the RMSE and spit that out too.
+    rmse = (np.sum(meandiff**2) / len(meandiff)) ** 0.5
+    logger.info("\tRMSE: %s m", f"{rmse:0.3f}")
 
     # Clear the figure and close the plot.
     # If the plot is not "plt.close()"'ed, MatPlotLib keeps it in memory indefinitely
@@ -873,5 +868,4 @@ if __name__ == "__main__":
         place_name="ncei19_n45x50_w124x00_2025v1",
         hist_cutoff_num_stddevs=2.5,
         also_add_rmse_to_hist=True,
-        verbose=True,
     )

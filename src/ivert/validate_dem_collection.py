@@ -1,10 +1,10 @@
 """Validate and summarize an entire list or directory of DEMs."""
 
 import ast
+import logging
 import multiprocessing as mp
 import os
 import re
-import traceback
 
 import click
 import numpy as np
@@ -14,12 +14,13 @@ import ivert.icesat2_database_v2
 import ivert.utils.query_yes_no as yes_no
 from ivert import plot_validation_results, validate_dem
 
+logger = logging.getLogger(__name__)
+
 
 def write_summary_csv_file(
     total_results_df_or_file: pd.DataFrame | str,
     list_of_empty_files: list[str] | tuple[str],
     csv_name: str,
-    verbose: bool = True,
 ) -> pd.DataFrame:
     """Write a summary csv of all the results in a collection, after they've been run."""
     if type(total_results_df_or_file) is str:
@@ -80,8 +81,7 @@ def write_summary_csv_file(
     )
 
     output_df.to_csv(csv_name, index=False)
-    if verbose:
-        print(csv_name, "written.")
+    logger.info("%s written.", csv_name)
 
     return output_df
 
@@ -109,7 +109,6 @@ def validate_list_of_dems(
     min_bathy_confidence: float = 0.75,
     export_error_formats: str | list | None = None,
     exclude_zones: list | None = None,
-    verbose: bool = True,
 ):
     """Take a list of DEMs, presumably in a single area, and output validation files for those DEMs.
 
@@ -232,35 +231,31 @@ def validate_list_of_dems(
 
         if not os.path.exists(statsfile_name):
             results_df = pd.read_hdf(results_h5)
-            if verbose:
-                print(results_df, "read.")
+            logger.info("%s read.", results_df)
             validate_dem.write_summary_stats_file(
                 results_df,
                 statsfile_name,
-                verbose=verbose,
             )
 
         if not os.path.exists(plot_file_name):
             if results_df is None:
                 results_df = pd.read_hdf(results_h5)
-                if verbose:
-                    print(results_df, "read.")
+                logger.info("%s read.", results_df)
             plot_validation_results.plot_histograms_and_line(
                 results_df,
                 plot_file_name,
                 place_name=place_name,
-                verbose=verbose,
             )
 
-        if (results_df is None) and verbose:
-            print(
-                "Files '" + results_h5 + "',",
-                "'" + statsfile_name + "', and '",
-                plot_file_name
-                + "' are all already written. There's nothing left to do here.\n",
-                "To recompute them, run with --overwrite enabled, or delete output files as needed and re-run to "
-                "create them again.\n",
-                "Exiting.",
+        if results_df is None:
+            logger.info(
+                "Files '%s', '%s', and '%s' are all already written. "
+                "There's nothing left to do here.\n"
+                " To recompute them, run with --overwrite enabled, or delete output"
+                " files as needed and re-run to create them again.\n Exiting.",
+                results_h5,
+                statsfile_name,
+                plot_file_name,
             )
         return None
 
@@ -299,15 +294,12 @@ def validate_list_of_dems(
 
     # For each DEM, validate it.
     for i, dem_path in enumerate(dem_list):
-        if verbose:
-            print(
-                "\n=======",
-                os.path.split(dem_path)[1],
-                "(" + str(i + 1),
-                "of",
-                str(len(dem_list)) + ")",
-                "=======",
-            )
+        logger.info(
+            "\n======= %s %s of %s =======",
+            os.path.split(dem_path)[1],
+            "(" + str(i + 1),
+            str(len(dem_list)) + ")",
+        )
 
         if output_dir is None:
             this_output_dir = os.path.split(dem_path)[0]
@@ -354,21 +346,21 @@ def validate_list_of_dems(
                 min_bathy_confidence=min_bathy_confidence,
                 export_error_formats=export_error_formats,
                 exclude_zones=exclude_zones,
-                verbose=verbose,
             )
         except MemoryError:
-            if verbose:
-                print(f"Skipping {os.path.basename(dem_path)} due to memory error.")
+            # Not logger.exception: running out of memory on a DEM is self-explanatory
+            # and the traceback is the same every time.
+            logger.error(  # noqa: TRY400
+                "Skipping %s due to memory error.",
+                os.path.basename(dem_path),
+            )
             continue
 
         except KeyboardInterrupt:
             raise
 
         except Exception:
-            if verbose:
-                print(
-                    f"Skipping {os.path.basename(dem_path)}: {traceback.format_exc()}",
-                )
+            logger.exception("Skipping %s.", os.path.basename(dem_path))
             continue
 
         files_to_export.extend(list(shared_ret_values.values()))
@@ -380,12 +372,10 @@ def validate_list_of_dems(
             list_of_empty_files.append(empty_fname)
 
     # An extra newline is appreciated here just for readability's sake.
-    if verbose:
-        print()
+    logger.info("")
 
     if len(list_of_results_dfs) == 0:
-        if verbose:
-            print("No results dataframes generated. Aborting.")
+        logger.info("No results dataframes generated. Aborting.")
         return None
 
     # Generate the overall summary stats file.
@@ -393,7 +383,6 @@ def validate_list_of_dems(
         list_of_results_dfs,
         orig_filenames=dem_list,
         include_filenames=True,
-        verbose=verbose,
     )
 
     if write_summary_csv:
@@ -401,7 +390,6 @@ def validate_list_of_dems(
             total_results_df,
             list_of_empty_files,
             csv_name,
-            verbose=verbose,
         )
         files_to_export.append(csv_name)
 
@@ -409,7 +397,6 @@ def validate_list_of_dems(
     validate_dem.write_summary_stats_file(
         total_results_df,
         statsfile_name,
-        verbose=verbose,
     )
     files_to_export.append(statsfile_name)
 
@@ -418,14 +405,12 @@ def validate_list_of_dems(
         total_results_df,
         plot_file_name,
         place_name=place_name,
-        verbose=verbose,
     )
     files_to_export.append(plot_file_name)
 
     if results_h5 is not None:
         total_results_df.to_hdf(results_h5, key="results", complib="zlib", complevel=3)
-        if verbose:
-            print(results_h5, "written.")
+        logger.info("%s written.", results_h5)
         files_to_export.append(results_h5)
 
     return files_to_export
@@ -654,7 +639,6 @@ def main(
         min_coverage_pct=minimum_coverage_pct,
         write_summary_csv=write_summary_csv,
         outliers_sd_threshold=ast.literal_eval(outlier_sd_threshold),
-        verbose=not quiet,
     )
 
 

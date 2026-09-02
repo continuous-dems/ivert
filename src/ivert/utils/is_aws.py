@@ -23,4 +23,6 @@ def is_aws():
 
 
 if __name__ == "__main__":
-    print(is_aws())
+    # Bare stdout output on purpose: running this module as a script is a shell
+    # helper whose only result is the boolean, meant to be captured or tested.
+    print(is_aws())  # noqa: T201

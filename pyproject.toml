@@ -128,7 +128,6 @@ ignore = [
     "S301",     # suspicious-pickle-usage
     "SIM115",   # open-file-with-context-handler
     "SLF001",   # private-member-access
-    "T201",     # print
     "TD002",    # missing-todo-author
     "TD003",    # missing-todo-link
     "TRY003",   # raise-vanilla-args

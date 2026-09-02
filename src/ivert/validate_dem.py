@@ -12,6 +12,7 @@ Created on Tue Jun 22 16:06:21 2021
 
 import ast
 import contextlib
+import logging
 import multiprocessing as mp
 import os
 import re
@@ -36,8 +37,11 @@ import ivert.plot_validation_results
 import ivert.transform_points
 import ivert.utils.configfile
 import ivert.utils.loggerproc
+import ivert.utils.logging_config
 import ivert.utils.split_dem
 from ivert.utils import dem_geom, parallel_funcs
+
+logger = logging.getLogger(__name__)
 
 ivert_config = ivert.utils.configfile.Config()
 EMPTY_VAL = ivert_config.dem_default_ndv
@@ -500,7 +504,6 @@ def subdivide_dem(
     dem_name: str,
     factor: int = 2,
     output_dir: str | None = None,
-    verbose: bool = False,
 ) -> list[str]:
     """Split a DEM into 4 smaller parts."""
     if not os.path.exists(dem_name):
@@ -510,7 +513,6 @@ def subdivide_dem(
         dem_name,
         factor=factor,
         output_dir=output_dir,
-        verbose=verbose,
     )
 
 
@@ -584,7 +586,6 @@ def validate_dem(
     min_bathy_confidence: float = 0.90,
     export_error_formats: str | list | None = None,
     exclude_zones: list | None = None,
-    verbose: bool = True,
 ):
     """Validate a DEM and produce output results.
 
@@ -640,7 +641,6 @@ def validate_dem(
             horizontal CRS, or a path to a vector file (.shp, .geojson, .gpkg) containing exclusion
             polygon(s) in any CRS. Photons falling within any zone are dropped. Defaults to None
             (no exclusions).
-        verbose (bool): Be verbose.
 
     """
     if shared_ret_values is None:
@@ -677,7 +677,10 @@ def validate_dem(
         "min_bathy_confidence": min_bathy_confidence,
         "export_error_formats": export_error_formats,
         "exclude_zones": exclude_zones,
-        "verbose": verbose,
+        # The work below runs in a *spawned* sub-process, which starts with logging
+        # unconfigured and would otherwise drop everything below WARNING. Pass the
+        # level we are running at so the child can reinstate it.
+        "log_level": logging.getLogger().getEffectiveLevel(),
     }
 
     # If we're in this from a logged process, make sure the children are logged processes as well.
@@ -731,7 +734,6 @@ def validate_dem(
             dem_name,
             factor=2,
             output_dir=output_dir,
-            verbose=verbose,
         )
 
         sub_shared_ret_values = [manager.dict() for i in range(len(sub_dem_names))]
@@ -740,7 +742,7 @@ def validate_dem(
         # Pre-read the photon database. This is easier than reading it in 4 separate times.
         if icesat2_photon_database_obj is None:
             icesat2_photon_database_obj = ivert.icesat2_database_v2.IS2Database()
-            icesat2_photon_database_obj.open_gdf(verbose=verbose)
+            icesat2_photon_database_obj.open_gdf()
 
         for sub_dem_name, sub_shared_ret_dict in zip(
             sub_dem_names,
@@ -775,7 +777,6 @@ def validate_dem(
                 min_confidence_level=min_confidence_level,
                 min_bathy_confidence=min_bathy_confidence,
                 exclude_zones=exclude_zones,
-                verbose=verbose,
                 max_subdivides=max_subdivides,
                 orig_dem_name=orig_dem_name,
                 subdivision_number=subdivision_number + 1,
@@ -824,10 +825,10 @@ def validate_dem(
                 hi_cutoff = meanval + (stdval * outliers_sd_threshold)
                 valid_mask = (diff_mean >= low_cutoff) & (diff_mean <= hi_cutoff)
                 shared_results_df = shared_results_df[valid_mask].copy()
-                if verbose:
-                    print(
-                        f"{len(shared_results_df):,} DEM cells after removing outliers.",
-                    )
+                logger.info(
+                    "%s DEM cells after removing outliers.",
+                    f"{len(shared_results_df):,}",
+                )
 
             output_fname = os.path.join(
                 output_dir,
@@ -842,8 +843,7 @@ def validate_dem(
 
             shared_ret_values[common_key] = output_fname
 
-            if verbose:
-                print(os.path.basename(output_fname), "written and exported.")
+            logger.info("%s written and exported.", os.path.basename(output_fname))
 
         # Second, export the per-cell errors from the merged dataframe.
         if export_error_formats is None:
@@ -863,7 +863,6 @@ def validate_dem(
                     dem_ds_tmp,
                     merged_results_file,
                     export_error_formats,
-                    verbose=verbose,
                 )
 
             shared_ret_values["error_export_files"] = exported
@@ -894,7 +893,7 @@ def validate_dem(
                 output_dir,
                 os.path.splitext(os.path.basename(dem_name))[0] + "_summary_stats.txt",
             )
-            write_summary_stats_file(shared_results_df, output_fname, verbose=verbose)
+            write_summary_stats_file(shared_results_df, output_fname)
             shared_ret_values["summary_stats_filename"] = output_fname
 
         # Export the photon dataframe if it was called to be returned.
@@ -931,7 +930,6 @@ def validate_dem(
                 shared_results_df,
                 output_fname,
                 place_name=location_name,
-                verbose=verbose,
             )
             shared_ret_values["plot_filename"] = output_fname
 
@@ -968,7 +966,6 @@ def _setup_output_paths(
     mark_empty_results,
     write_summary_stats,
     plot_results,
-    verbose,
 ):
     """Create output directories and derive all output filenames.
 
@@ -978,8 +975,7 @@ def _setup_output_paths(
     if not output_dir:
         output_dir = os.path.dirname(os.path.abspath(dem_name))
     if not os.path.exists(output_dir):
-        if verbose:
-            print("Creating output directory", output_dir)
+        logger.info("Creating output directory %s", output_dir)
         os.makedirs(output_dir)
 
     results_dataframe_file = os.path.join(
@@ -990,8 +986,7 @@ def _setup_output_paths(
     if interim_data_dir is None:
         interim_data_dir = output_dir
     if not os.path.exists(interim_data_dir):
-        if verbose:
-            print("Creating interim data directory", interim_data_dir)
+        logger.info("Creating interim data directory %s", interim_data_dir)
         os.makedirs(interim_data_dir)
 
     empty_results_filename = ""
@@ -1033,7 +1028,6 @@ def _check_existing_outputs(
     overwrite,
     mark_empty_results,
     shared_ret_values,
-    verbose,
     include_photon_level_validation=False,
     export_error_formats=None,
 ):
@@ -1076,15 +1070,11 @@ def _check_existing_outputs(
         if write_summary_stats:
             if not os.path.exists(summary_stats_filename):
                 if results_dataframe is None:
-                    if verbose:
-                        print("Reading", results_dataframe_file, "...", end="")
+                    logger.info("Reading %s ...", results_dataframe_file)
                     results_dataframe = read_dataframe_file(results_dataframe_file)
-                    if verbose:
-                        print("done.")
                 write_summary_stats_file(
                     results_dataframe,
                     summary_stats_filename,
-                    verbose=verbose,
                 )
             files_to_export.append(summary_stats_filename)
             shared_ret_values["summary_stats_filename"] = summary_stats_filename
@@ -1098,17 +1088,13 @@ def _check_existing_outputs(
             if missing:
                 dem_ds_tmp = rasterio.open(dem_name)
                 if results_dataframe is None:
-                    if verbose:
-                        print("Reading", results_dataframe_file, "...", end="")
+                    logger.info("Reading %s ...", results_dataframe_file)
                     results_dataframe = read_dataframe_file(results_dataframe_file)
-                    if verbose:
-                        print("done.")
                 export_error_results(
                     results_dataframe,
                     dem_ds_tmp,
                     results_dataframe_file,
                     export_error_formats,
-                    verbose=verbose,
                 )
             files_to_export.extend(export_files)
             shared_ret_values["error_export_files"] = export_files
@@ -1118,16 +1104,12 @@ def _check_existing_outputs(
                 if location_name is None:
                     location_name = os.path.split(dem_name)[1]
                 if results_dataframe is None:
-                    if verbose:
-                        print("Reading", results_dataframe_file, "...", end="")
+                    logger.info("Reading %s ...", results_dataframe_file)
                     results_dataframe = read_dataframe_file(results_dataframe_file)
-                    if verbose:
-                        print("done.")
                 ivert.plot_validation_results.plot_histograms_and_line(
                     results_dataframe,
                     plot_filename,
                     place_name=location_name,
-                    verbose=verbose,
                 )
             files_to_export.append(plot_filename)
             shared_ret_values["plot_filename"] = plot_filename
@@ -1136,17 +1118,16 @@ def _check_existing_outputs(
             files_to_export.append(photon_results_file)
             shared_ret_values["photon_results_dataframe_file"] = photon_results_file
 
-        if results_dataframe is None and verbose:
-            print("Work already done here. Moving on.")
+        if results_dataframe is None:
+            logger.info("Work already done here. Moving on.")
 
         return files_to_export
 
     if mark_empty_results and os.path.exists(empty_results_filename):
-        if verbose:
-            print(
-                "No valid data produced during previous ICESat-2 analysis of",
-                os.path.basename(dem_name) + ". Returning.",
-            )
+        logger.info(
+            "No valid data produced during previous ICESat-2 analysis of %s",
+            os.path.basename(dem_name) + ". Returning.",
+        )
         return files_to_export
 
     return None
@@ -1160,7 +1141,6 @@ def _fetch_photons(
     dates,
     classes,
     omit_bboxes,
-    verbose,
     min_confidence_level: int = 1,
     min_bathy_confidence: float = 0.75,
 ):
@@ -1210,11 +1190,10 @@ def _fetch_photons(
     if photon_df is None or len(photon_df) == 0:
         return None
 
-    if verbose:
-        print(
-            f"{len(photon_df):,}",
-            "ICESat-2 photons present in photon dataframe.",
-        )
+    logger.info(
+        "%s ICESat-2 photons present in photon dataframe.",
+        f"{len(photon_df):,}",
+    )
 
     photon_src_epsg = icesat2_photon_database_obj.get_photon_src_epsg()
     return dem_ds, dem_array, photon_df, dem_epsg_str, photon_src_epsg
@@ -1254,7 +1233,6 @@ def _compute_photon_overlap(
     classes,
     dem_epsg_str,
     measure_coverage,
-    verbose,
     photon_src_epsg="EPSG:4326+4979",
     cache_dir=None,
     user_ndv=None,
@@ -1282,7 +1260,7 @@ def _compute_photon_overlap(
             )
         )
     except (ValueError, RuntimeError):
-        print("Warning: Unable to perform transformation. Using original points.")
+        logger.warning("Unable to perform transformation. Using original points.")
         raise
 
     if exclude_zones:
@@ -1295,10 +1273,10 @@ def _compute_photon_overlap(
                 .within(exclude_geom)
                 .to_numpy()
             )
-            if verbose and excluded_mask.any():
-                print(
+            if excluded_mask.any():
+                logger.info(
+                    "%s photons excluded by exclusion zone(s).",
                     f"{np.count_nonzero(excluded_mask):,}",
-                    "photons excluded by exclusion zone(s).",
                 )
             photon_df = photon_df[~excluded_mask]
 
@@ -1319,19 +1297,17 @@ def _compute_photon_overlap(
     # into shared memory carry only the photons that will actually be used.
     class_mask = np.isin(photon_df["class_code"], classes)
     if not class_mask.all():
-        if verbose:
-            print(
-                f"{np.count_nonzero(~class_mask):,} photons dropped as outside the",
-                "requested photon classes",
-                f"({'/'.join(str(c) for c in classes)}).",
-            )
+        logger.info(
+            "%s photons dropped as outside the requested photon classes (%s).",
+            f"{np.count_nonzero(~class_mask):,}",
+            "/".join(str(c) for c in classes),
+        )
         photon_df = photon_df[class_mask]
 
     if len(photon_df) == 0:
-        if verbose:
-            print(
-                "No photons remain in the requested classes. Stopping and moving on.",
-            )
+        logger.info(
+            "No photons remain in the requested classes. Stopping and moving on.",
+        )
         return None
 
     height_field = photon_df["dem_z"]
@@ -1357,25 +1333,24 @@ def _compute_photon_overlap(
     dem_overlap_i, dem_overlap_j = np.where(dem_overlap_mask)
     dem_overlap_elevs = dem_array[dem_overlap_mask]
 
-    if verbose:
-        num_goodpixels = np.count_nonzero(dem_goodpixel_mask)
-        print(f"{num_goodpixels:,}", "land cells exist in the DEM.")
-        if num_goodpixels == 0:
-            print(
-                "No land cells found in DEM with overlapping ICESat-2 data. Stopping and moving on.",
-            )
-            return None
-        print(
-            f"{len(photon_df):,} ICESat-2 photons overlap",
-            f"{len(dem_overlap_i):,}",
-            f"DEM cells ({np.count_nonzero(dem_overlap_mask) * 100 / num_goodpixels:0.2f}% of total DEM data).",
+    num_goodpixels = np.count_nonzero(dem_goodpixel_mask)
+    logger.info("%s land cells exist in the DEM.", f"{num_goodpixels:,}")
+    if num_goodpixels == 0:
+        logger.info(
+            "No land cells found in DEM with overlapping ICESat-2 data. Stopping and moving on.",
         )
+        return None
+    logger.info(
+        "%s ICESat-2 photons overlap %s DEM cells (%s%% of total DEM data).",
+        f"{len(photon_df):,}",
+        f"{len(dem_overlap_i):,}",
+        f"{np.count_nonzero(dem_overlap_mask) * 100 / num_goodpixels:0.2f}",
+    )
 
     if np.count_nonzero(dem_overlap_mask) == 0:
-        if verbose:
-            print(
-                "No overlapping ICESat-2 data with valid land cells. Stopping and moving on.",
-            )
+        logger.info(
+            "No overlapping ICESat-2 data with valid land cells. Stopping and moving on.",
+        )
         return None
 
     n = len(dem_overlap_i)
@@ -1404,16 +1379,13 @@ def _run_photon_level_validation(
     dem_overlap_j,
     dem_overlap_elevs,
     results_dataframe_file,
-    verbose,
 ):
     """Compute photon-level DEM minus ICESat-2 differences and write an HDF5 results file.
 
     'photon_df' has already been subset to the requested photon classes by
     _compute_photon_overlap. Returns the photon results file path.
     """
-    if verbose:
-        print("Performing photon-level validation...")
-        print("\tGenerating DEM elevation dataframe... ", end="")
+    logger.info("Performing photon-level validation...")
 
     dem_elev_df = pd.DataFrame(
         {"dem_elevation": dem_overlap_elevs},
@@ -1422,17 +1394,19 @@ def _run_photon_level_validation(
             names=("i", "j"),
         ),
     )
-    if verbose:
-        print(f"Done with {len(dem_elev_df)} records.")
-        print("\tJoining photon_df and DEM elevation tables... ", end="")
+    logger.info(
+        "\tGenerated DEM elevation dataframe with %s records.",
+        len(dem_elev_df),
+    )
 
     photon_df_with_dem_elevs = photon_df.join(dem_elev_df, how="left")
     photon_df_with_dem_elevs = photon_df_with_dem_elevs[
         pd.notna(photon_df_with_dem_elevs["dem_elevation"])
     ]
-    if verbose:
-        print(f"Done with {len(photon_df_with_dem_elevs)} records.")
-        print("\tCalculating elevation differences... ", end="")
+    logger.info(
+        "\tJoined photon_df and DEM elevation tables: %s records.",
+        len(photon_df_with_dem_elevs),
+    )
 
     # Use the frame's own 'dem_z' column rather than the caller's height_field
     # Series: photon_df is (i, j)-indexed here, so an external Series would align
@@ -1440,24 +1414,16 @@ def _run_photon_level_validation(
     photon_df_with_dem_elevs["dem_minus_is2_m"] = (
         photon_df_with_dem_elevs["dem_elevation"] - photon_df_with_dem_elevs["dem_z"]
     )
-    if verbose:
-        print("Done.")
+    logger.info("\tCalculated elevation differences.")
 
     photon_results_dataframe_file = _photon_results_filename(results_dataframe_file)
-    if verbose:
-        print(
-            "\tWriting",
-            os.path.split(photon_results_dataframe_file)[1] + "... ",
-            end="",
-        )
     photon_df_with_dem_elevs.to_hdf(
         photon_results_dataframe_file,
         "icesat2",
         complib="zlib",
         complevel=3,
     )
-    if verbose:
-        print("Done.\n")
+    logger.info("\tWrote %s.\n", os.path.split(photon_results_dataframe_file)[1])
 
     return photon_results_dataframe_file
 
@@ -1474,7 +1440,6 @@ def _run_parallel_cell_validation(
     measure_coverage,
     coverage_coords,
     numprocs,
-    verbose,
 ):
     """Run the parallel ICESat-2/DEM cell validation using child processes.
 
@@ -1489,16 +1454,17 @@ def _run_parallel_cell_validation(
         num_subdivisions=15,
     )
 
-    if verbose:
-        if max_photons_per_cell is not None:
-            print(
-                f"Limiting processing to {max_photons_per_cell} photons per grid cell.",
-            )
-        print(
-            f"Validating grid cells with at least {min_photons_per_cell} photon"
-            f"{'' if min_photons_per_cell == 1 else 's'}.",
+    if max_photons_per_cell is not None:
+        logger.info(
+            "Limiting processing to %s photons per grid cell.",
+            max_photons_per_cell,
         )
-        print("Performing ICESat-2/DEM cell validation...")
+    logger.info(
+        "Validating grid cells with at least %s photon%s.",
+        min_photons_per_cell,
+        "" if min_photons_per_cell == 1 else "s",
+    )
+    logger.info("Performing ICESat-2/DEM cell validation...")
 
     results_dataframes_list = []
     t_start = time.perf_counter()
@@ -1601,7 +1567,7 @@ def _run_parallel_cell_validation(
     # stay silent when the output is redirected to a file or a pipe.
     progress = tqdm.tqdm(
         total=n,
-        disable=None if verbose else True,
+        disable=None if logger.isEnabledFor(logging.INFO) else True,
         unit="cell",
         file=sys.stdout,
     )
@@ -1670,11 +1636,10 @@ def _run_parallel_cell_validation(
                     continue
 
                 if not proc.is_alive():
-                    if verbose:
-                        progress.write(
-                            "Sub-process terminated unexpectedly. Some data may be missing. Restarting a new process.",
-                            file=sys.stdout,
-                        )
+                    logger.warning(
+                        "Sub-process terminated unexpectedly. Some data may be"
+                        " missing. Restarting a new process.",
+                    )
                     proc.join()
                     pipe.close()
                     pipe_child.close()
@@ -1759,36 +1724,39 @@ def _run_parallel_cell_validation(
                         open_pipes_parent[i] = None
                         open_pipes_child[i] = None
 
-    except Exception as e:
-        if verbose:
-            print("\nException encountered in ICESat-2 processing loop. Exiting.")
+    except Exception:
+        logger.exception(
+            "\nException encountered in ICESat-2 processing loop. Exiting.",
+        )
         clean_procs_and_pipes(
             running_procs,
             open_pipes_parent,
             open_pipes_child,
             memory_objs,
         )
-        print(e)
         return results_dataframes_list
 
     finally:
         progress.close()
 
     t_end = time.perf_counter()
-    if verbose:
-        total_time_s = t_end - t_start
-        if total_time_s >= 100:
-            total_time_m = int(total_time_s / 60)
-            partial_time_s = total_time_s % 60
-            print(
-                f"{total_time_m:d} minute"
-                + ("s" if total_time_m > 1 else "")
-                + f" {partial_time_s:0.1f} seconds total, ({(total_time_s / n) if n > 0 else 0:0.4f} s/iteration)",
-            )
-        else:
-            print(
-                f"{total_time_s:0.1f} seconds total, ({(total_time_s / n) if n > 0 else 0:0.4f} s/iteration)",
-            )
+    total_time_s = t_end - t_start
+    if total_time_s >= 100:
+        total_time_m = int(total_time_s / 60)
+        partial_time_s = total_time_s % 60
+        logger.info(
+            "%d minute%s %s seconds total, (%s s/iteration)",
+            total_time_m,
+            "s" if total_time_m > 1 else "",
+            f"{partial_time_s:0.1f}",
+            f"{(total_time_s / n) if n > 0 else 0:0.4f}",
+        )
+    else:
+        logger.info(
+            "%s seconds total, (%s s/iteration)",
+            f"{total_time_s:0.1f}",
+            f"{(total_time_s / n) if n > 0 else 0:0.4f}",
+        )
 
     clean_procs_and_pipes(
         running_procs,
@@ -1813,7 +1781,6 @@ def _write_validation_outputs(
     outliers_sd_threshold,
     mark_empty_results,
     shared_ret_values,
-    verbose,
     files_to_export,
     export_error_formats=None,
     min_coverage_pct=None,
@@ -1839,19 +1806,18 @@ def _write_validation_outputs(
         results_dataframe = results_dataframe[
             results_dataframe["coverage_frac"] >= (min_coverage_pct / 100.0)
         ].copy()
-        if verbose:
-            print(
-                f"{len(results_dataframe):,} of {n_before:,} DEM cells remain after applying the "
-                f"{min_coverage_pct:g}% minimum-coverage filter.",
-            )
-
-    if verbose:
-        print(
-            "{:,} photon records used in {:,} DEM cells.".format(
-                results_dataframe["numphotons_intd"].sum(),
-                len(results_dataframe),
-            ),
+        logger.info(
+            "%s of %s DEM cells remain after applying the %s%% minimum-coverage filter.",
+            f"{len(results_dataframe):,}",
+            f"{n_before:,}",
+            f"{min_coverage_pct:g}",
         )
+
+    logger.info(
+        "%s photon records used in %s DEM cells.",
+        f"{results_dataframe['numphotons_intd'].sum():,}",
+        f"{len(results_dataframe):,}",
+    )
 
     if outliers_sd_threshold is not None:
         assert type(outliers_sd_threshold) in (int, float)
@@ -1862,23 +1828,20 @@ def _write_validation_outputs(
         results_dataframe = results_dataframe[
             (diff_mean >= low_cutoff) & (diff_mean <= hi_cutoff)
         ].copy()
-        if verbose:
-            print(
-                f"{len(results_dataframe):,} DEM cells after removing outliers.",
-            )
+        logger.info(
+            "%s DEM cells after removing outliers.",
+            f"{len(results_dataframe):,}",
+        )
 
     if len(results_dataframe) == 0:
-        if verbose:
-            print("No valid results in results dataframe. No outputs computed.")
+        logger.info("No valid results in results dataframe. No outputs computed.")
         if mark_empty_results:
             with open(empty_results_filename, "w", encoding="utf-8") as f:
                 f.write("No ICESat-2 data data overlapping this DEM to validate.")
-            if verbose:
-                print(
-                    "Created",
-                    empty_results_filename,
-                    "to indicate no data was returned here.",
-                )
+            logger.info(
+                "Created %s to indicate no data was returned here.",
+                empty_results_filename,
+            )
             files_to_export.append(empty_results_filename)
             shared_ret_values["empty_results_filename"] = empty_results_filename
         return files_to_export
@@ -1894,8 +1857,7 @@ def _write_validation_outputs(
             complib="zlib",
             mode="w",
         )
-    if verbose:
-        print(results_dataframe_file, "written.")
+    logger.info("%s written.", results_dataframe_file)
     files_to_export.append(results_dataframe_file)
     shared_ret_values["results_dataframe_file"] = results_dataframe_file
 
@@ -1903,7 +1865,6 @@ def _write_validation_outputs(
         write_summary_stats_file(
             results_dataframe,
             summary_stats_filename,
-            verbose=verbose,
         )
         files_to_export.append(summary_stats_filename)
         shared_ret_values["summary_stats_filename"] = summary_stats_filename
@@ -1918,7 +1879,6 @@ def _write_validation_outputs(
             dem_ds,
             results_dataframe_file,
             export_error_formats,
-            verbose=verbose,
         )
         files_to_export.extend(exported)
         shared_ret_values["error_export_files"] = exported
@@ -1931,7 +1891,6 @@ def _write_validation_outputs(
             plot_filename,
             place_name=location_name,
             figsize=(10, 4),
-            verbose=verbose,
         )
         files_to_export.append(plot_filename)
         shared_ret_values["plot_filename"] = plot_filename
@@ -1969,12 +1928,20 @@ def validate_dem_parallel(
     min_bathy_confidence: float = 0.90,
     export_error_formats: str | list | None = None,
     exclude_zones: list | None = None,
-    verbose: bool = True,
+    log_level: int | None = None,
 ):
     """Validate a single DEM.
 
     Parameters are described above in the vdalite_dem() docstring.
+
+    'log_level' is the logging level the calling process was running at. This function
+    is the target of a spawned sub-process, which begins life with the logging module
+    unconfigured and inherits nothing from its parent, so it has to reinstate the level
+    itself before any of the work below reports anything.
     """
+    if log_level is not None:
+        ivert.utils.logging_config.configure_worker_logging(log_level)
+
     if not os.path.exists(dem_name):
         raise FileNotFoundError(f"Could not find file {dem_name}.")
 
@@ -1995,7 +1962,6 @@ def validate_dem_parallel(
         mark_empty_results,
         write_summary_stats,
         plot_results,
-        verbose,
     )
 
     early = _check_existing_outputs(
@@ -2010,7 +1976,6 @@ def validate_dem_parallel(
         overwrite,
         mark_empty_results,
         shared_ret_values,
-        verbose,
         include_photon_level_validation=include_photon_level_validation,
         export_error_formats=export_error_formats,
     )
@@ -2027,7 +1992,6 @@ def validate_dem_parallel(
         dates,
         classes,
         omit_bboxes,
-        verbose,
         min_confidence_level=min_confidence_level,
         min_bathy_confidence=min_bathy_confidence,
     )
@@ -2035,12 +1999,10 @@ def validate_dem_parallel(
         if mark_empty_results:
             with open(empty_results_filename, "w", encoding="utf-8") as f:
                 f.write(os.path.basename(dem_name) + " had no ICESat-2 results.")
-            if verbose:
-                print(
-                    "Created",
-                    empty_results_filename,
-                    "to indicate no valid ICESat-2 data was returned here.",
-                )
+            logger.info(
+                "Created %s to indicate no valid ICESat-2 data was returned here.",
+                empty_results_filename,
+            )
             shared_ret_values["empty_results_filename"] = empty_results_filename
             files_to_export.append(empty_results_filename)
         return files_to_export
@@ -2053,7 +2015,6 @@ def validate_dem_parallel(
         classes,
         dem_epsg_str,
         measure_coverage,
-        verbose,
         photon_src_epsg=photon_src_epsg,
         cache_dir=TRANSFORMEZ_CACHE_DIR,
         user_ndv=dem_ndv,
@@ -2063,12 +2024,10 @@ def validate_dem_parallel(
         if mark_empty_results:
             with open(empty_results_filename, "w", encoding="utf-8") as f:
                 f.write(os.path.basename(dem_name) + " had no ICESat-2 results.")
-            if verbose:
-                print(
-                    "Created",
-                    empty_results_filename,
-                    "to indicate no data was returned here.",
-                )
+            logger.info(
+                "Created %s to indicate no data was returned here.",
+                empty_results_filename,
+            )
             shared_ret_values["empty_results_filename"] = empty_results_filename
             files_to_export.append(empty_results_filename)
         return files_to_export
@@ -2089,7 +2048,6 @@ def validate_dem_parallel(
             dem_overlap_j,
             dem_overlap_elevs,
             results_dataframe_file,
-            verbose,
         )
         files_to_export.append(photon_file)
         shared_ret_values["photon_results_dataframe_file"] = photon_file
@@ -2106,7 +2064,6 @@ def validate_dem_parallel(
         measure_coverage,
         coverage_coords,
         numprocs,
-        verbose,
     )
 
     return _write_validation_outputs(
@@ -2123,7 +2080,6 @@ def validate_dem_parallel(
         outliers_sd_threshold,
         mark_empty_results,
         shared_ret_values,
-        verbose,
         files_to_export,
         export_error_formats=export_error_formats,
         min_coverage_pct=min_coverage_pct,
@@ -2156,31 +2112,27 @@ def _format_stat(value) -> str:
 def write_summary_stats_file(
     results_df: pd.DataFrame,
     statsfile_name: str,
-    verbose: bool = True,
 ) -> None:
     """Write the summary statistics file.
 
     Args:
         results_df: pandas dataframe - contains the summary statistics
         statsfile_name: string - the name of the file to write
-        verbose: bool - if True, print diagnostic messages
 
     Returns:
         None
 
     """
     if results_df is None:
-        if verbose:
-            print(
-                "write_summary_stats_file(): No results dataframe to write. Returning",
-            )
+        logger.info(
+            "write_summary_stats_file(): No results dataframe to write. Returning",
+        )
         return
 
     if len(results_df) == 0:
-        if verbose:
-            print(
-                "write_summary_stats_file(): No stats to compute in results dataframe. Returning",
-            )
+        logger.info(
+            "write_summary_stats_file(): No stats to compute in results dataframe. Returning",
+        )
         return
 
     lines = []
@@ -2253,11 +2205,10 @@ def write_summary_stats_file(
     with open(statsfile_name, "w", encoding="utf-8") as outf:
         outf.write(out_text)
 
-    if verbose:
-        if os.path.exists(statsfile_name):
-            print(statsfile_name, "written.")
-        else:
-            print(statsfile_name, "NOT written.")
+    if os.path.exists(statsfile_name):
+        logger.info("%s written.", statsfile_name)
+    else:
+        logger.info("%s NOT written.", statsfile_name)
 
     return
 
@@ -2266,7 +2217,6 @@ def generate_result_geotiff(
     results_dataframe,
     dem_ds,
     result_tif_filename,
-    verbose=True,
 ):
     """Given the results in the dataframe, output geotiffs to visualize these.
 
@@ -2301,8 +2251,7 @@ def generate_result_geotiff(
         tiled=True,
     ) as out_ds:
         out_ds.write(result_array, 1)
-    if verbose:
-        print(result_tif_filename, "written.")
+    logger.info("%s written.", result_tif_filename)
 
 
 # Error-export formats supported by export_error_results(), selectable via the
@@ -2338,7 +2287,7 @@ def _results_cell_centers(results_dataframe, dem_ds):
     return x, y
 
 
-def _export_errors_vector(results_dataframe, dem_ds, out_fname, fmt, verbose=True):
+def _export_errors_vector(results_dataframe, dem_ds, out_fname, fmt):
     """Write one point per validated cell (at the cell center) to a GeoPackage or Shapefile."""
     driver_name = {"gpkg": "GPKG", "shp": "ESRI Shapefile"}[fmt]
 
@@ -2374,11 +2323,10 @@ def _export_errors_vector(results_dataframe, dem_ds, out_fname, fmt, verbose=Tru
     layer_name = os.path.splitext(os.path.basename(out_fname))[0]
     gdf.to_file(out_fname, driver=driver_name, layer=layer_name)
 
-    if verbose:
-        print(out_fname, "written.")
+    logger.info("%s written.", out_fname)
 
 
-def _export_errors_xyz(results_dataframe, dem_ds, out_fname, verbose=True):
+def _export_errors_xyz(results_dataframe, dem_ds, out_fname):
     """Write a whitespace-delimited 'x y error' text file, one cell-center point per line."""
     x_centers, y_centers = _results_cell_centers(results_dataframe, dem_ds)
     errors = results_dataframe["diff_mean"].to_numpy()
@@ -2387,8 +2335,7 @@ def _export_errors_xyz(results_dataframe, dem_ds, out_fname, verbose=True):
         np.column_stack([x_centers, y_centers, errors]),
         fmt="%.8g",
     )
-    if verbose:
-        print(out_fname, "written.")
+    logger.info("%s written.", out_fname)
 
 
 def _normalize_export_formats(formats):
@@ -2435,7 +2382,6 @@ def export_error_results(
     dem_ds,
     results_dataframe_file,
     formats,
-    verbose=True,
 ):
     """Export the per-cell ICESat-2 errors from a results dataframe into GIS formats.
 
@@ -2451,7 +2397,6 @@ def export_error_results(
         dem_ds: an open rasterio dataset for the source DEM (supplies CRS and geotransform).
         results_dataframe_file: path to the '<dem>_results.h5' file (used to derive output names).
         formats: comma-separated string (e.g. 'tif,gpkg') or iterable of format names.
-        verbose: print a line per file written.
 
     Returns:
         list of file paths written.
@@ -2470,7 +2415,6 @@ def export_error_results(
                 results_dataframe,
                 dem_ds,
                 out_fname,
-                verbose=verbose,
             )
         elif fmt in ("gpkg", "shp"):
             _export_errors_vector(
@@ -2478,10 +2422,9 @@ def export_error_results(
                 dem_ds,
                 out_fname,
                 fmt,
-                verbose=verbose,
             )
         elif fmt == "xyz":
-            _export_errors_xyz(results_dataframe, dem_ds, out_fname, verbose=verbose)
+            _export_errors_xyz(results_dataframe, dem_ds, out_fname)
         exported.append(out_fname)
 
     return exported
@@ -2617,8 +2560,10 @@ def main(
     try:
         classes_list = [int(c) for c in classes.split("/")]
     except ValueError:
-        print(
-            "ERROR: 'classes' must be a list of integer values separated by forward-slashes (/)",
+        # Not logger.exception: this is a malformed command-line value, and the
+        # traceback would tell the user nothing the message does not.
+        logger.error(  # noqa: TRY400
+            "'classes' must be a list of integer values separated by forward-slashes (/)",
         )
         sys.exit(1)
 
@@ -2642,7 +2587,6 @@ def main(
         min_coverage_pct=minimum_coverage_pct,
         numprocs=numprocs,
         band_num=band_num,
-        verbose=not quiet,
     )
 
 

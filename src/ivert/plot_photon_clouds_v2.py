@@ -14,6 +14,7 @@ Photon class codes and their meanings come from globato's ATL03 reader; run
 """
 
 import glob
+import logging
 import os
 import sys
 
@@ -27,6 +28,8 @@ import matplotlib.pyplot as plt
 import netCDF4
 
 from ivert.photon_classes import class_labels
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Style
@@ -199,10 +202,7 @@ def _apply_vdatum_to_df(df, target_vert_epsg_int, cache_dir=None):
         df = df.copy()
         df["z"] = z_new
     except Exception as e:
-        print(
-            f"  Warning: vdatum transform failed ({e}). Plotting in EGM2008.",
-            flush=True,
-        )
+        logger.warning("vdatum transform failed (%s). Plotting in EGM2008.", e)
     return df
 
 
@@ -279,10 +279,7 @@ def _sample_dem_along_track(
 
             samples = list(src.sample(zip(px.tolist(), py.tolist(), strict=True)))
     except Exception as e:
-        print(
-            f"  Warning: could not sample DEM {os.path.basename(dem_path)}: {e}",
-            flush=True,
-        )
+        logger.warning("Could not sample DEM %s: %s", os.path.basename(dem_path), e)
         return None
 
     z_dem = np.array([s[0] if len(s) else np.nan for s in samples], dtype=float)
@@ -291,9 +288,9 @@ def _sample_dem_along_track(
         z_dem[np.isclose(z_dem, dem_nodata, rtol=0, atol=1e-3)] = np.nan
     valid = np.isfinite(z_dem)
     if not np.any(valid):
-        print(
-            f"  DEM {os.path.basename(dem_path)}: no overlap with laser track.",
-            flush=True,
+        logger.info(
+            "  DEM %s: no overlap with laser track.",
+            os.path.basename(dem_path),
         )
         return None
 
@@ -323,7 +320,7 @@ def _sample_dem_along_track(
                     z_dem = z_out
                     valid = np.isfinite(z_dem)
                 except Exception as e:
-                    print(f"  Warning: DEM vertical transform failed: {e}", flush=True)
+                    logger.warning("DEM vertical transform failed: %s", e)
 
     sort_idx = np.argsort(dense_atm[valid])
     valid_idx = np.where(valid)[0][sort_idx]
@@ -351,9 +348,10 @@ def _collect_dem_profiles(
             cache_dir,
         )
         if result is not None:
-            print(
-                f"  DEM {os.path.basename(p)}: {len(result[0]):,} sampled points",
-                flush=True,
+            logger.info(
+                "  DEM %s: %s sampled points",
+                os.path.basename(p),
+                f"{len(result[0]):,}",
             )
             profiles.append(result)
     return profiles
@@ -457,7 +455,7 @@ def plot_beam(
     fig.tight_layout()
     fig.savefig(outpath, dpi=200)
     plt.close(fig)
-    print(f"  Saved {outpath}")
+    logger.info("  Saved %s", outpath)
 
 
 # Sentinel flag_value for --h5 given without a path.
@@ -643,19 +641,19 @@ def main(
         os.makedirs(outdir, exist_ok=True)
         h5_stem = os.path.splitext(os.path.basename(h5_path))[0]
 
-        print(f"H5-only: {os.path.basename(h5_path)}", flush=True)
+        logger.info("H5-only: %s", os.path.basename(h5_path))
         beam_dts = _beam_delta_times(h5_path)
         beams_to_plot = [laser] if laser else list(beam_dts.keys())
 
         for beam in beams_to_plot:
             if beam not in beam_dts:
-                print(f"  Beam {beam} not in .h5, skipping.")
+                logger.info("  Beam %s not in .h5, skipping.", beam)
                 continue
             df_plot = _load_h5_beam_photons(h5_path, beam)
             if df_plot.empty:
-                print(f"  Beam {beam}: no photons, skipping.")
+                logger.info("  Beam %s: no photons, skipping.", beam)
                 continue
-            print(f"  Beam {beam}: {len(df_plot):,} photons", flush=True)
+            logger.info("  Beam %s: %s photons", beam, f"{len(df_plot):,}")
             if target_vert_epsg_int:
                 df_plot = _apply_vdatum_to_df(df_plot, target_vert_epsg_int, cache_dir)
             _dlons, _dlats, _datm = _positions_for_dem_sampling(df_plot, dlim)
@@ -685,7 +683,7 @@ def main(
     outdir = outdir or os.path.dirname(nc_path)
     os.makedirs(outdir, exist_ok=True)
 
-    print(f"Loading {os.path.basename(nc_path)} ...", flush=True)
+    logger.info("Loading %s ...", os.path.basename(nc_path))
     df = load_nc(nc_path)
     nc_stem = os.path.splitext(os.path.basename(nc_path))[0]
 
@@ -693,7 +691,7 @@ def main(
     if h5_arg is True:
         h5_path = _find_h5(nc_path)
         if h5_path is None:
-            print("Warning: --h5 given but no matching .h5 found in cache.", flush=True)
+            logger.warning("--h5 given but no matching .h5 found in cache.")
     elif h5_arg:
         h5_path = os.path.abspath(h5_arg)
         if not os.path.exists(h5_path):
@@ -702,18 +700,18 @@ def main(
         h5_path = None
 
     if h5_path:
-        print(f"Found .h5: {os.path.basename(h5_path)}", flush=True)
+        logger.info("Found .h5: %s", os.path.basename(h5_path))
         beam_dts = _beam_delta_times(h5_path)
         beams_to_plot = [laser] if laser else list(beam_dts.keys())
 
         for beam in beams_to_plot:
             if beam not in beam_dts:
-                print(f"  Beam {beam} not in .h5, skipping.")
+                logger.info("  Beam %s not in .h5, skipping.", beam)
                 continue
 
             df_bg = _load_h5_beam_photons(h5_path, beam)
             if df_bg.empty:
-                print(f"  Beam {beam}: no h5 photons, skipping.")
+                logger.info("  Beam %s: no h5 photons, skipping.", beam)
                 continue
 
             # Filter nc photons to this beam using the laser column when present;
@@ -728,7 +726,7 @@ def main(
                 )
 
             if df_beam.empty:
-                print(f"  Beam {beam}: no photons in .nc, skipping.")
+                logger.info("  Beam %s: no photons in .nc, skipping.", beam)
                 continue
 
             # Ensure along_track_m exists on the nc photons; get it from the h5
@@ -740,9 +738,11 @@ def main(
                     how="left",
                 ).dropna(subset=["along_track_m"])
 
-            print(
-                f"  Beam {beam}: {len(df_beam):,} classified + {len(df_bg):,} background photons",
-                flush=True,
+            logger.info(
+                "  Beam %s: %s classified + %s background photons",
+                beam,
+                f"{len(df_beam):,}",
+                f"{len(df_bg):,}",
             )
             df_plot = pd.concat([df_bg, df_beam], ignore_index=True)
             if target_vert_epsg_int:
@@ -776,12 +776,9 @@ def main(
             if df_beam.empty:
                 continue
             if "along_track_m" not in df_beam.columns:
-                print(
-                    f"  Beam {beam}: nc has no along_track_m, skipping.",
-                    flush=True,
-                )
+                logger.info("  Beam %s: nc has no along_track_m, skipping.", beam)
                 continue
-            print(f"  Beam {beam}: {len(df_beam):,} photons (nc only)", flush=True)
+            logger.info("  Beam %s: %s photons (nc only)", beam, f"{len(df_beam):,}")
             if target_vert_epsg_int:
                 df_beam = _apply_vdatum_to_df(
                     df_beam,
@@ -809,10 +806,7 @@ def main(
                 ylabel=ylabel,
             )
     else:
-        print(
-            "No .h5 found and nc has no beam/distance info — cannot plot.",
-            flush=True,
-        )
+        logger.info("No .h5 found and nc has no beam/distance info — cannot plot.")
 
 
 if __name__ == "__main__":

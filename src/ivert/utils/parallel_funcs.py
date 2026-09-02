@@ -1,3 +1,4 @@
+import logging
 import multiprocessing as mp
 import os
 import shutil
@@ -7,6 +8,8 @@ import time
 import numpy as np
 import psutil
 import tqdm
+
+logger = logging.getLogger(__name__)
 
 
 def physical_cpu_count():
@@ -66,7 +69,6 @@ def process_parallel(
     use_progress_bar_only: bool = False,
     abbreviate_outfile_names_in_stdout: bool = True,
     delete_partially_done_files: bool = True,
-    verbose=True,
 ) -> None:
     """Most of my parallel processing involves working on a list of files.
 
@@ -85,7 +87,6 @@ def process_parallel(
                 skip processes in which outfiles already exist.
         abbreviate_outfile_names_in_stdout (bool): Abbreviate the outfile names to the filename only (omit the path) for
                  brevity of output messages.
-        verbose (bool): Print output message for each file created or process executed.
 
     """
     # Fill in the number of procs with the default if not provided.
@@ -154,8 +155,12 @@ def process_parallel(
         a bar left behind here would never catch up if every later process reports by
         name rather than by bar.
         """
+        if not logger.isEnabledFor(logging.INFO):
+            return
         if progress is None:
-            print(msg)
+            # 'msg' is already-composed text and may contain a literal '%', so it is
+            # passed as an argument rather than used as the format string.
+            logger.info("%s", msg)
         else:
             progress.update(num_finished - progress.n)
             progress.write(msg, file=sys.stdout)
@@ -216,27 +221,26 @@ def process_parallel(
                     # (a) the file has been written,
                     # (b) the process name has completed,
                     # (c) or just a count using the progress bar.
-                    if verbose:
-                        if use_progress_bar_only:
-                            update_bar()
-                        elif type(d_outf) is str:
-                            written_qualifier = "" if os.path.exists(d_outf) else "NOT "
-                            outf_name = (
-                                os.path.basename(d_outf)
-                                if abbreviate_outfile_names_in_stdout
-                                else d_outf
-                            )
-                            report(
-                                f"{num_finished:,}/{len(args_lists):,} {outf_name} {written_qualifier}written.",
-                            )
-                        elif type(d_pname) is str:
-                            report(
-                                f"{num_finished:,}/{len(args_lists):,} {d_pname} finished.",
-                            )
-                        else:
-                            # If we've given no identifying information for the processes, either a file to check
-                            # or a process name, just output a progress bar.
-                            update_bar()
+                    if use_progress_bar_only:
+                        update_bar()
+                    elif type(d_outf) is str:
+                        written_qualifier = "" if os.path.exists(d_outf) else "NOT "
+                        outf_name = (
+                            os.path.basename(d_outf)
+                            if abbreviate_outfile_names_in_stdout
+                            else d_outf
+                        )
+                        report(
+                            f"{num_finished:,}/{len(args_lists):,} {outf_name} {written_qualifier}written.",
+                        )
+                    elif type(d_pname) is str:
+                        report(
+                            f"{num_finished:,}/{len(args_lists):,} {d_pname} finished.",
+                        )
+                    else:
+                        # If we've given no identifying information for the processes, either a file to check
+                        # or a process name, just output a progress bar.
+                        update_bar()
 
                     # Delete the temporary directory if it was created.
                     if type(d_tdir) is str and os.path.exists(d_tdir):
@@ -254,15 +258,14 @@ def process_parallel(
                         and not overwrite_outfiles
                     ):
                         num_finished += 1
-                        if verbose:
-                            outfile_name = (
-                                os.path.basename(outfile)
-                                if abbreviate_outfile_names_in_stdout
-                                else outfile
-                            )
-                            report(
-                                f"{num_finished:,}/{len(args_lists):,} {outfile_name} already exists.",
-                            )
+                        outfile_name = (
+                            os.path.basename(outfile)
+                            if abbreviate_outfile_names_in_stdout
+                            else outfile
+                        )
+                        report(
+                            f"{num_finished:,}/{len(args_lists):,} {outfile_name} already exists.",
+                        )
                         process_started = True
                         continue
 

@@ -14,4 +14,6 @@ def is_conda():
 
 
 if __name__ == "__main__":
-    print(is_conda())
+    # Bare stdout output on purpose: running this module as a script is a shell
+    # helper whose only result is the boolean, meant to be captured or tested.
+    print(is_conda())  # noqa: T201

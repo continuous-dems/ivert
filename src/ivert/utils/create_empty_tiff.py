@@ -1,11 +1,14 @@
 # Quick utility to creatwe an empty .tif file to use for the IVERT test utility.
 
 
+import logging
 import os
 
 import rasterio
 
 from ivert.utils import configfile
+
+logger = logging.getLogger(__name__)
 
 
 def create_empty_tiff():
@@ -25,10 +28,14 @@ def create_empty_tiff():
         ):
             pass
 
-        print(f"Created {tiff_location}, {os.path.getsize(tiff_location)} bytes")
+        logger.info(
+            "Created %s, %s bytes",
+            tiff_location,
+            os.path.getsize(tiff_location),
+        )
 
     else:
-        print(f"{tiff_location} already exists.")
+        logger.info("%s already exists.", tiff_location)
 
 
 if __name__ == "__main__":

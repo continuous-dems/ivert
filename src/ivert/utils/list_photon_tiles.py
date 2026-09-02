@@ -1,11 +1,14 @@
 """A helper utility for listing all photon tiles in an S3 bucket."""
 
+import logging
 import os
 
 import click
 
 from ivert import s3
 from ivert.utils import configfile
+
+logger = logging.getLogger(__name__)
 
 
 def write_photon_tiles_to_file(outfile: str):
@@ -39,7 +42,7 @@ def write_photon_tiles_to_file(outfile: str):
     with open(outfile, "w", encoding="utf-8") as f:
         f.writelines(fn + "\n" for fn in fnames)
 
-    print(f"Wrote {len(fnames)} photon tiles to {outfile}.")
+    logger.info("Wrote %s photon tiles to %s.", len(fnames), outfile)
 
 
 @click.command(help="List all photon tiles in an S3 bucket and write out to a file.")
