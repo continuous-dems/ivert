@@ -25,9 +25,9 @@ def split(
     """Split a DEM into sub-segments, each side split by a factor. 2 will create 4 sub-segments.
 
     Args:
-        dem_name (str, list): The name of the DEM, with path, or a list of DEM names.
-        factor (int): The factor by which to split the DEM.
-        output_dir (str): The directory to which the sub-segments will be written. Defaults to the same directory as the DEM.
+        dem_name: The name of the DEM, with path, or a list of DEM names.
+        factor: The factor by which to split the DEM.
+        output_dir: The directory to which the sub-segments will be written. Defaults to the same directory as the DEM.
 
     Returns:
         list[str]: The names of the new DEM files.

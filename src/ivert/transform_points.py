@@ -29,8 +29,7 @@ def transform_points(
 ) -> tuple:
     """Transform a set of 3D points from one coordinate reference system to another.
 
-    Parameters
-    ----------
+    Args:
         x: X-coordinates (longitude or easting).
         y: Y-coordinates (latitude or northing).
         z: Z-coordinates (elevation).
@@ -47,12 +46,10 @@ def transform_points(
         Shift grid .tif files may be written to cache_dir. These are reused
         on subsequent calls covering the same datum pair and region.
 
-    Raises
-    ------
+    Raises:
         ValueError: If the vertical datum transformation cannot be built.
 
-    Returns
-    -------
+    Returns:
         A 3-tuple of (x, y, z) numpy arrays in the destination CRS.
 
     """

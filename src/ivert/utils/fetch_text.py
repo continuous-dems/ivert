@@ -10,8 +10,8 @@ def fetch_email_address(
     """Get a valid email address from a string.
 
     Args:
-        text (str): The string to search for email addresses.
-        fetch_all (bool, optional): Whether to fetch all email addresses in the string.
+        text: The string to search for email addresses.
+        fetch_all: Whether to fetch all email addresses in the string.
                                     Defaults to False (just return the first one)..
 
     Returns:
@@ -31,8 +31,8 @@ def fetch_aws_bucketname(
     """Get an AWS bucket name from a string.
 
     Args:
-        text (str): The string to search for an AWS bucket name.
-        fetch_all (bool, optional): Whether to fetch all AWS bucket names in the string.
+        text: The string to search for an AWS bucket name.
+        fetch_all: Whether to fetch all AWS bucket names in the string.
                                     Defaults to False (just return the first one).
 
     Returns:
@@ -53,8 +53,8 @@ def fetch_access_key_id(
     """Get an AWS access key ID from a string.
 
     Args:
-        text (str): The string to search for an AWS access key ID.
-        fetch_all (bool, optional): Whether to fetch all AWS access key IDs in the string.
+        text: The string to search for an AWS access key ID.
+        fetch_all: Whether to fetch all AWS access key IDs in the string.
                                     Defaults to False (just return the first one).
 
     Returns:
@@ -75,8 +75,8 @@ def fetch_secret_access_key(
     """Get an AWS secret access key from a string.
 
     Args:
-        text (str): The string to search for an AWS secret access key.
-        fetch_all (bool, optional): Whether to fetch all AWS secret access keys in the string.
+        text: The string to search for an AWS secret access key.
+        fetch_all: Whether to fetch all AWS secret access keys in the string.
                                     Defaults to False (just return the first one).
 
     Returns:
@@ -100,9 +100,9 @@ def _fetch_text(
     """Fetch text from a string. A generic function that the others use.
 
     Args:
-        text (str): The string to search for text.
-        regex (str): The regular expression to use to search for text.
-        fetch_all (bool, optional): Whether to fetch all text in the string.
+        text: The string to search for text.
+        regex: The regular expression to use to search for text.
+        fetch_all: Whether to fetch all text in the string.
                                     Defaults to False (just return the first one).
 
     Returns:
