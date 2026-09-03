@@ -1,0 +1,49 @@
+name: "Tests"
+
+on:
+  push:
+    branches:
+      - "main"
+  pull_request:
+
+permissions: {}
+
+# A new push to a pull request cancels the run still going for the old one.
+concurrency:
+  group: "${{ github.workflow }}-${{ github.ref }}"
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: "pytest (Python ${{ matrix.python-version }})"
+    runs-on: "ubuntu-latest"
+    strategy:
+      fail-fast: false
+      matrix:
+        # 3.12 is the floor in pyproject; 3.13 is what the release build pins.
+        # 3.14 is left out for the same reason publish-to-pypi.yml pins 3.13:
+        # fiona (pulled in via globato) has no cp314 wheels yet, and building it
+        # from source requires GDAL headers we don't install here.
+        python-version: ["3.12", "3.13"]
+
+    steps:
+      - name: "Checkout code"
+        uses: "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1"  # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: "Set up Python"
+        uses: "actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97"  # v7.0.0
+        with:
+          python-version: "${{ matrix.python-version }}"
+          cache: "pip"
+
+      - name: "Install IVERT and its test dependencies"
+        run: |
+          python -m pip install --upgrade pip  # --group needs pip >= 25.1
+          pip install --group test -e .
+
+      - name: "Run the test suite"
+        # The network and slow markers are excluded by pyproject's addopts, so
+        # this needs no credentials and touches no network beyond the install.
+        run: "pytest -v --cov=ivert --cov-report=term-missing"
