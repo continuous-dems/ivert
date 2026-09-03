@@ -49,6 +49,10 @@ dependencies = [
 ]
 
 [dependency-groups]
+test = [
+    "pytest>=8",
+    "pytest-cov",
+]
 docs = [
     "sphinx<9.0.0",  # temp pin for sphinx-click
     "sphinx-autodoc-typehints>=2.0.1",
@@ -71,6 +75,20 @@ path = "src/ivert/_version.py"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/ivert"]
+
+[tool.pytest.ini_options]
+# Collect only tests/. Without this, a bare "pytest" also walks build/, data/
+# and scratch_data/ at the repo root looking for test_*.py.
+testpaths = ["tests"]
+# --strict-markers turns a mistyped @pytest.mark into an error rather than a
+# silently-ignored decorator, and --strict-config does the same for this block.
+# The -m filter is what makes a bare "pytest" mean "the fast, offline tests":
+# run the excluded ones deliberately with "pytest -m network".
+addopts = "--strict-markers --strict-config -m 'not network and not slow'"
+markers = [
+    "network: hits NSIDC/Harmony; needs Earthdata credentials in ~/.netrc",
+    "slow: runs a full DEM validation; minutes, not seconds",
+]
 
 [tool.ruff.lint]
 select = ["ALL"]
@@ -136,3 +154,5 @@ ignore = [
 
 [tool.ruff.lint.per-file-ignores]
 "conf.py" = ["A001"]
+# tests/ is deliberately not a package, which INP001 objects to.
+"tests/**" = ["INP001"]
