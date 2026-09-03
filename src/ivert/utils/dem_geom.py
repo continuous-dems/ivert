@@ -20,17 +20,14 @@ def get_dem_reference_frame_from_user_input(
 ) -> pyproj.CRS | tuple | None:
     """Return the horizontal and/or vertical CRS derived from an input CRS value.
 
-    Parameters
-    ----------
+    Args:
         crs: A CRS expressed as a pyproj.CRS, rasterio.crs.CRS, WKT string, EPSG int, or None.
         vert_horz_or_both: 'h' → horizontal only, 'v' → vertical only, 'b' → both (default).
 
-    Returns
-    -------
+    Returns:
         pyproj.CRS, a (horz, vert) tuple of pyproj.CRS, or None when unresolvable.
 
-    Raises
-    ------
+    Raises:
         ValueError: if vert_horz_or_both is not 'h', 'v', or 'b'.
 
     """
@@ -71,17 +68,14 @@ def get_dem_reference_frame_from_file(
 ) -> pyproj.CRS | tuple | None:
     """Read the CRS embedded in a raster file and return horizontal/vertical components.
 
-    Parameters
-    ----------
+    Args:
         dem_fname: Path to the raster file.
         vert_horz_or_both: 'h' → horizontal, 'v' → vertical, 'b' → both (default).
 
-    Returns
-    -------
+    Returns:
         pyproj.CRS, a (horz, vert) tuple, or None when unresolvable.
 
-    Raises
-    ------
+    Raises:
         FileNotFoundError: if the file does not exist.
 
     """
@@ -122,8 +116,7 @@ def get_wgs84_bounding_box(
 ) -> tuple:
     """Return a 4-tuple (xmin, xmax, ymin, ymax) in WGS84 from a DEM file, bbox, or polygon.
 
-    Parameters
-    ----------
+    Args:
         polygon_bbox_or_dem_fname:
             - A filename string → CRS is read from the file.
             - A 4-item (xmin, xmax, ymin, ymax) list/tuple.
@@ -131,12 +124,10 @@ def get_wgs84_bounding_box(
         dem_horz_reference_frame: Override the horizontal CRS (string, int, or pyproj.CRS).
             Required when passing a bbox or polygon; optional (overrides file CRS) for filenames.
 
-    Returns
-    -------
+    Returns:
         (xmin, xmax, ymin, ymax) in WGS84 (EPSG:4326).
 
-    Raises
-    ------
+    Raises:
         ValueError: if dem_horz_reference_frame cannot be resolved.
         FileNotFoundError: if a filename is given but does not exist.
         TypeError: if the input type is unhandled.

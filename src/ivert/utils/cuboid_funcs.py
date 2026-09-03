@@ -133,28 +133,25 @@ def subtract_cuboids(a, b, tol=1e-10, bbox_order="point"):
     Returns the list of non-overlapping cuboids that exactly fill the remaining
     volume (a - b).
 
-    Parameters
-    ----------
-    a, b : tuple
-        Each as (xmin, ymin, zmin, xmax, ymax, zmax)
-    tol : float
-        Numerical tolerance for floating-point comparisons. Differences in coordinates less than "tol" units shall
-        be considered as the same point. Default: 1e-10
-    bbox_order : str
-        "axis" or "point", or conversely "xxyyzz" or "xyzxyz" (respectively). Default is "point".
-        Point order assumes bounding boxes are in (x1, y1, z1, x2, y2, z2) format.
-        Axis order assumes bounding boxes are in (x1, x2, y1, y2, z1, z2) format.
-        Applies to both inputs and outputs.
+    Args:
+        a: The cuboid to subtract from, as (xmin, ymin, zmin, xmax, ymax, zmax).
+        b: The cuboid to subtract, in the same layout as `a`.
+        tol: Numerical tolerance for floating-point comparisons. Differences in
+            coordinates less than "tol" units shall be considered as the same
+            point. Default: 1e-10
+        bbox_order: "axis" or "point", or conversely "xxyyzz" or "xyzxyz"
+            (respectively). Default is "point".
+            Point order assumes bounding boxes are in (x1, y1, z1, x2, y2, z2) format.
+            Axis order assumes bounding boxes are in (x1, x2, y1, y2, z1, z2) format.
+            Applies to both inputs and outputs.
 
-    Raises
-    ------
-    ValueError: If the bounding-boxes are misorderd (where the first point is greater than the second point).
+    Raises:
+        ValueError: If the bounding-boxes are misordered (where the first point is
+            greater than the second point).
 
-    Returns
-    -------
-    list[tuple]
-        List of cuboids (xmin, ymin, zmin, xmax, ymax, zmax)
-        covering the entire volume of the difference without overlap.
+    Returns:
+        list[tuple]: List of cuboids (xmin, ymin, zmin, xmax, ymax, zmax)
+            covering the entire volume of the difference without overlap.
 
     """
     bbox_order = bbox_order.lower().strip()
@@ -233,8 +230,7 @@ def subtract_cuboids(a, b, tol=1e-10, bbox_order="point"):
 def merge_cuboids(cuboids, tol=1e-10, bbox_order="point"):
     """Merge overlapping or face-adjacent axis-aligned cuboids into a minimal set.
 
-    Parameters
-    ----------
+    Args:
     cuboids : list[tuple]
         Each cuboid as (xmin, ymin, zmin, xmax, ymax, zmax) if bbox_order="point"
         Each cuboid as (xmin, xmax, ymin, ymax, zmin, zmax) if bbox_order="axis"
@@ -246,12 +242,10 @@ def merge_cuboids(cuboids, tol=1e-10, bbox_order="point"):
         if 'axis' or 'xxyyzz', the coordinates are asummed to be in (x1, x2, y1, y2, z1, z2) format, defining the coords in the x (0:2), y (2:4), and z (4:6) directions.
         Raise ValueError if bbox_order is not 'point' or 'axis'.
 
-    Raises
-    ------
+    Raises:
     ValueError: If some other order besides "point" or "axis" is given.
 
-    Returns
-    -------
+    Returns:
     list[tuple]
         Simplified list of merged cuboids.
 
@@ -384,22 +378,21 @@ def merge_cuboids(cuboids, tol=1e-10, bbox_order="point"):
 def cuboids_intersect(c1, c2, tol=1e-10, bbox_order="point"):
     """Return True if two 3D cuboids intersect by a positive volume (not just touch).
 
-    Parameters
-    ----------
-    c1, c2 : tuple
-        Cuboids defined as (xmin, ymin, zmin, xmax, ymax, zmax)
-    tol : float
-        Small tolerance for floating-point comparisons.
-    bbox_order : str
-        Alignment of the bbox coordinates.
-        If 'point' or 'xyzxyz', the coordinates are assumed to be in (x1, y1, z1, x2, y2, z2) format, defining the first point (0:3) and second point (3:6)
-        if 'axis' or 'xxyyzz', the coordinates are asummed to be in (x1, x2, y1, y2, z1, z2) format, defining the coords in the x (0:2), y (2:4), and z (4:6) directions.
-        Raise ValueError if bbox_order is not 'point' or 'axis'.
+    Args:
+        c1: First cuboid, defined as (xmin, ymin, zmin, xmax, ymax, zmax).
+        c2: Second cuboid, in the same layout as `c1`.
+        tol: Small tolerance for floating-point comparisons.
+        bbox_order: Alignment of the bbox coordinates.
+            If 'point' or 'xyzxyz', the coordinates are assumed to be in
+            (x1, y1, z1, x2, y2, z2) format, defining the first point (0:3) and
+            second point (3:6).
+            If 'axis' or 'xxyyzz', the coordinates are assumed to be in
+            (x1, x2, y1, y2, z1, z2) format, defining the coords in the x (0:2),
+            y (2:4), and z (4:6) directions.
+            Raise ValueError if bbox_order is not 'point' or 'axis'.
 
-    Returns
-    -------
-    bool
-        True if the cuboids intersect by nonzero volume, False otherwise.
+    Returns:
+        bool: True if the cuboids intersect by nonzero volume, False otherwise.
 
     """
     bbox_order = bbox_order.lower().strip()
@@ -440,26 +433,26 @@ def cuboids_intersect_vectorized(
 ):
     """Vectorized form of cuboids_intersect: test many cuboids against one query.
 
-    Parameters
-    ----------
-    xmin, xmax, ymin, ymax, zmin, zmax : array-like
-        Per-cuboid bounds, all the same length (one entry per candidate cuboid).
-        For the IVERT granule index the "z" axis carries time (tmin/tmax), but
-        the math is identical for any third axis.
-    query : tuple
-        A single cuboid to test every candidate against, in `bbox_order` layout.
-    tol : float
-        Small tolerance for floating-point comparisons.
-    bbox_order : str
-        Layout of `query` (see cuboids_intersect): 'axis'/'xxyyzz' (default) is
-        (xmin, xmax, ymin, ymax, zmin, zmax); 'point'/'xyzxyz' is
-        (xmin, ymin, zmin, xmax, ymax, zmax).
+    Args:
+        xmin: Per-cuboid lower x bounds (one entry per candidate cuboid).
+        xmax: Per-cuboid upper x bounds, the same length as `xmin`.
+        ymin: Per-cuboid lower y bounds, the same length as `xmin`.
+        ymax: Per-cuboid upper y bounds, the same length as `xmin`.
+        zmin: Per-cuboid lower z bounds, the same length as `xmin`. For the IVERT
+            granule index the "z" axis carries time (tmin/tmax), but the math is
+            identical for any third axis.
+        zmax: Per-cuboid upper z bounds, the same length as `xmin`.
+        query: A single cuboid to test every candidate against, in `bbox_order`
+            layout.
+        tol: Small tolerance for floating-point comparisons.
+        bbox_order: Layout of `query` (see cuboids_intersect): 'axis'/'xxyyzz'
+            (default) is (xmin, xmax, ymin, ymax, zmin, zmax); 'point'/'xyzxyz'
+            is (xmin, ymin, zmin, xmax, ymax, zmax).
 
-    Returns
-    -------
-    numpy.ndarray
-        Boolean mask, True wherever the candidate intersects `query` by positive
-        volume (same strict-inequality, tolerance-based test as cuboids_intersect).
+    Returns:
+        numpy.ndarray: Boolean mask, True wherever the candidate intersects
+            `query` by positive volume (same strict-inequality, tolerance-based
+            test as cuboids_intersect).
 
     """
     bbox_order = bbox_order.lower().strip()

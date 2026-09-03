@@ -72,11 +72,10 @@ def process_parallel(
 ) -> None:
     """Most of my parallel processing involves working on a list of files.
 
-    Parameters
-    ----------
+    Args:
         target_func (function): process to be executed.
         args_lists (list of lists): A list of arguments to be fed to the function, in the order listed.
-        kwargs_lists (list of dicts, or dict): A list of keyword-argument dictinoaries to be fed to the function.
+        kwargs_list (list of dicts, or dict): A list of keyword-argument dictionaries to be fed to the function.
         outfiles (list, optional): A list of output files that the functions will create.
         proc_names (list, optional): A list of function names to identify each process. Only used if outfiles is not provided.
         temp_working_dirs (list of paths, optional): A list of temporary-directory pathnames to be created as the working-directory
@@ -85,8 +84,14 @@ def process_parallel(
                 Directories must be in a parent directory that already exists.
         overwrite_outfiles (bool): If output files (listed in outfiles) already exist, delete them and overwrite. Otherwise,
                 skip processes in which outfiles already exist.
+        max_nprocs (int, optional): Maximum number of processes to run at once. Defaults to the
+                physical CPU count.
+        use_progress_bar_only (bool): Report progress with the progress bar alone, instead of
+                printing a confirmation line as each process finishes.
         abbreviate_outfile_names_in_stdout (bool): Abbreviate the outfile names to the filename only (omit the path) for
                  brevity of output messages.
+        delete_partially_done_files (bool): If an exception interrupts the run, delete the
+                outfiles of the processes that were still running. Defaults to True.
 
     """
     # Fill in the number of procs with the default if not provided.

@@ -90,7 +90,6 @@ ignore = [
     "D104",     # undocumented-public-package
     "D107",     # undocumented-public-init
     "D401",     # non-imperative-mood
-    "D417",     # undocumented-param
     "E501",     # line-too-long
     "EM101",    # raw-string-in-exception
     "EM102",    # f-string-in-exception
@@ -133,6 +132,9 @@ ignore = [
     "TRY003",   # raise-vanilla-args
     "TRY004",   # type-check-without-type-error
 ]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
 
 [tool.ruff.lint.per-file-ignores]
 "conf.py" = ["A001"]

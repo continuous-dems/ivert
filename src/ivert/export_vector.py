@@ -106,8 +106,7 @@ def nc_to_geodataframe(
 ) -> geopandas.GeoDataFrame:
     """Read a single .nc granule file and return a GeoDataFrame.
 
-    Parameters
-    ----------
+    Args:
     nc_path : str
         Path to the .nc file.
     classes : list of int, optional
@@ -255,21 +254,18 @@ def write_vector(
 def normalize_format_keys(output_format: str, allowed=None) -> list:
     """Parse a comma-separated output-format string into a validated list of format keys.
 
-    Parameters
-    ----------
+    Args:
     output_format : str
         One format key or a comma-separated combination (e.g. "gpkg,shp,xyz").
     allowed : iterable of str, optional
         Restrict which format keys are accepted. Defaults to every key in
         SUPPORTED_FORMATS.
 
-    Returns
-    -------
+    Returns:
     list of str
         The format keys in the order given, with duplicates removed.
 
-    Raises
-    ------
+    Raises:
     ValueError
         If no format is given or an unsupported format is requested.
 

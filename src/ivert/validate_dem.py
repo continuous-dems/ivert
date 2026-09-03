@@ -608,6 +608,9 @@ def validate_dem(
             Typically ignored for a single DEM validation.
         band_num (int): The raster band to use in the DEMs. 1-indexed. Defaults to 1 (first band).
         dem_vertical_datum: (str, int): The vertical datum of the DEM. Defaults to "egm2008".
+        dem_ndv (float, None): No-data value to exclude from the DEM pixels before validation.
+            Overrides any no-data value in the DEM file header. Defaults to None, which uses the
+            file header value, falling back to the config default (dem_default_ndv).
         interim_data_dir (str): Output directory for intermediate data. Defaults to the same as the output_dir.
         overwrite (bool): Overwrite existing files.
         delete_datafiles (bool): Delete intermediate data files after validation is complete.
@@ -633,6 +636,12 @@ def validate_dem(
         subdivision_number (int): The current recursion depth of this subdivision. Will not subdivide further if
             subdivision_number == max_subdivides.
         orig_dem_name (str): Name of the original DEM file. Only used for error messages.
+        min_confidence_level (int): Minimum ATL03 signal confidence level to use (1-4). Photons
+            below this level are excluded from validation. 1=low (keep all), 2=medium, 3=high,
+            4=very-high. Defaults to 4.
+        min_bathy_confidence (float): Minimum ATL24 bathymetry confidence to use (0.0-1.0).
+            Bathy-floor photons (class 40) below this confidence are excluded from validation.
+            Defaults to 0.90.
         export_error_formats (str, list, None): GIS formats to export the per-cell errors into,
             as a comma-separated string or list drawn from 'tif', 'gpkg', 'shp', 'xyz'. Defaults
             to None, which uses the 'export_error_formats' config value.

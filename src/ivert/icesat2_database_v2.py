@@ -220,19 +220,16 @@ class IS2Database:
     ) -> pd.DataFrame:
         """Create a new database from scratch.
 
-        Parameters
-        ----------
+        Args:
         populate : bool
             Whether to populate the database with the data from the tiles.
         overwrite : bool
             Whether to overwrite the database if it already exists.
 
-        Raises
-        ------
+        Raises:
         OSError if database file cannot be created or already exists and overwrite is False.
 
-        Returns
-        -------
+        Returns:
         pandas.DataFrame containing the granule records from the database.
 
         """
@@ -310,8 +307,7 @@ class IS2Database:
           * index missing, but granules on disk -> warn and rebuild it in place.
           * neither one                         -> DatabaseNotFoundError.
 
-        Raises
-        ------
+        Raises:
         DatabaseNotFoundError if no index file exists and there are no granules
         to rebuild it from.
 
@@ -837,13 +833,11 @@ class IS2Database:
     ):
         """Get the index DataFrame from the database.
 
-        Parameters
-        ----------
+        Args:
         force_reread : bool
             If True, read the file again even if we've already read the database into memory.
 
-        Returns
-        -------
+        Returns:
         pandas.DataFrame of the granule records in the database (bounding boxes
         held as the scalar query_bbox_* / data_bbox_* columns; no geometry).
         None if no current database file exists locally.
@@ -947,8 +941,7 @@ class IS2Database:
     ) -> pd.DataFrame:
         """Read classified photons from a NetCDF granule file.
 
-        Parameters
-        ----------
+        Args:
         granule_fn : str
             Path to a processed .nc granule file in the granules directory.
         subset_bbox : list or tuple, optional
@@ -956,8 +949,7 @@ class IS2Database:
         photon_classes : list or tuple, optional
             Photon class codes to return. Defaults to (1, 40) (ground and bathy floor).
 
-        Returns
-        -------
+        Returns:
         pandas.DataFrame with columns x, y, z, class_code, bathy_confidence, delta_time.
 
         """
@@ -1010,8 +1002,7 @@ class IS2Database:
     ) -> pd.DataFrame | None:
         """Query the database for photons in a given bounding box and date range.
 
-        Parameters
-        ----------
+        Args:
             bbox : list, tuple, or None
                 Bounding box to limit the data to, in [xmin, xmax, ymin, ymax, tmin, tmax]. Must be in WGS84 (EPSG: 4326)
                 coordinates, and yyyymmdd integers for the date. Date range is not inclusive of the max date.
@@ -1022,11 +1013,14 @@ class IS2Database:
                 The minimum ATL24 confidence for bathymetric (class 40) photons to include (0.0-1.0).
             min_confidence_level : int
                 The minimum ATL03 signal confidence level to include (1-4). 1 keeps all photons.
+            omit_bboxes : list, tuple, or None
+                Bounding box(es) whose photons are dropped from the results. Accepts a
+                single 4- or 6-value bbox, or a sequence of them. Defaults to None,
+                which excludes nothing.
             # download_new_data : bool
             #     Whether to download new ICESat-2 data from NASA if the current database doesn't contain the entire bounding box.
 
-        Returns
-        -------
+        Returns:
             pandas.DataFrame containing classified photons that fit in the bounding box and date range.
             If no photons are found, return None.
 
@@ -1575,20 +1569,17 @@ class IS2Database:
     def bounds(self, axis: str, data_or_query: str = "data") -> tuple | None:
         """Return the min, max bounds of each entry in the database, on the axis requested ('x', 'y', or 't').
 
-        Parameters
-        ----------
+        Args:
         axis : str
             The axis to get bounds for. Must be one of 'x', 'y', or 't'.
         data_or_query : str, optional
             Whether to use the data bounds or query-box bounds, by default "data".
             Must be one of "data" or "query".
 
-        Raises
-        ------
+        Raises:
         ValueError if parameters are invalid.
 
-        Returns
-        -------
+        Returns:
         list or None
             A 2-tuple containing (min, max) values for the requested axis.
             Returns None if no data is available or if invalid parameters are provided.
@@ -1632,23 +1623,23 @@ class IS2Database:
 
         This is useful to see what query bounding-boxes have already been populated in the database.
 
-        Parameters
-        ----------
-        data_or_query : str, optional
-            Whether to use the data bounds or query-box bounds, by default "query".
-            Must be one of "data" or "query".
+        Args:
+            gdf : pandas.DataFrame, optional
+                An already-loaded granule index to read the boxes from. When None
+                (the default), the database index is opened with open_gdf().
+            data_or_query : str, optional
+                Whether to use the data bounds or query-box bounds, by default "query".
+                Must be one of "data" or "query".
 
-        Raises
-        ------
-        ValueError
-            If data_or_query parameter is invalid or not one of 'data' or 'query'.
+        Raises:
+            ValueError
+                If data_or_query parameter is invalid or not one of 'data' or 'query'.
 
-        Returns
-        -------
-        list or None
-            List of unique bounding boxes from the database, where each box is a 6-tuple
-            containing (xmin, xmax, ymin, ymax, tmin, tmax).
-            Returns None if no data is available in the database.
+        Returns:
+            list or None
+                List of unique bounding boxes from the database, where each box is a 6-tuple
+                containing (xmin, xmax, ymin, ymax, tmin, tmax).
+                Returns None if no data is available in the database.
 
         """
         if gdf is None:
@@ -1724,8 +1715,7 @@ class IS2Database:
     def bbox_valid(bbox: list | tuple) -> bool:
         """Validate a bounding box. Make sure all min-max values are correctly ordered.
 
-        Parameters
-        ----------
+        Args:
         bbox : list or tuple
             A 6-item bounding box in [xmin, xmax, ymin, ymax, tmin, tmax] format where t is YYYYMMDD.
             In each case, the following cases must be true:
@@ -1733,8 +1723,7 @@ class IS2Database:
                 ymin < ymax
                 tmin <= tmax
 
-        Returns
-        -------
+        Returns:
             Boolean, True if all conditions are met, False if not.
 
         """
@@ -1744,18 +1733,15 @@ class IS2Database:
     def filter_query_bbox(self, query_bbox: list | tuple) -> list[tuple]:
         """Given an (x,y,t) ICESat-2 bounding box, remove existing regions and return bboxes for the rest of the data.
 
-        Parameters
-        ----------
+        Args:
         query_bbox : list or tuple
             The input bounding box to filter, in [xmin, xmax, ymin, ymax, tmin, tmax] format where t is YYYYMMDD.
 
-        Raises
-        ------
+        Raises:
         ValueError
             If query_bbox is not in the correct format or contains invalid values.
 
-        Returns
-        -------
+        Returns:
         List of bounding boxes that represent areas not already in the database,
             where each box is a 6-tuple containing (xmin, xmax, ymin, ymax, tmin, tmax).
             tmin and tmax are in YYYYMMDD format and are inclusive.
