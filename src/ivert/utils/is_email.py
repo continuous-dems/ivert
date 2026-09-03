@@ -7,7 +7,7 @@ def is_email(email: str) -> bool:
     Just checks syntax, doesn't check if the email address actually exists on an SMTP server or points to the right person.
 
     Args:
-        email (str): The email address to check.
+        email: The email address to check.
 
     Returns:
         bool: True if the string is a syntactically valid email address, False otherwise.
@@ -20,7 +20,7 @@ def return_email(email: str) -> str:
     """Return the email address if it is syntactically valid.
 
     Args:
-        email (str): The email address to check.
+        email: The email address to check.
 
     Returns:
         str: The email address if it is syntactically valid.

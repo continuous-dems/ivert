@@ -594,58 +594,58 @@ def validate_dem(
     and re-try, to a max recursion depth of max_subdivides.
 
     Args:
-        dem_name (str): Name of the DEM file to validate.
-        output_dir (str): Output directory for results.
-        dates (None, list, tuple): 2-tuple of photon dates (mutually inclusive) for ICESat-2 data to use in this
+        dem_name: Name of the DEM file to validate.
+        output_dir: Output directory for results.
+        dates: 2-tuple of photon dates (mutually inclusive) for ICESat-2 data to use in this
             validation. Default: use all dates available in the database.
-        classes (list, tuple): The ICESat-2 photon classes to use for validation. Photons in any other
+        classes: The ICESat-2 photon classes to use for validation. Photons in any other
             class are dropped before any statistics are computed. Default: [1, 6, 40], meaning ground (1),
             land ice (6), and bathy floor (40). Run 'ivert classes' for the full list of codes.
-        shared_ret_values (dict, None): Shared return values from validate_dem_parallel. This is an analagous way to get
+        shared_ret_values: Shared return values from validate_dem_parallel. This is an analagous way to get
             the return values back from the calling function if this is called as a sub-process.
-        icesat2_photon_database_obj (icesat2_database_v2.IS2Database): icesat-2 photon database object. Only
+        icesat2_photon_database_obj: icesat-2 photon database object. Only
             used if we've already created one, such as in validate_dem_collection, for efficiency.
             Typically ignored for a single DEM validation.
-        band_num (int): The raster band to use in the DEMs. 1-indexed. Defaults to 1 (first band).
-        dem_vertical_datum: (str, int): The vertical datum of the DEM. Defaults to "egm2008".
-        dem_ndv (float, None): No-data value to exclude from the DEM pixels before validation.
+        band_num: The raster band to use in the DEMs. 1-indexed. Defaults to 1 (first band).
+        dem_vertical_datum: The vertical datum of the DEM. Defaults to "egm2008".
+        dem_ndv: No-data value to exclude from the DEM pixels before validation.
             Overrides any no-data value in the DEM file header. Defaults to None, which uses the
             file header value, falling back to the config default (dem_default_ndv).
-        interim_data_dir (str): Output directory for intermediate data. Defaults to the same as the output_dir.
-        overwrite (bool): Overwrite existing files.
-        delete_datafiles (bool): Delete intermediate data files after validation is complete.
-        write_summary_stats (bool): Write summary statistics of results to a textfile.
-        outliers_sd_threshold (float): Threshold for outlier detection in errors. Defaults to 2.5.
-        include_photon_level_validation (bool): Include photon level validation (not just cell-level validation).
-        plot_results (bool): Plot results.
-        location_name (str): Name of the location being validated.
-        mark_empty_results (bool): Mark results that are empty in an "_EMPTY.txt" file.
-        measure_coverage (bool): Measure the coverage of ICESat-2 photons within each grid-cell.
-        min_coverage_pct (float): If set, drop grid cells whose measured coverage is below this
+        interim_data_dir: Output directory for intermediate data. Defaults to the same as the output_dir.
+        overwrite: Overwrite existing files.
+        delete_datafiles: Delete intermediate data files after validation is complete.
+        write_summary_stats: Write summary statistics of results to a textfile.
+        outliers_sd_threshold: Threshold for outlier detection in errors. Defaults to 2.5.
+        include_photon_level_validation: Include photon level validation (not just cell-level validation).
+        plot_results: Plot results.
+        location_name: Name of the location being validated.
+        mark_empty_results: Mark results that are empty in an "_EMPTY.txt" file.
+        measure_coverage: Measure the coverage of ICESat-2 photons within each grid-cell.
+        min_coverage_pct: If set, drop grid cells whose measured coverage is below this
             percentage (0-100) from the validation results, stats, and plots. Requires
             measure_coverage=True (coverage must be measured to filter on it). Defaults to None
             (no coverage filtering).
-        max_photons_per_cell (int): Maximum number of photons per cell.
-        min_photons_per_cell (int): Minimum number of photons a grid cell must contain to be
+        max_photons_per_cell: Maximum number of photons per cell.
+        min_photons_per_cell: Minimum number of photons a grid cell must contain to be
             validated. Cells with fewer photons are omitted from the results entirely. Cells with
             at least INTERDECILE_MIN_PHOTONS photons have their outliers trimmed to the interdecile
             range before their statistics are computed; cells below that use every photon they
             contain. Defaults to 3.
-        numprocs (int): Number of processes to use for parallelized validation.
-        max_subdivides (int): Maximum number of times to subdivide the DEM in quarters before giving up.
-        subdivision_number (int): The current recursion depth of this subdivision. Will not subdivide further if
+        numprocs: Number of processes to use for parallelized validation.
+        max_subdivides: Maximum number of times to subdivide the DEM in quarters before giving up.
+        subdivision_number: The current recursion depth of this subdivision. Will not subdivide further if
             subdivision_number == max_subdivides.
-        orig_dem_name (str): Name of the original DEM file. Only used for error messages.
-        min_confidence_level (int): Minimum ATL03 signal confidence level to use (1-4). Photons
+        orig_dem_name: Name of the original DEM file. Only used for error messages.
+        min_confidence_level: Minimum ATL03 signal confidence level to use (1-4). Photons
             below this level are excluded from validation. 1=low (keep all), 2=medium, 3=high,
             4=very-high. Defaults to 4.
-        min_bathy_confidence (float): Minimum ATL24 bathymetry confidence to use (0.0-1.0).
+        min_bathy_confidence: Minimum ATL24 bathymetry confidence to use (0.0-1.0).
             Bathy-floor photons (class 40) below this confidence are excluded from validation.
             Defaults to 0.90.
-        export_error_formats (str, list, None): GIS formats to export the per-cell errors into,
+        export_error_formats: GIS formats to export the per-cell errors into,
             as a comma-separated string or list drawn from 'tif', 'gpkg', 'shp', 'xyz'. Defaults
             to None, which uses the 'export_error_formats' config value.
-        exclude_zones (list, None): Zones to exclude ICESat-2 photons from before validation.
+        exclude_zones: Zones to exclude ICESat-2 photons from before validation.
             Each item is either a 4-value (minx, miny, maxx, maxy) bounding box in the DEM's own
             horizontal CRS, or a path to a vector file (.shp, .geojson, .gpkg) containing exclusion
             polygon(s) in any CRS. Photons falling within any zone are dropped. Defaults to None

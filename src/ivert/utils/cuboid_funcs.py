@@ -231,23 +231,20 @@ def merge_cuboids(cuboids, tol=1e-10, bbox_order="point"):
     """Merge overlapping or face-adjacent axis-aligned cuboids into a minimal set.
 
     Args:
-    cuboids : list[tuple]
-        Each cuboid as (xmin, ymin, zmin, xmax, ymax, zmax) if bbox_order="point"
-        Each cuboid as (xmin, xmax, ymin, ymax, zmin, zmax) if bbox_order="axis"
-    tol : float
-        Numerical tolerance for equality checks.
-    bbox_order : str
-        Alignment of the bbox coordinates.
-        If 'point' or 'xyzxyz', the coordinates are assumed to be in (x1, y1, z1, x2, y2, z2) format, defining the first point (0:3) and second point (3:6)
-        if 'axis' or 'xxyyzz', the coordinates are asummed to be in (x1, x2, y1, y2, z1, z2) format, defining the coords in the x (0:2), y (2:4), and z (4:6) directions.
-        Raise ValueError if bbox_order is not 'point' or 'axis'.
+        cuboids (list[tuple]): Each cuboid as (xmin, ymin, zmin, xmax, ymax, zmax) if bbox_order="point"
+            Each cuboid as (xmin, xmax, ymin, ymax, zmin, zmax) if bbox_order="axis"
+        tol (float): Numerical tolerance for equality checks.
+        bbox_order (str): Alignment of the bbox coordinates.
+            If 'point' or 'xyzxyz', the coordinates are assumed to be in (x1, y1, z1, x2, y2, z2) format, defining the first point (0:3) and second point (3:6)
+            if 'axis' or 'xxyyzz', the coordinates are asummed to be in (x1, x2, y1, y2, z1, z2) format, defining the coords in the x (0:2), y (2:4), and z (4:6) directions.
+            Raise ValueError if bbox_order is not 'point' or 'axis'.
 
     Raises:
-    ValueError: If some other order besides "point" or "axis" is given.
+        ValueError: If some other order besides "point" or "axis" is given.
 
     Returns:
-    list[tuple]
-        Simplified list of merged cuboids.
+        list[tuple]
+            Simplified list of merged cuboids.
 
     """
     cuboids = [tuple(map(float, c)) for c in cuboids]

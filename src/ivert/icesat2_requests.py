@@ -56,19 +56,13 @@ class ICESat2RequestsCSV:
         """Return the cached Harmony JSON for a matching request, or None.
 
         Args:
-            atl_dataset : str
-                Short name, e.g. "ATL03".
-            bbox : tuple
-                6-tuple (xmin, xmax, ymin, ymax, tmin, tmax).
-            auto_clean_csv : bool
-                When True, drop expired records from the CSV before searching, which
+            atl_dataset: Short name, e.g. "ATL03".
+            bbox (tuple): 6-tuple (xmin, xmax, ymin, ymax, tmin, tmax).
+            auto_clean_csv: When True, drop expired records from the CSV before searching, which
                 also makes `only_unexpired` redundant. Defaults to False.
-            only_unexpired : bool
-                When True (default), ignore records whose dataExpiration has passed.
-            tolerance : float
-                Absolute tolerance for matching each bbox coordinate. Defaults to 1e-9.
-            return_rows : bool
-                When True, return the matching DataFrame rows instead of the JSON dict.
+            only_unexpired: When True (default), ignore records whose dataExpiration has passed.
+            tolerance: Absolute tolerance for matching each bbox coordinate. Defaults to 1e-9.
+            return_rows: When True, return the matching DataFrame rows instead of the JSON dict.
 
         """
         if self.df is None:

@@ -82,15 +82,15 @@ def process_parallel(
                 of each function. Useful if the function creates temporary files. These directories will be created, and then
                 destroyed with the function exits, so don't list any directories that contain other data you may need.
                 Directories must be in a parent directory that already exists.
-        overwrite_outfiles (bool): If output files (listed in outfiles) already exist, delete them and overwrite. Otherwise,
+        overwrite_outfiles: If output files (listed in outfiles) already exist, delete them and overwrite. Otherwise,
                 skip processes in which outfiles already exist.
-        max_nprocs (int, optional): Maximum number of processes to run at once. Defaults to the
+        max_nprocs: Maximum number of processes to run at once. Defaults to the
                 physical CPU count.
-        use_progress_bar_only (bool): Report progress with the progress bar alone, instead of
+        use_progress_bar_only: Report progress with the progress bar alone, instead of
                 printing a confirmation line as each process finishes.
-        abbreviate_outfile_names_in_stdout (bool): Abbreviate the outfile names to the filename only (omit the path) for
+        abbreviate_outfile_names_in_stdout: Abbreviate the outfile names to the filename only (omit the path) for
                  brevity of output messages.
-        delete_partially_done_files (bool): If an exception interrupts the run, delete the
+        delete_partially_done_files: If an exception interrupts the run, delete the
                 outfiles of the processes that were still running. Defaults to True.
 
     """
