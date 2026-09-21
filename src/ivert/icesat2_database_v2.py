@@ -1897,6 +1897,7 @@ class IS2Database:
                 "ATL03",
                 sbbox,
                 only_unexpired=True,
+                atl_version=atl_version,
             )
             if cached:
                 # Ping Harmony to verify the cached job completed without errors.
@@ -1935,7 +1936,12 @@ class IS2Database:
                         n_granules,
                         mod.subset_job_id,
                     )
-                    requests_csv.add_record("ATL03", sbbox, harmony_status)
+                    requests_csv.add_record(
+                        "ATL03",
+                        sbbox,
+                        harmony_status,
+                        atl_version=atl_version,
+                    )
 
             mod.run()
 

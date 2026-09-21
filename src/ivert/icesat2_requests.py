@@ -25,6 +25,8 @@ class ICESat2RequestsCSV:
 
     CSV columns:
         atl_dataset     — e.g. "ATL03"
+        atl_version     — NSIDC version the job asked for, e.g. "007". Empty in
+                          records written before this column existed.
         bbox            — 6-tuple (xmin, xmax, ymin, ymax, tmin, tmax)
         creation_date   — ISO-8601 string from Harmony
         expiration_date — ISO-8601 string from Harmony
@@ -52,6 +54,7 @@ class ICESat2RequestsCSV:
         only_unexpired: bool = True,
         tolerance: float = 1e-9,
         return_rows: bool = False,
+        atl_version: str | None = None,
     ) -> dict | pd.DataFrame | None:
         """Return the cached Harmony JSON for a matching request, or None.
 
@@ -63,6 +66,9 @@ class ICESat2RequestsCSV:
             only_unexpired: When True (default), ignore records whose dataExpiration has passed.
             tolerance: Absolute tolerance for matching each bbox coordinate. Defaults to 1e-9.
             return_rows: When True, return the matching DataFrame rows instead of the JSON dict.
+            atl_version: When given (e.g. "007"), only match records of jobs that asked for that
+                version. Records with no version recorded never match, so a job submitted
+                before the version was tracked is not re-used. Defaults to None (any version).
 
         """
         if self.df is None:
@@ -74,6 +80,9 @@ class ICESat2RequestsCSV:
         matching_mask = self.df["bbox"].apply(
             lambda b: self._bbox_match(b, bbox, tolerance),
         ) & (self.df["atl_dataset"] == atl_dataset.upper().strip())
+
+        if atl_version is not None:
+            matching_mask = matching_mask & (self.df["atl_version"] == atl_version)
 
         if only_unexpired and not auto_clean_csv:
             matching_mask = matching_mask & ~self.df["expiration_date"].apply(
@@ -92,6 +101,7 @@ class ICESat2RequestsCSV:
         query_bbox,
         json_dict,
         write_file: bool = True,
+        atl_version: str = "",
     ):
         """Append a new Harmony job record."""
         if self.df is None:
@@ -109,6 +119,7 @@ class ICESat2RequestsCSV:
             [
                 {
                     "atl_dataset": atl_dataset,
+                    "atl_version": atl_version,
                     "bbox": query_bbox,
                     "creation_date": json_dict.get("createdAt", ""),
                     "expiration_date": json_dict.get("dataExpiration", ""),
@@ -173,7 +184,12 @@ class ICESat2RequestsCSV:
             num_tries = 0
             while num_tries < 20:
                 try:
-                    self.df = pd.read_csv(self.csv_file, index_col=False)
+                    # Read the version as text, or "007" comes back as the number 7.
+                    self.df = pd.read_csv(
+                        self.csv_file,
+                        index_col=False,
+                        dtype={"atl_version": str},
+                    )
                     break
                 except (TypeError, pd.errors.ParserError):
                     num_tries += 1
@@ -181,6 +197,10 @@ class ICESat2RequestsCSV:
                         raise
                     time.sleep(0.001)
             self.df["bbox"] = self.df["bbox"].apply(ast.literal_eval)
+            # Files written before the version was tracked have no such column.
+            if "atl_version" not in self.df.columns:
+                self.df.insert(1, "atl_version", "")
+            self.df["atl_version"] = self.df["atl_version"].fillna("")
         elif create_if_nonexistent:
             self._create_empty()
         else:
@@ -214,6 +234,7 @@ class ICESat2RequestsCSV:
         self.df = pd.DataFrame(
             columns=[
                 "atl_dataset",
+                "atl_version",
                 "bbox",
                 "creation_date",
                 "expiration_date",
