@@ -227,8 +227,31 @@ def subtract_cuboids(a, b, tol=1e-10, bbox_order="point"):
     return clean
 
 
-def merge_cuboids(cuboids, tol=1e-10, bbox_order="point"):
+def _normalize_merge_preference(prefer):
+    """Return None, "row" or "column" for a merge_cuboids ``prefer`` value."""
+    if prefer is None:
+        return None
+    key = str(prefer).strip().lower()
+    if key in ("row", "rows", "r"):
+        return "row"
+    if key in ("column", "columns", "col", "c"):
+        return "column"
+    raise ValueError(
+        f"Invalid prefer: {prefer!r}. Must be None, 'row'/'r' or 'column'/'c'.",
+    )
+
+
+def merge_cuboids(cuboids, tol=1e-10, bbox_order="point", prefer=None):
     """Merge overlapping or face-adjacent axis-aligned cuboids into a minimal set.
+
+    The merge is greedy, and pairs are tried in list order, so a set of cells that
+    could be merged into either east-west strips or north-south strips comes out
+    however the order of the input happens to fall. By default that is what
+    happens. With ``prefer``, the cuboids are instead merged twice: once along x
+    first (into rows, i.e. east-west strips) and once along y first (into columns,
+    i.e. north-south strips), each followed by the full merge, and whichever yields
+    fewer cuboids wins; when both yield the same number, the preferred one is
+    returned.
 
     Args:
         cuboids (list[tuple]): Each cuboid as (xmin, ymin, zmin, xmax, ymax, zmax) if bbox_order="point"
@@ -238,9 +261,14 @@ def merge_cuboids(cuboids, tol=1e-10, bbox_order="point"):
             If 'point' or 'xyzxyz', the coordinates are assumed to be in (x1, y1, z1, x2, y2, z2) format, defining the first point (0:3) and second point (3:6)
             if 'axis' or 'xxyyzz', the coordinates are asummed to be in (x1, x2, y1, y2, z1, z2) format, defining the coords in the x (0:2), y (2:4), and z (4:6) directions.
             Raise ValueError if bbox_order is not 'point' or 'axis'.
+        prefer (str | None): None (the default) merges in the given order only.
+            'row' (or 'r') and 'column' (or 'c'), in any capitalization and with
+            surrounding whitespace ignored, try both orientations and break a tie in
+            favour of that one.
 
     Raises:
-        ValueError: If some other order besides "point" or "axis" is given.
+        ValueError: If some other order besides "point" or "axis" is given, or
+            ``prefer`` is not one of the accepted values.
 
     Returns:
         list[tuple]
@@ -248,7 +276,7 @@ def merge_cuboids(cuboids, tol=1e-10, bbox_order="point"):
 
     """
     cuboids = [tuple(map(float, c)) for c in cuboids]
-    merged = True
+    prefer = _normalize_merge_preference(prefer)
 
     bbox_order = bbox_order.lower().strip()
 
@@ -265,8 +293,11 @@ def merge_cuboids(cuboids, tol=1e-10, bbox_order="point"):
             f"Invalid bbox_order: {bbox_order}. Must be 'point', 'axis', 'xyzxyz', or 'xxyyzz'.",
         )
 
-    def can_merge(a, b):
-        """Return merged cuboid if a and b are mergeable, else None."""
+    def can_merge(a, b, along=None):
+        """Return merged cuboid if a and b are mergeable, else None.
+
+        With ``along`` set to "x", "y" or "z", only a merge along that axis counts.
+        """
         ax1, ay1, az1, ax2, ay2, az2 = a
         bx1, by1, bz1, bx2, by2, bz2 = b
 
@@ -278,7 +309,8 @@ def merge_cuboids(cuboids, tol=1e-10, bbox_order="point"):
         # Must be aligned exactly in 2 axes, and touching or overlapping in the third
         # Case 1: merge along X
         if (
-            abs(ay1 - by1) < tol
+            along in (None, "x")
+            and abs(ay1 - by1) < tol
             and abs(ay2 - by2) < tol
             and abs(az1 - bz1) < tol
             and abs(az2 - bz2) < tol
@@ -288,7 +320,8 @@ def merge_cuboids(cuboids, tol=1e-10, bbox_order="point"):
 
         # Case 2: merge along Y
         if (
-            abs(ax1 - bx1) < tol
+            along in (None, "y")
+            and abs(ax1 - bx1) < tol
             and abs(ax2 - bx2) < tol
             and abs(az1 - bz1) < tol
             and abs(az2 - bz2) < tol
@@ -298,7 +331,8 @@ def merge_cuboids(cuboids, tol=1e-10, bbox_order="point"):
 
         # Case 3: merge along Z
         if (
-            abs(ax1 - bx1) < tol
+            along in (None, "z")
+            and abs(ax1 - bx1) < tol
             and abs(ax2 - bx2) < tol
             and abs(ay1 - by1) < tol
             and abs(ay2 - by2) < tol
@@ -308,14 +342,18 @@ def merge_cuboids(cuboids, tol=1e-10, bbox_order="point"):
 
         # Case 4: One completely supercedes the other, even if edges don't align.
         if (
-            ax1 <= bx1
-            and ax2 >= bx2
-            and ay1 <= by1
-            and ay2 >= by2
-            and az1 <= bz1
-            and az2 >= bz2
+            along is None
+            and (
+                ax1 <= bx1
+                and ax2 >= bx2
+                and ay1 <= by1
+                and ay2 >= by2
+                and az1 <= bz1
+                and az2 >= bz2
+            )
         ) or (
-            bx1 <= ax1
+            along is None
+            and bx1 <= ax1
             and bx2 >= ax2
             and by1 <= ay1
             and by2 >= ay2
@@ -331,32 +369,48 @@ def merge_cuboids(cuboids, tol=1e-10, bbox_order="point"):
 
         return None
 
-    cuboids = cuboids[:]
-    while merged:
-        merged = False
-        new_cuboids = []
-        skip = set()
+    def greedy_merge(cuboids, along=None):
+        """Merge pairs in list order until nothing more merges (see can_merge)."""
+        cuboids = cuboids[:]
+        merged = True
+        while merged:
+            merged = False
+            new_cuboids = []
+            skip = set()
 
-        for i in range(len(cuboids)):
-            if i in skip:
-                continue
-            a = cuboids[i]
-            merged_with = False
-            for j in range(i + 1, len(cuboids)):
-                if j in skip:
+            for i in range(len(cuboids)):
+                if i in skip:
                     continue
-                b = cuboids[j]
-                merged_c = can_merge(a, b)
-                if merged_c:
-                    new_cuboids.append(merged_c)
-                    skip.add(j)
-                    merged_with = True
-                    merged = True
-                    break
-            if not merged_with and i not in skip:
-                new_cuboids.append(a)
+                a = cuboids[i]
+                merged_with = False
+                for j in range(i + 1, len(cuboids)):
+                    if j in skip:
+                        continue
+                    b = cuboids[j]
+                    merged_c = can_merge(a, b, along)
+                    if merged_c:
+                        new_cuboids.append(merged_c)
+                        skip.add(j)
+                        merged_with = True
+                        merged = True
+                        break
+                if not merged_with and i not in skip:
+                    new_cuboids.append(a)
 
-        cuboids = new_cuboids
+            cuboids = new_cuboids
+        return cuboids
+
+    if prefer is None:
+        cuboids = greedy_merge(cuboids)
+    else:
+        # Form the strips of the wanted orientation first, then let the full
+        # merge join whatever strips still line up.
+        by_row = greedy_merge(greedy_merge(cuboids, along="x"))
+        by_column = greedy_merge(greedy_merge(cuboids, along="y"))
+        if len(by_row) == len(by_column):
+            cuboids = by_row if prefer == "row" else by_column
+        else:
+            cuboids = min(by_row, by_column, key=len)
 
     # Deduplicate & clean zero-volume
     result = []
