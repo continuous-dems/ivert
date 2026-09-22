@@ -9,6 +9,7 @@ import netCDF4  # noqa: F401
 # isort: split
 
 import datetime
+import itertools
 import logging
 import os
 import re
@@ -22,6 +23,8 @@ import fetchez.spatial
 import globato
 import numpy as np
 import pandas as pd
+import shapely
+import shapely.prepared
 import xarray
 from fetchez.modules.earthdata import IceSat2 as _FetchezIceSat2
 
@@ -1200,6 +1203,7 @@ class IS2Database:
         min_confidence_level: int = 1,
         cache_subdir: str | None = None,
         replace: bool = False,
+        geometry: shapely.Geometry | None = None,
     ) -> DownloadSummary:
         """Download ICESat-2 ATL03 granules from NASA using fetchez and register them in the database.
 
@@ -1207,6 +1211,14 @@ class IS2Database:
         Only downloads granules covering bboxes not already in the database, unless 'replace' is True,
         in which case the full requested bbox is (re-)downloaded and any existing granules it overlaps
         are replaced with the newly-downloaded data.
+
+        If ``geometry`` (a shapely polygon or multipolygon in WGS84) is given, the
+        horizontal part of ``bbox`` is ignored in favour of the geometry: it is
+        tiled into 1-degree squares, the squares that do not overlap it are dropped,
+        and the rest are merged into as few rectangles as possible, each of which is
+        one request to fetchez (see :func:`tile_geometry_into_bboxes`). The
+        ``split_big_bboxes`` tiling is not applied on top of that. Only the time
+        range of ``bbox`` is used then.
 
         Returns a :class:`DownloadSummary` counting how each sub-region of the request
         turned out, so callers can tell a download that failed from one that succeeded
@@ -1252,14 +1264,33 @@ class IS2Database:
                     )
                     return DownloadSummary(parts_failed=1)
 
+        # The regions actually asked for: the bbox itself, or the rectangles that
+        # cover the geometry.
+        tmin, tmax = int(bbox[4]), int(bbox[5])
+        if geometry is None:
+            requested = [tuple(bbox)]
+        else:
+            requested = [
+                (*tile, tmin, tmax) for tile in tile_geometry_into_bboxes(geometry)
+            ]
+            if len(requested) == 0:
+                logger.info(
+                    "The requested area has no extent. Nothing to download.",
+                )
+                return DownloadSummary()
+            logger.info(
+                "The requested area is covered by %d rectangular query region(s).",
+                len(requested),
+            )
+
         if replace:
-            bboxes = [tuple(bbox)]
+            bboxes = requested
             logger.info(
                 "--replace enabled: re-downloading the full requested region and "
                 "overwriting any overlapping existing granules.",
             )
         else:
-            bboxes = self.filter_query_bbox(bbox)
+            bboxes = self.filter_query_bboxes(requested)
 
             if len(bboxes) == 0:
                 logger.info(
@@ -1267,14 +1298,19 @@ class IS2Database:
                 )
                 return DownloadSummary()
 
-            if not (len(bboxes) == 1 and tuple(bboxes[0]) == tuple(bbox)):
+            def _as_floats(boxes):
+                return sorted(tuple(float(v) for v in b) for b in boxes)
+
+            if _as_floats(bboxes) != _as_floats(requested):
                 logger.info(
                     "Existing database coverage partially overlaps the requested region. "
                     "Downloading only the missing sub-region(s) (%d area(s) to fill).",
                     len(bboxes),
                 )
 
-        if split_big_bboxes:
+        # A geometry has already been tiled and merged into the fewest rectangles
+        # that cover it; splitting those again would only multiply the requests.
+        if split_big_bboxes and geometry is None:
             bboxes_split = []
             for bb in bboxes:
                 bboxes_split.extend(
@@ -1729,15 +1765,38 @@ class IS2Database:
                 Returns an empty list if the entire query_bbox is already present in the database.
 
         """
-        if not self.bbox_valid(query_bbox):
-            raise ValueError(
-                "query_bbox must be a non-zero-volume valid 6-tuple or 6-value bbox, with values in the correct order.",
-            )
+        return self.filter_query_bboxes([query_bbox])
+
+    def filter_query_bboxes(self, query_bboxes: list | tuple) -> list[tuple]:
+        """Remove the regions already in the database from several (x,y,t) bounding boxes at once.
+
+        The same as :meth:`filter_query_bbox`, but the database's existing coverage
+        is read once and subtracted from every box, and the remainders of all the
+        boxes are merged together before being returned.
+
+        Args:
+            query_bboxes: The bounding boxes to filter, each in
+                [xmin, xmax, ymin, ymax, tmin, tmax] format where t is YYYYMMDD.
+
+        Raises:
+            ValueError: If any box is not in the correct format or contains invalid values.
+
+        Returns:
+            List of (xmin, xmax, ymin, ymax, tmin, tmax) boxes covering the parts of
+                the input boxes not already in the database, or an empty list if all
+                of them are.
+
+        """
+        for query_bbox in query_bboxes:
+            if not self.bbox_valid(query_bbox):
+                raise ValueError(
+                    "query_bbox must be a non-zero-volume valid 6-tuple or 6-value bbox, with values in the correct order.",
+                )
 
         # First, get a list of the active unique query cuboids within the current database
         existing_bboxes = self.unique_bboxes(data_or_query="query")
         if existing_bboxes is None or len(existing_bboxes) == 0:
-            return [query_bbox]
+            return list(query_bboxes)
 
         # For the purpose of merging, increase the tmaxes by 1 day to make all boxes non-inclusive
         # (This makes adjoining bounding-boxes actually border each other in coordinate space rather than be 1 day apart)
@@ -1752,8 +1811,8 @@ class IS2Database:
         # Now, increment the query_box tmax by 1 to make it non-inclusive as well (for cuboid subtraction)
         # query_bbox = tuple(query_bbox[:5]) + (self.increment_yyyymmdd_by_n(query_bbox[5], 1),)
 
-        # Now do a cuboid subtraction of query_bbox by all the e_bboxes:
-        query_bboxes = [query_bbox]
+        # Now do a cuboid subtraction of the query bboxes by all the e_bboxes:
+        query_bboxes = list(query_bboxes)
         for e_bbox in e_bboxes:
             new_bboxes = []
             for q_bbox in query_bboxes:
@@ -1784,6 +1843,85 @@ class IS2Database:
             tzinfo=datetime.UTC,
         ) + datetime.timedelta(days=int(days))
         return int(ymd_dt.strftime("%Y%m%d"))
+
+
+def _tile_edges(
+    vmin: float,
+    vmax: float,
+    tile_size: float,
+    sliver_fraction: float,
+) -> list[float]:
+    """Return the cell edges that split [vmin, vmax] into tiles of ``tile_size``.
+
+    The tiles are anchored at ``vmin`` and the last one is clipped to ``vmax``. If
+    that clipped tile is narrower than ``sliver_fraction`` of a full tile, it is
+    merged into its neighbour, which then grows to a little over ``tile_size``.
+    """
+    edges = [float(v) for v in np.arange(vmin, vmax, tile_size)]
+    edges.append(float(vmax))
+    # Floating-point stepping can land an edge a hair short of vmax; that is
+    # also a sliver and is merged away by the same rule.
+    if len(edges) >= 3 and (edges[-1] - edges[-2]) < sliver_fraction * tile_size:
+        del edges[-2]
+    return edges
+
+
+def tile_geometry_into_bboxes(
+    geometry: shapely.Geometry,
+    tile_size_deg: float = 1.0,
+    sliver_fraction: float = 0.25,
+) -> list[tuple[float, float, float, float]]:
+    """Cover a WGS84 geometry with as few axis-aligned rectangles as practical.
+
+    The geometry's bounding box is cut into ``tile_size_deg`` squares, anchored at
+    its south-west corner and clipped to the box on the north and east. A clipped
+    edge row or column narrower than ``sliver_fraction`` of a full tile is merged
+    into its neighbour, so no request is a thin sliver. Squares whose interior does
+    not overlap the geometry are dropped, and the rest are merged into a minimal
+    set of rectangles with :func:`ivert.utils.cuboid_funcs.merge_cuboids`, asking
+    it to prefer north-south strips when either orientation would do. ICESat-2
+    ground tracks run closer to north-south than east-west, so tall rectangles cut
+    across fewer passes, and each pass then needs fewer granule subsets.
+
+    Args:
+        geometry: A shapely geometry in WGS84 (EPSG:4326). Reproject first; the
+            tiles are cut in degrees.
+        tile_size_deg: The side of the squares the bounding box is cut into.
+        sliver_fraction: Clipped edge tiles narrower than this fraction of a full
+            tile are merged into their neighbour.
+
+    Returns:
+        (xmin, xmax, ymin, ymax) rectangles in WGS84, together covering the
+        geometry, with no two overlapping. Empty if the geometry is empty.
+    """
+    if geometry is None or geometry.is_empty:
+        return []
+
+    xmin, ymin, xmax, ymax = (float(v) for v in geometry.bounds)
+    xedges = _tile_edges(xmin, xmax, tile_size_deg, sliver_fraction)
+    yedges = _tile_edges(ymin, ymax, tile_size_deg, sliver_fraction)
+
+    # Squares that share only an edge or a corner with the geometry hold none
+    # of it, so they are not kept: "touches" is the interiors-disjoint case.
+    prepared = shapely.prepared.prep(geometry)
+    squares = []
+    for y0, y1 in itertools.pairwise(yedges):
+        for x0, x1 in itertools.pairwise(xedges):
+            square = shapely.box(x0, y0, x1, y1)
+            if prepared.intersects(square) and not prepared.touches(square):
+                squares.append((x0, x1, y0, y1))
+
+    if not squares:
+        return []
+
+    # merge_cuboids works in three dimensions; give the squares a unit thickness.
+    cuboids = [(x0, x1, y0, y1, 0.0, 1.0) for (x0, x1, y0, y1) in squares]
+    merged = ivert.utils.cuboid_funcs.merge_cuboids(
+        cuboids,
+        bbox_order="axis",
+        prefer="column",
+    )
+    return [(x0, x1, y0, y1) for (x0, x1, y0, y1, _z0, _z1) in merged]
 
 
 def split_bbox_into_parts(

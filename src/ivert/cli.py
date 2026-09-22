@@ -1060,8 +1060,17 @@ def database_download(
     """Download ICESat-2 photon data for a region of interest.
 
     BBOX_OR_FILES: A 4-value bounding box in W/E/S/N order (slash-separated,
-    e.g., -74.0/-73.0/40.5/41.0), or one or more DEM files whose combined
-    extent defines the download region. Use --wsen to switch to W/S/E/N order.
+    e.g., -74.0/-73.0/40.5/41.0), or one or more DEM files and/or polygon
+    vector files (.gpkg, .shp, .geojson, .kml, ...) whose combined area defines
+    the download region. Use --wsen to switch to W/S/E/N order.
+
+    All of the files' footprints are dissolved into one area, which is then
+    covered with as few rectangular requests as possible (1-degree squares over
+    its bounding box, minus the squares the area does not reach, merged back
+    together), so a vector file of many adjacent or scattered tiles is fetched in
+    one pass without a request per tile and without covering the gaps between
+    them. Vector files are read in their own coordinate system; -p only applies
+    to a numeric bounding box.
 
     Examples:
         ivert database download -- -74.0/-73.0/40.5/41.0
@@ -1069,6 +1078,8 @@ def database_download(
         ivert database download -ds 2023.01.01 -de 2024.01.01 ../dems/oregon_coast_v1.tif
 
         ivert database download -ds "two years ago" -de "one year ago" `../dems/*.tif`
+
+        ivert database download survey_tiles.gpkg
 
     (Note: Use the '--' delimiter to explicitly end your command-line options if coordinates begin with a negative '-')
 
@@ -1083,6 +1094,8 @@ def database_download(
         values.extend(token.split("/"))
 
     wgs84_bbox = None  # (xmin, xmax, ymin, ymax)
+    # A WGS84 (Multi)Polygon of the area to download, when files defined it.
+    geometry = None
 
     if len(values) == 4:
         try:
@@ -1116,14 +1129,7 @@ def database_download(
                 + ", ".join(missing),
             )
 
-        xmins, xmaxs, ymins, ymaxs = [], [], [], []
-        for fn in expanded:
-            bb = dem_geom.get_wgs84_bounding_box(fn)
-            xmins.append(bb[0])
-            xmaxs.append(bb[1])
-            ymins.append(bb[2])
-            ymaxs.append(bb[3])
-        wgs84_bbox = (min(xmins), max(xmaxs), min(ymins), max(ymaxs))
+        wgs84_bbox, geometry = _dissolve_region_files(expanded)
 
     # --- Parse dates and classes ---
     db = is2db_mod.IS2Database()
@@ -1187,6 +1193,7 @@ def database_download(
         min_confidence_level=confidence_level,
         min_bathy_confidence=bathy_confidence,
         replace=replace,
+        geometry=geometry,
     )
 
     # A part that failed left a hole in the region the user asked for, so the
@@ -1219,7 +1226,9 @@ _EXPORT_DATE_MAX = 99991231
 _EXPORT_WARN_PHOTON_THRESHOLD = 25_000_000
 
 # Vector-file extensions whose extent can define an export region.
-_EXPORT_REGION_VECTOR_EXTENSIONS = (
+# Vector-file extensions that 'ivert database download' and 'ivert database export'
+# accept as a polygon layer defining a region.
+_REGION_VECTOR_EXTENSIONS = (
     ".shp",
     ".geojson",
     ".json",
@@ -1247,16 +1256,26 @@ class _ExportTarget(typing.NamedTuple):
 
 
 def _region_from_vector_file(path):
-    """Return (bbox, geometry) for a polygon-vector file defining an export region.
+    """Return (bbox, geometry) for a polygon-vector file defining a region.
 
     The bbox is the file's WGS84 total extent; the geometry is the union of the
     file's polygons (None if the file holds no polygonal geometry, in which case
     the extent alone defines the region).
+
+    Raises:
+        ValueError: If the file holds no features.
     """
     import geopandas
 
     gdf = geopandas.read_file(path)
-    if gdf.crs is not None and gdf.crs.to_epsg() != 4326:
+    if len(gdf) == 0:
+        raise ValueError("the file holds no features")
+    if gdf.crs is None:
+        logger.warning(
+            "'%s' has no coordinate reference system; assuming WGS84 (EPSG:4326).",
+            path,
+        )
+    elif gdf.crs.to_epsg() != 4326:
         gdf = gdf.to_crs(epsg=4326)
 
     minx, miny, maxx, maxy = (float(v) for v in gdf.total_bounds)
@@ -1268,15 +1287,58 @@ def _region_from_vector_file(path):
 
 
 def _region_from_file(path):
-    """Return (bbox, geometry) for a raster or polygon-vector file."""
+    """Return (bbox, geometry) for a raster or polygon-vector file.
+
+    The geometry is None for a raster, and for a vector file with no polygons;
+    the bbox alone defines the region then.
+    """
     ext = os.path.splitext(path)[1].lower()
-    if ext in _EXPORT_REGION_VECTOR_EXTENSIONS:
+    if ext in _REGION_VECTOR_EXTENSIONS:
         return _region_from_vector_file(path)
 
     # Otherwise treat it as a raster; the CRS is read from the file header.
     from ivert.utils import dem_geom
 
     return dem_geom.get_wgs84_bounding_box(path), None
+
+
+def _dissolve_region_files(paths):
+    """Dissolve the footprints of raster and polygon-vector files into one region.
+
+    Each raster contributes its WGS84 extent as a rectangle, and each vector file
+    the union of its polygons (or its extent, if it has no polygons), each already
+    reprojected to WGS84 by :func:`_region_from_file`. The result is a single WGS84
+    (Multi)Polygon that the download covers with a minimal set of rectangular
+    requests, so a file of many tiles can be downloaded in one pass.
+
+    Args:
+        paths: Existing raster or vector files.
+
+    Returns:
+        (bbox, geometry): The WGS84 (xmin, xmax, ymin, ymax) bounds of the dissolved
+        area, and the area itself as a shapely geometry.
+
+    Raises:
+        click.ClickException: If a file cannot be read as a region.
+    """
+    import shapely
+
+    footprints = []
+    for path in paths:
+        try:
+            bbox, geom = _region_from_file(path)
+        except Exception as exc:
+            raise click.ClickException(
+                f"Could not read a region from '{path}': {exc}",
+            ) from exc
+        if geom is None:
+            xmin, xmax, ymin, ymax = bbox
+            geom = shapely.box(xmin, ymin, xmax, ymax)
+        footprints.append(geom)
+
+    geometry = shapely.union_all(footprints)
+    xmin, ymin, xmax, ymax = (float(v) for v in geometry.bounds)
+    return (xmin, xmax, ymin, ymax), geometry
 
 
 def _resolve_export_target(tokens, projection, wsen):

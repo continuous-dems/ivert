@@ -25,7 +25,7 @@ ivert database download BBOX_OR_FILES [OPTIONS]
 
 ### Specifying the area
 
-Pass either a bounding box or one or more DEM file paths (IVERT reads their extents):
+Pass a bounding box, one or more DEM file paths (IVERT reads their extents), or one or more polygon vector files (`.gpkg`, `.shp`, `.geojson`, `.json`, `.gml`, `.kml`):
 
 ```
 # Bounding box: W/E/S/N (default order)
@@ -37,9 +37,14 @@ ivert database download -74.0/40.5/-73.0/41.0 --wsen
 # Use DEM extents
 ivert database download mydem.tif
 ivert database download /data/dems/*.tif
+
+# Use the polygons in a vector file
+ivert database download survey_tiles.gpkg
 ```
 
-Bounding box values are in the projection given by `-p` (default EPSG:4326, i.e. decimal degrees longitude/latitude).
+Bounding box values are in the projection given by `-p` (default EPSG:4326, i.e. decimal degrees longitude/latitude). Vector files are read in their own coordinate system, and `-p` does not apply to them.
+
+When files define the area, their footprints — DEM extents and vector polygons alike — are dissolved into a single region, and IVERT works out the fewest rectangular requests that cover it: the region's bounding box is cut into 1° squares, the squares the region does not reach are dropped, and the rest are merged back into rectangles (a clipped edge row or column narrower than a quarter degree is folded into its neighbour, so no request is a thin sliver). A vector file holding hundreds of adjacent tile outlines therefore turns into a handful of requests rather than one per outline, and the empty space between scattered outlines is not fetched. Data is still retrieved for the whole of each 1° square the region reaches into, so some photons just outside the polygons come along.
 
 ### Date range options
 
@@ -245,6 +250,11 @@ ivert database download -74.0/-73.0/40.5/41.0 -c 1 -cl 3
 **Match the extent of a DEM:**
 ```
 ivert database download mydem.tif
+```
+
+**Cover every polygon in a vector file, in one pass:**
+```
+ivert database download survey_tiles.gpkg -ds 2023-01-01 -de 2024-01-01
 ```
 
 **Check what's been downloaded:**
