@@ -31,6 +31,8 @@ import pandas as pd
 import psutil
 import shapely
 import shapely.prepared
+import tqdm
+import tqdm.contrib.logging
 import xarray
 from fetchez.modules.earthdata import IceSat2 as _FetchezIceSat2
 
@@ -409,10 +411,20 @@ class IS2Database:
             nc_files = self.granule_files()
 
             records = []
-            for nc_fn in nc_files:
-                meta = self._read_nc_metadata(nc_fn)
-                if meta is not None:
-                    records.append(meta)
+            # 'disable=None' tells tqdm to draw the bar only when attached to a
+            # terminal, and stay silent when output is redirected to a file or a
+            # pipe. Log records are routed through tqdm.write() meanwhile, so a
+            # warning about an unreadable file doesn't break the bar.
+            with tqdm.contrib.logging.logging_redirect_tqdm():
+                for nc_fn in tqdm.tqdm(
+                    nc_files,
+                    disable=None if logger.isEnabledFor(logging.INFO) else True,
+                    unit="file",
+                    desc="Reading granules",
+                ):
+                    meta = self._read_nc_metadata(nc_fn)
+                    if meta is not None:
+                        records.append(meta)
 
             if records:
                 gdf = pd.DataFrame(records)[list(self._empty_db_dict().keys())]
@@ -427,7 +439,7 @@ class IS2Database:
 
         self._write_index(gdf)
         if os.path.exists(self.db_fname):
-            logger.info(
+            logger.debug(
                 "Created %s with %d records.",
                 os.path.basename(self.db_fname),
                 len(gdf),
@@ -2540,7 +2552,12 @@ def _cmd_rebuild():
     """Implementation of the 'rebuild' subcommand."""
     db = IS2Database()
     gdf = db.create_new_database(populate=True, overwrite=True)
-    logger.info("Rebuilt database with %s granule(s).", len(gdf))
+    n = len(gdf)
+    logger.info(
+        "Rebuilt ivert database index with %d granule%s.",
+        n,
+        "" if n == 1 else "s",
+    )
 
 
 if __name__ == "__main__":
