@@ -422,13 +422,10 @@ class IS2Database:
             return None
 
     @staticmethod
-    def _nc_filename(h5_fn: str, query_bbox: tuple) -> str:
-        """Build a unique .nc filename by appending the query bbox to the granule base name.
+    def _query_bbox_suffix(query_bbox: tuple) -> str:
+        """Return the filename suffix that identifies a query bounding box.
 
-        Format: <granule_base>_<W|E><xmin>_<W|E><xmax>_<S|N><ymin>_<S|N><ymax>_<tmin>_<tmax>.nc
-
-        This ensures that the same granule downloaded for different query regions or time
-        spans produces distinct files rather than overwriting each other.
+        Format: _<W|E><xmin>_<W|E><xmax>_<S|N><ymin>_<S|N><ymax>_<tmin>_<tmax>
         """
 
         def _lon_tag(v):
@@ -437,14 +434,48 @@ class IS2Database:
         def _lat_tag(v):
             return f"{'S' if v < 0 else 'N'}{abs(float(v)):08.5f}"
 
-        base = os.path.splitext(os.path.basename(h5_fn))[0]
         xmin, xmax, ymin, ymax, tmin, tmax = query_bbox
-        suffix = (
+        return (
             f"_{_lon_tag(xmin)}_{_lon_tag(xmax)}"
             f"_{_lat_tag(ymin)}_{_lat_tag(ymax)}"
             f"_{int(tmin)}_{int(tmax)}"
         )
-        return base + suffix + ".nc"
+
+    # The suffix built by _query_bbox_suffix(), at the end of a filename's stem.
+    _QUERY_SUFFIX_RE = re.compile(
+        r"_[EW]\d{3}\.\d{5}_[EW]\d{3}\.\d{5}_[NS]\d{2}\.\d{5}_[NS]\d{2}\.\d{5}_\d+_\d+$",
+    )
+
+    @classmethod
+    def _granule_stem(cls, filename: str) -> str:
+        """Return a granule's filename without directory, extension or query suffix."""
+        stem = os.path.splitext(os.path.basename(filename))[0]
+        return cls._QUERY_SUFFIX_RE.sub("", stem)
+
+    @classmethod
+    def _subset_cache_filename(cls, h5_fn: str, query_bbox: tuple) -> str:
+        """Name a downloaded Harmony subset after the granule and the box it was cut to.
+
+        Harmony names every subset of a granule alike, whatever box it was cut to,
+        and fetchez keeps any file that already exists rather than fetching it again.
+        Adjacent parts of a request share granules, so under Harmony's name the second
+        part would read the first part's subset and find none of its own photons in
+        it. The query suffix keeps each part's subsets apart. The granule id fields
+        stay in front, where globato and the release check read them.
+        """
+        return cls._granule_stem(h5_fn) + cls._query_bbox_suffix(query_bbox) + ".h5"
+
+    @classmethod
+    def _nc_filename(cls, h5_fn: str, query_bbox: tuple) -> str:
+        """Build a unique .nc filename by appending the query bbox to the granule base name.
+
+        Format: <granule_base>_<W|E><xmin>_<W|E><xmax>_<S|N><ymin>_<S|N><ymax>_<tmin>_<tmax>.nc
+
+        This ensures that the same granule downloaded for different query regions or time
+        spans produces distinct files rather than overwriting each other. A query suffix
+        already on the h5 name (see _subset_cache_filename) is not repeated.
+        """
+        return cls._granule_stem(h5_fn) + cls._query_bbox_suffix(query_bbox) + ".nc"
 
     # Matches the "_<W|E><xmin>_<W|E><xmax>_<S|N><ymin>_<S|N><ymax>_<tmin>_<tmax>.nc" suffix
     # appended by _nc_filename(), so the source granule id can be recovered from any nc
@@ -1427,6 +1458,16 @@ class IS2Database:
                     requests_csv.add_record("ATL03", sbbox, harmony_status)
 
             mod.run()
+
+            # Give each subset a name that says which box it was cut to, before
+            # anything is fetched; see _subset_cache_filename for why.
+            for entry in mod.results:
+                dst = entry.get("dst_fn")
+                if dst:
+                    entry["dst_fn"] = os.path.join(
+                        os.path.dirname(dst),
+                        self._subset_cache_filename(dst, sbbox),
+                    )
 
             # Update the CSV with the final status (links, progress=100, etc.)
             if mod.subset_job_id:

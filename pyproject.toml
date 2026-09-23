@@ -138,3 +138,5 @@ convention = "google"
 
 [tool.ruff.lint.per-file-ignores]
 "conf.py" = ["A001"]
+# tests/ is deliberately not a package, which INP001 objects to.
+"tests/**" = ["INP001"]
