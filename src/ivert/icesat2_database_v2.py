@@ -422,13 +422,10 @@ class IS2Database:
             return None
 
     @staticmethod
-    def _nc_filename(h5_fn: str, query_bbox: tuple) -> str:
-        """Build a unique .nc filename by appending the query bbox to the granule base name.
+    def _query_bbox_suffix(query_bbox: tuple) -> str:
+        """Return the filename suffix that identifies a query bounding box.
 
-        Format: <granule_base>_<W|E><xmin>_<W|E><xmax>_<S|N><ymin>_<S|N><ymax>_<tmin>_<tmax>.nc
-
-        This ensures that the same granule downloaded for different query regions or time
-        spans produces distinct files rather than overwriting each other.
+        Format: _<W|E><xmin>_<W|E><xmax>_<S|N><ymin>_<S|N><ymax>_<tmin>_<tmax>
         """
 
         def _lon_tag(v):
@@ -437,14 +434,48 @@ class IS2Database:
         def _lat_tag(v):
             return f"{'S' if v < 0 else 'N'}{abs(float(v)):08.5f}"
 
-        base = os.path.splitext(os.path.basename(h5_fn))[0]
         xmin, xmax, ymin, ymax, tmin, tmax = query_bbox
-        suffix = (
+        return (
             f"_{_lon_tag(xmin)}_{_lon_tag(xmax)}"
             f"_{_lat_tag(ymin)}_{_lat_tag(ymax)}"
             f"_{int(tmin)}_{int(tmax)}"
         )
-        return base + suffix + ".nc"
+
+    # The suffix built by _query_bbox_suffix(), at the end of a filename's stem.
+    _QUERY_SUFFIX_RE = re.compile(
+        r"_[EW]\d{3}\.\d{5}_[EW]\d{3}\.\d{5}_[NS]\d{2}\.\d{5}_[NS]\d{2}\.\d{5}_\d+_\d+$",
+    )
+
+    @classmethod
+    def _granule_stem(cls, filename: str) -> str:
+        """Return a granule's filename without directory, extension or query suffix."""
+        stem = os.path.splitext(os.path.basename(filename))[0]
+        return cls._QUERY_SUFFIX_RE.sub("", stem)
+
+    @classmethod
+    def _subset_cache_filename(cls, h5_fn: str, query_bbox: tuple) -> str:
+        """Name a downloaded Harmony subset after the granule and the box it was cut to.
+
+        Harmony names every subset of a granule alike, whatever box it was cut to,
+        and fetchez keeps any file that already exists rather than fetching it again.
+        Adjacent parts of a request share granules, so under Harmony's name the second
+        part would read the first part's subset and find none of its own photons in
+        it. The query suffix keeps each part's subsets apart. The granule id fields
+        stay in front, where globato and the release check read them.
+        """
+        return cls._granule_stem(h5_fn) + cls._query_bbox_suffix(query_bbox) + ".h5"
+
+    @classmethod
+    def _nc_filename(cls, h5_fn: str, query_bbox: tuple) -> str:
+        """Build a unique .nc filename by appending the query bbox to the granule base name.
+
+        Format: <granule_base>_<W|E><xmin>_<W|E><xmax>_<S|N><ymin>_<S|N><ymax>_<tmin>_<tmax>.nc
+
+        This ensures that the same granule downloaded for different query regions or time
+        spans produces distinct files rather than overwriting each other. A query suffix
+        already on the h5 name (see _subset_cache_filename) is not repeated.
+        """
+        return cls._granule_stem(h5_fn) + cls._query_bbox_suffix(query_bbox) + ".nc"
 
     # Matches the "_<W|E><xmin>_<W|E><xmax>_<S|N><ymin>_<S|N><ymax>_<tmin>_<tmax>.nc" suffix
     # appended by _nc_filename(), so the source granule id can be recovered from any nc
@@ -581,28 +612,23 @@ class IS2Database:
             )
         return globato_datum
 
-    def _process_h5_to_nc(
+    def _classify_h5(
         self,
         h5_fn: str,
-        nc_fn: str,
         query_bbox: tuple,
         classes_to_keep: tuple = (1, 2, 3, 6, 7, 40, 41, 42),
-        overwrite: bool = False,
         min_confidence_level: int = 1,
-        granule_num: int | None = None,
-        total_granules: int | None = None,
         use_external_masks: bool = True,
-    ) -> dict | None:
-        """Classify an ATL03 HDF5 file with globato and save the result as NetCDF.
+    ) -> tuple[pd.DataFrame, str] | None:
+        """Classify an ATL03 HDF5 file with globato and return its photons over a box.
 
-        The output .nc file contains only the photon classes in classes_to_keep, plus
-        rich metadata attributes so the database can be rebuilt from headers alone.
+        This is the expensive step, so it is done once per granule and box; the
+        result can then be cut into storage tiles without reading the file again.
 
-        Returns the metadata dict, or None if no photons survived filtering.
+        Returns (photons, vertical_datum), where photons holds only the classes in
+        classes_to_keep with the columns the database stores, or None if no
+        photons survived filtering.
         """
-        if os.path.exists(nc_fn) and not overwrite:
-            return self._read_nc_metadata(nc_fn)
-
         vertical_datum = self._validate_vertical_datum(
             self.config.icesat2_vertical_datum,
         )
@@ -658,7 +684,30 @@ class IS2Database:
         ]
         df = df[[c for c in keep_cols if c in df.columns]].copy()
 
-        # Compute metadata for file attributes and the database record.
+        # Add per-photon cumulative along-track distance from h5 geolocation data.
+        # Merge on (laser, delta_time, x, y) — the four fields that uniquely identify
+        # a photon across beams, since all beams share delta_time values.
+        if "laser" in df.columns:
+            dist_df = self._h5_along_track_m(h5_fn, df["laser"].unique().tolist())
+            if not dist_df.empty:
+                df = df.merge(dist_df, on=["laser", "delta_time", "x", "y"], how="left")
+
+        return df, vertical_datum
+
+    def _write_nc(
+        self,
+        df: pd.DataFrame,
+        h5_fn: str,
+        nc_fn: str,
+        query_bbox: tuple,
+        vertical_datum: str,
+        progress: str = "",
+    ) -> dict:
+        """Save classified photons as a NetCDF granule file and return its index record.
+
+        The file carries rich metadata attributes so the database can be rebuilt
+        from headers alone.
+        """
         xmin, xmax = float(df["x"].min()), float(df["x"].max())
         ymin, ymax = float(df["y"].min()), float(df["y"].max())
         zmin = float(df["z"].min()) if "z" in df.columns else float("nan")
@@ -672,7 +721,7 @@ class IS2Database:
         cc = df["class_code"]
         metadata_attrs = {
             "granule_id": os.path.splitext(os.path.basename(nc_fn))[0],
-            "source_granule": os.path.splitext(os.path.basename(h5_fn))[0],
+            "source_granule": self._granule_stem(h5_fn),
             "laser_name": "all",
             "query_bbox": list(query_bbox),
             "data_bbox": [xmin, xmax, ymin, ymax, tmin, tmax],
@@ -695,16 +744,8 @@ class IS2Database:
             "vertical_datum": vertical_datum,
         }
 
-        # Add per-photon cumulative along-track distance from h5 geolocation data.
-        # Merge on (laser, delta_time, x, y) — the four fields that uniquely identify
-        # a photon across beams, since all beams share delta_time values.
-        if "laser" in df.columns:
-            dist_df = self._h5_along_track_m(h5_fn, df["laser"].unique().tolist())
-            if not dist_df.empty:
-                df = df.merge(dist_df, on=["laser", "delta_time", "x", "y"], how="left")
-
         # Build xarray Dataset and embed metadata as global attributes.
-        xr_ds = xarray.Dataset.from_dataframe(df)
+        xr_ds = xarray.Dataset.from_dataframe(df.reset_index(drop=True))
         xr_ds.attrs = metadata_attrs
 
         os.makedirs(
@@ -712,11 +753,6 @@ class IS2Database:
             exist_ok=True,
         )
         xr_ds.to_netcdf(nc_fn)
-        progress = (
-            f"{granule_num}/{total_granules} "
-            if granule_num is not None and total_granules is not None
-            else ""
-        )
         logger.info(
             "%sSaved %s (%s photons, %s ground, %s bathy).",
             progress,
@@ -730,6 +766,113 @@ class IS2Database:
             metadata_attrs,
             os.path.basename(nc_fn),
         )
+
+    @staticmethod
+    def _photons_in_bbox(df: pd.DataFrame, bbox: tuple) -> pd.DataFrame:
+        """Return the photons inside a box, with the same edge rule read_granule() uses."""
+        return df[
+            (df["x"] >= bbox[0])
+            & (df["x"] < bbox[1])
+            & (df["y"] >= bbox[2])
+            & (df["y"] < bbox[3])
+        ]
+
+    def _process_h5_to_nc_tiles(
+        self,
+        h5_fn: str,
+        query_bbox: tuple,
+        tiles: list,
+        classes_to_keep: tuple = (1, 2, 3, 6, 7, 40, 41, 42),
+        overwrite: bool = False,
+        min_confidence_level: int = 1,
+        granule_num: int | None = None,
+        total_granules: int | None = None,
+        use_external_masks: bool = True,
+    ) -> list[dict]:
+        """Classify one downloaded subset and store it as one .nc file per storage tile.
+
+        The subset was cut by Harmony to ``query_bbox``; it is classified once, and
+        its photons are then dealt out to ``tiles``, a list of (tile_bbox, nc_fn)
+        pairs that partition that box. A tile that already has its file keeps it
+        unless ``overwrite`` is set, and a tile that receives no photons gets no
+        file.
+
+        Returns the index records of the tiles that have a file.
+        """
+        records = []
+        to_write = []
+        for tile_bbox, nc_fn in tiles:
+            if os.path.exists(nc_fn) and not overwrite:
+                meta = self._read_nc_metadata(nc_fn)
+                if meta is not None:
+                    records.append(meta)
+            else:
+                to_write.append((tile_bbox, nc_fn))
+
+        if not to_write:
+            return records
+
+        classified = self._classify_h5(
+            h5_fn,
+            query_bbox,
+            classes_to_keep=classes_to_keep,
+            min_confidence_level=min_confidence_level,
+            use_external_masks=use_external_masks,
+        )
+        if classified is None:
+            return records
+        df, vertical_datum = classified
+
+        progress = (
+            f"{granule_num}/{total_granules} "
+            if granule_num is not None and total_granules is not None
+            else ""
+        )
+        for tile_bbox, nc_fn in to_write:
+            tile_df = self._photons_in_bbox(df, tile_bbox)
+            if len(tile_df) == 0:
+                continue
+            records.append(
+                self._write_nc(
+                    tile_df,
+                    h5_fn,
+                    nc_fn,
+                    tile_bbox,
+                    vertical_datum,
+                    progress=progress,
+                ),
+            )
+        return records
+
+    def _process_h5_to_nc(
+        self,
+        h5_fn: str,
+        nc_fn: str,
+        query_bbox: tuple,
+        classes_to_keep: tuple = (1, 2, 3, 6, 7, 40, 41, 42),
+        overwrite: bool = False,
+        min_confidence_level: int = 1,
+        granule_num: int | None = None,
+        total_granules: int | None = None,
+        use_external_masks: bool = True,
+    ) -> dict | None:
+        """Classify an ATL03 HDF5 file with globato and save the result as one NetCDF file.
+
+        The single-tile form of :meth:`_process_h5_to_nc_tiles`: the whole box goes
+        into one file. Returns its index record, or None if no photons survived.
+        """
+        records = self._process_h5_to_nc_tiles(
+            h5_fn,
+            query_bbox,
+            [(tuple(query_bbox), nc_fn)],
+            classes_to_keep=classes_to_keep,
+            overwrite=overwrite,
+            min_confidence_level=min_confidence_level,
+            granule_num=granule_num,
+            total_granules=total_granules,
+            use_external_masks=use_external_masks,
+        )
+        return records[0] if records else None
 
     def _write_index(self, df) -> None:
         """Serialize the index DataFrame to the single NetCDF index file.
@@ -1196,7 +1339,6 @@ class IS2Database:
         self,
         bbox: list | tuple,
         classes_to_keep=(1, 2, 3, 6, 7, 40, 41, 42),
-        split_big_bboxes: bool = True,
         tile_size_deg=2.0,
         max_tile_scale_factor=1.5,
         min_bathy_confidence=0.01,
@@ -1212,13 +1354,19 @@ class IS2Database:
         in which case the full requested bbox is (re-)downloaded and any existing granules it overlaps
         are replaced with the newly-downloaded data.
 
-        If ``geometry`` (a shapely polygon or multipolygon in WGS84) is given, the
-        horizontal part of ``bbox`` is ignored in favour of the geometry: it is
-        tiled into 1-degree squares, the squares that do not overlap it are dropped,
-        and the rest are merged into as few rectangles as possible, each of which is
-        one request to fetchez (see :func:`tile_geometry_into_bboxes`). The
-        ``split_big_bboxes`` tiling is not applied on top of that. Only the time
-        range of ``bbox`` is used then.
+        The area is ``geometry`` (a shapely polygon or multipolygon in WGS84) if
+        given, else the horizontal part of ``bbox``. Either way it is covered with as
+        few rectangles as possible (2-degree squares over its bounding box, minus the
+        squares it does not reach, merged; see :func:`tile_geometry_into_bboxes`), and
+        each rectangle is one request to fetchez, since one large subset of a granule
+        costs Harmony less than several small ones. The time range always comes
+        from ``bbox``.
+
+        Storage goes the other way: each downloaded subset is classified once and
+        then stored as one .nc file per tile of roughly ``tile_size_deg`` degrees
+        (see :func:`split_bbox_into_parts`; ``max_tile_scale_factor`` bounds how far
+        an edge tile may stretch rather than leave a sliver), because a query reads
+        every file that touches it whole, and small files make small queries cheap.
 
         Returns a :class:`DownloadSummary` counting how each sub-region of the request
         turned out, so callers can tell a download that failed from one that succeeded
@@ -1264,24 +1412,23 @@ class IS2Database:
                     )
                     return DownloadSummary(parts_failed=1)
 
-        # The regions actually asked for: the bbox itself, or the rectangles that
-        # cover the geometry.
+        # The regions actually asked for: the fewest rectangles that cover the
+        # area, whether it came in as a geometry or as a plain box.
         tmin, tmax = int(bbox[4]), int(bbox[5])
         if geometry is None:
-            requested = [tuple(bbox)]
-        else:
-            requested = [
-                (*tile, tmin, tmax) for tile in tile_geometry_into_bboxes(geometry)
-            ]
-            if len(requested) == 0:
-                logger.info(
-                    "The requested area has no extent. Nothing to download.",
-                )
-                return DownloadSummary()
+            geometry = shapely.box(bbox[0], bbox[2], bbox[1], bbox[3])
+        requested = [
+            (*tile, tmin, tmax) for tile in tile_geometry_into_bboxes(geometry)
+        ]
+        if len(requested) == 0:
             logger.info(
-                "The requested area is covered by %d rectangular query region(s).",
-                len(requested),
+                "The requested area has no extent. Nothing to download.",
             )
+            return DownloadSummary()
+        logger.info(
+            "The requested area is covered by %d rectangular query region(s).",
+            len(requested),
+        )
 
         if replace:
             bboxes = requested
@@ -1307,20 +1454,6 @@ class IS2Database:
                     "Downloading only the missing sub-region(s) (%d area(s) to fill).",
                     len(bboxes),
                 )
-
-        # A geometry has already been tiled and merged into the fewest rectangles
-        # that cover it; splitting those again would only multiply the requests.
-        if split_big_bboxes and geometry is None:
-            bboxes_split = []
-            for bb in bboxes:
-                bboxes_split.extend(
-                    split_bbox_into_parts(
-                        bb,
-                        tile_size_deg=tile_size_deg,
-                        max_tile_scale_factor=max_tile_scale_factor,
-                    ),
-                )
-            bboxes = bboxes_split
 
         actual_bbox = (
             min(bb[0] for bb in bboxes),
@@ -1428,6 +1561,16 @@ class IS2Database:
 
             mod.run()
 
+            # Give each subset a name that says which box it was cut to, before
+            # anything is fetched; see _subset_cache_filename for why.
+            for entry in mod.results:
+                dst = entry.get("dst_fn")
+                if dst:
+                    entry["dst_fn"] = os.path.join(
+                        os.path.dirname(dst),
+                        self._subset_cache_filename(dst, sbbox),
+                    )
+
             # Update the CSV with the final status (links, progress=100, etc.)
             if mod.subset_job_id:
                 final_status = mod.harmony_ping_for_status(mod.subset_job_id)
@@ -1476,35 +1619,47 @@ class IS2Database:
                 else set()
             )
 
+            # One request, many files: the subset is stored per storage tile.
+            storage_tiles = split_bbox_into_parts(
+                sbbox,
+                tile_size_deg=tile_size_deg,
+                max_tile_scale_factor=max_tile_scale_factor,
+            )
+
             new_records = []
             files_to_process = []
             for h5_src in h5_files:
-                nc_basename = self._nc_filename(h5_src, sbbox)
-                nc_dest = os.path.join(self.granules_dir, nc_basename)
-                if nc_basename in existing_filenames and not replace:
-                    logger.info("Skipping %s (already in database).", nc_basename)
-                else:
-                    files_to_process.append((h5_src, nc_dest))
+                targets = []
+                for tile in storage_tiles:
+                    nc_basename = self._nc_filename(h5_src, tile)
+                    if nc_basename in existing_filenames and not replace:
+                        logger.info("Skipping %s (already in database).", nc_basename)
+                    else:
+                        targets.append(
+                            (tile, os.path.join(self.granules_dir, nc_basename)),
+                        )
+                if targets:
+                    files_to_process.append((h5_src, targets))
 
-            for granule_num, (h5_src, nc_dest) in enumerate(files_to_process, start=1):
-                meta = self._process_h5_to_nc(
+            for granule_num, (h5_src, targets) in enumerate(files_to_process, start=1):
+                metas = self._process_h5_to_nc_tiles(
                     h5_src,
-                    nc_dest,
-                    query_bbox=sbbox,
+                    sbbox,
+                    targets,
                     classes_to_keep=classes_to_keep,
                     min_confidence_level=min_confidence_level,
                     granule_num=granule_num,
                     total_granules=len(files_to_process),
                     use_external_masks=use_external_masks,
                 )
-                if meta is not None:
-                    new_records.append(meta)
+                if metas:
+                    new_records.extend(metas)
                 else:
                     logger.info(
                         "%d/%d No valid classified photons in %s.",
                         granule_num,
                         len(files_to_process),
-                        os.path.basename(nc_dest),
+                        os.path.basename(h5_src),
                     )
 
             if not new_records:
@@ -1868,7 +2023,7 @@ def _tile_edges(
 
 def tile_geometry_into_bboxes(
     geometry: shapely.Geometry,
-    tile_size_deg: float = 1.0,
+    tile_size_deg: float = 2.0,
     sliver_fraction: float = 0.25,
 ) -> list[tuple[float, float, float, float]]:
     """Cover a WGS84 geometry with as few axis-aligned rectangles as practical.
