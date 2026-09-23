@@ -14,8 +14,12 @@ here touches the developer's real ~/.ivert.
 
 import os
 from types import SimpleNamespace
+from typing import ClassVar
 
+import pandas as pd
 import pytest
+import shapely
+import xarray
 
 from ivert import icesat2_database_v2 as is2db
 
@@ -72,14 +76,17 @@ def test_the_source_granule_is_still_recovered_from_the_nc_name():
 
 
 # ---------------------------------------------------------------------------
-# The download loop renames before fetching
+# The download loop: one request per rectangle, one .nc per storage tile
 # ---------------------------------------------------------------------------
 
 
 class _FakeFetchezIceSat2:
     """Stands in for fetchez's IceSat2 module: "polls" to one granule under Harmony's name."""
 
+    built: ClassVar[list] = []
+
     def __init__(self, **kwargs: object) -> None:
+        self.__class__.built.append(kwargs)
         self.outdir = kwargs["outdir"]
         self.subset_job_id = None
         self.results = []
@@ -121,6 +128,22 @@ def _fake_run_fetchez(mods):
     return out
 
 
+def _photons(xs, y=32.5):
+    """A classified-photon table like _classify_h5 returns, one photon per x."""
+    t0 = is2db._yyyymmdd_to_delta_time(20230101) + 1.0
+    return pd.DataFrame(
+        {
+            "x": list(xs),
+            "y": [y] * len(xs),
+            "z": [1.0] * len(xs),
+            "class_code": [1] * len(xs),
+            "delta_time": [t0 + i for i in range(len(xs))],
+            "confidence": [4] * len(xs),
+            "laser": ["gt1l"] * len(xs),
+        },
+    )
+
+
 @pytest.fixture
 def db(tmp_path, monkeypatch):
     config = SimpleNamespace(
@@ -130,26 +153,102 @@ def db(tmp_path, monkeypatch):
         icesat2_vertical_datum="ellipsoid",
         nsidc_atl_version="007",
     )
+    _FakeFetchezIceSat2.built = []
     monkeypatch.setattr(is2db, "_FetchezIceSat2", _FakeFetchezIceSat2)
     monkeypatch.setattr(is2db, "ICESat2RequestsCSV", _FakeRequestsCSV)
     monkeypatch.setattr(is2db.fetchez.core, "run_fetchez", _fake_run_fetchez)
     return is2db.IS2Database(ivert_config=config)
 
 
+def _region(kwargs):
+    r = kwargs["src_region"]
+    return (r.w, r.e, r.s, r.n)
+
+
+def test_a_plain_box_is_requested_whole(db, monkeypatch):
+    """No more 2-degree splitting of the request: a 5x5 box is one Harmony job."""
+    monkeypatch.setattr(db, "_classify_h5", lambda *_a, **_k: None)
+
+    db.download_new_granules((0.0, 5.0, 0.0, 5.0, 20230101, 20230201))
+
+    assert [_region(b) for b in _FakeFetchezIceSat2.built] == [(0.0, 5.0, 0.0, 5.0)]
+
+
+def test_a_plain_box_and_the_same_box_as_a_geometry_make_the_same_request(
+    db,
+    monkeypatch,
+):
+    monkeypatch.setattr(db, "_classify_h5", lambda *_a, **_k: None)
+    box = (-121.0, -116.5, 32.0, 33.0, 20230101, 20230201)
+
+    db.download_new_granules(box)
+    as_plain = [_region(b) for b in _FakeFetchezIceSat2.built]
+    _FakeFetchezIceSat2.built = []
+    db.download_new_granules(box, geometry=shapely.box(-121.0, 32.0, -116.5, 33.0))
+    as_geometry = [_region(b) for b in _FakeFetchezIceSat2.built]
+
+    assert as_plain == as_geometry == [(-121.0, -116.5, 32.0, 33.0)]
+
+
+def test_a_subset_is_classified_once_and_stored_per_tile(db, monkeypatch):
+    """A 4.5-degree rectangle is one download but two storage tiles."""
+    calls = []
+
+    def fake_classify(h5_fn, query_bbox, **kwargs: object):
+        calls.append((os.path.basename(h5_fn), query_bbox))
+        return _photons([-120.5, -118.0, -117.0]), "EPSG:4979"
+
+    monkeypatch.setattr(db, "_classify_h5", fake_classify)
+
+    summary = db.download_new_granules(PART_1)
+
+    assert calls == [(STEM + SUFFIX_1 + ".h5", PART_1)]
+    tiles = is2db.split_bbox_into_parts(PART_1)
+    assert [t[:4] for t in tiles] == [
+        (-121.0, -119.0, 32.0, 33.0),
+        (-119.0, -116.5, 32.0, 33.0),
+    ]
+    written = sorted(os.listdir(db.granules_dir))
+    assert written == sorted(
+        [is2db.IS2Database._nc_filename(GRANULE, t) for t in tiles]
+        + ["_ivert_database_index.nc"],
+    )
+    counts = {}
+    for name in written:
+        if name.startswith("ATL03"):
+            ds = xarray.open_dataset(os.path.join(db.granules_dir, name))
+            counts[tuple(ds.attrs["query_bbox"][:4])] = int(ds.attrs["numphotons"])
+            ds.close()
+    assert counts == {(-121.0, -119.0, 32.0, 33.0): 1, (-119.0, -116.5, 32.0, 33.0): 2}
+    assert summary.granules_added == 2
+
+
+def test_a_tile_with_no_photons_gets_no_file(db, monkeypatch):
+    monkeypatch.setattr(
+        db,
+        "_classify_h5",
+        lambda *_a, **_k: (_photons([-120.5]), "EPSG:4979"),
+    )
+
+    db.download_new_granules(PART_1)
+
+    nc_files = [n for n in os.listdir(db.granules_dir) if n.startswith("ATL03")]
+    assert nc_files == [
+        is2db.IS2Database._nc_filename(GRANULE, is2db.split_bbox_into_parts(PART_1)[0]),
+    ]
+
+
 def test_each_part_fetches_and_reads_its_own_copy_of_a_shared_granule(db, monkeypatch):
     read = []
 
-    def fake_process(h5_fn, nc_fn, **kwargs: object):
-        read.append((os.path.basename(h5_fn), os.path.basename(nc_fn)))
+    def fake_classify(h5_fn, query_bbox, **kwargs: object):
+        read.append(os.path.basename(h5_fn))
 
-    monkeypatch.setattr(db, "_process_h5_to_nc", fake_process)
+    monkeypatch.setattr(db, "_classify_h5", fake_classify)
 
     for part in (PART_1, PART_2):
-        db.download_new_granules(part, split_big_bboxes=False)
+        db.download_new_granules(part)
 
-    h5_names = [h5 for h5, _nc in read]
-    assert len(set(h5_names)) == 2, h5_names
-    assert all(name.startswith(STEM + "_W") for name in h5_names)
-    assert sorted(os.listdir(db.icesat2_download_dir)) == sorted(h5_names)
-    # The .nc name is the same one Harmony's plain name would have produced.
-    assert read[0][1] == STEM + SUFFIX_1 + ".nc"
+    assert len(set(read)) == 2, read
+    assert all(name.startswith(STEM + "_W") for name in read)
+    assert sorted(os.listdir(db.icesat2_download_dir)) == sorted(read)
