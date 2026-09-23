@@ -1065,7 +1065,7 @@ def database_download(
     the download region. Use --wsen to switch to W/S/E/N order.
 
     All of the files' footprints are dissolved into one area, which is then
-    covered with as few rectangular requests as possible (1-degree squares over
+    covered with as few rectangular requests as possible (2-degree squares over
     its bounding box, minus the squares the area does not reach, merged back
     together), so a vector file of many adjacent or scattered tiles is fetched in
     one pass without a request per tile and without covering the gaps between

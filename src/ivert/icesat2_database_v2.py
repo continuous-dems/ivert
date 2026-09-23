@@ -1356,8 +1356,9 @@ class IS2Database:
 
         The area is ``geometry`` (a shapely polygon or multipolygon in WGS84) if
         given, else the horizontal part of ``bbox``. Either way it is covered with as
-        few rectangles as possible (see :func:`tile_geometry_into_bboxes`), and each
-        rectangle is one request to fetchez, since one large subset of a granule
+        few rectangles as possible (2-degree squares over its bounding box, minus the
+        squares it does not reach, merged; see :func:`tile_geometry_into_bboxes`), and
+        each rectangle is one request to fetchez, since one large subset of a granule
         costs Harmony less than several small ones. The time range always comes
         from ``bbox``.
 
@@ -2022,7 +2023,7 @@ def _tile_edges(
 
 def tile_geometry_into_bboxes(
     geometry: shapely.Geometry,
-    tile_size_deg: float = 1.0,
+    tile_size_deg: float = 2.0,
     sliver_fraction: float = 0.25,
 ) -> list[tuple[float, float, float, float]]:
     """Cover a WGS84 geometry with as few axis-aligned rectangles as practical.
