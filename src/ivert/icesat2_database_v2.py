@@ -656,62 +656,64 @@ class IS2Database:
         return cls._NC_SUFFIX_RE.sub("", filename)
 
     @staticmethod
-    def _h5_along_track_m(h5_fn: str, beams) -> pd.DataFrame:
-        """Return per-photon cumulative along-track distance (m) for the given beams.
+    def _h5_along_track_m(h5_fn: str, beams) -> dict:
+        """Read what is needed to give each photon of the given beams its along-track distance.
 
-        Cumulative distance = sum of segment_length values up to each photon's segment
-        (from geolocation/segment_length) plus the photon's offset within that segment
-        (from heights/dist_ph_along).
+        Cumulative along-track distance is the sum of ``segment_length`` over the
+        geolocation segments before the photon's, plus the photon's own
+        ``dist_ph_along`` within it. The photons of a beam are stored segment
+        after segment, ``segment_ph_cnt[i]`` of them for segment ``i``, which is
+        how globato numbers them too (``ph_index_within_seg``).
 
-        Returns a DataFrame with columns [laser, delta_time, x, y, along_track_m].
+        Returns ``{beam: (segment_id, segment_start_row, along_track_m)}`` with
+        ``along_track_m`` in photon (heights) order; a beam missing from the file
+        is left out.
         """
         import h5py
 
-        dfs = []
+        tables = {}
         with h5py.File(h5_fn, "r") as f:
             for beam in beams:
                 try:
-                    delta_time = f[f"{beam}/heights/delta_time"][...]
-                    lon = f[f"{beam}/heights/lon_ph"][...]
-                    lat = f[f"{beam}/heights/lat_ph"][...]
                     dist_ph_along = f[f"{beam}/heights/dist_ph_along"][...]
-                    ph_index_beg = f[f"{beam}/geolocation/ph_index_beg"][...]
+                    segment_id = f[f"{beam}/geolocation/segment_id"][...]
+                    seg_ph_cnt = f[f"{beam}/geolocation/segment_ph_cnt"][...]
                     seg_length = f[f"{beam}/geolocation/segment_length"][...]
                 except KeyError:
                     continue
 
-                # Cumulative distance at the start of each segment
-                seg_cumul_start = np.concatenate(
-                    [[0.0], np.cumsum(seg_length[:-1])],
-                )
+                n = len(dist_ph_along)
+                seg_starts = np.concatenate(([0], np.cumsum(seg_ph_cnt)[:-1]))
+                seg_cumul_start = np.concatenate(([0.0], np.cumsum(seg_length[:-1])))
+                seg_of_ph = np.repeat(np.arange(len(seg_ph_cnt)), seg_ph_cnt)[:n]
+                along = seg_cumul_start[seg_of_ph] + dist_ph_along[: len(seg_of_ph)]
+                tables[beam] = (segment_id, seg_starts, along)
+        return tables
 
-                # Map each photon to its segment via ph_index_beg
-                n = len(delta_time)
-                seg_of_ph = np.clip(
-                    np.searchsorted(ph_index_beg, np.arange(n), side="right") - 1,
-                    0,
-                    len(ph_index_beg) - 1,
-                )
+    @staticmethod
+    def _along_track_of_photons(df: pd.DataFrame, tables: dict) -> np.ndarray:
+        """Look each photon's along-track distance up by its beam, segment and place in it.
 
-                dfs.append(
-                    pd.DataFrame(
-                        {
-                            "laser": beam,
-                            "delta_time": delta_time,
-                            "x": lon,
-                            "y": lat,
-                            "along_track_m": seg_cumul_start[seg_of_ph] + dist_ph_along,
-                        },
-                    ),
-                )
-
-        return (
-            pd.concat(dfs, ignore_index=True)
-            if dfs
-            else pd.DataFrame(
-                columns=["laser", "delta_time", "x", "y", "along_track_m"],
-            )
-        )
+        The lookup is by the photon's row in the file (``ph_segment_id`` and
+        ``ph_index_within_seg``, which globato carries through), not by its
+        coordinates: globato moves ATL24 bathymetry photons to ATL24's positions,
+        so their coordinates no longer match the file. NaN where a photon's
+        segment is not in the file's table.
+        """
+        out = np.full(len(df), np.nan)
+        # globato yields the beam name as 4 bytes; a str is accepted too.
+        lasers = np.char.decode(df["laser"].to_numpy().astype("S4"))
+        seg = df["ph_segment_id"].to_numpy()
+        idx = df["ph_index_within_seg"].to_numpy()
+        for beam, (segment_id, seg_starts, along) in tables.items():
+            sel = np.flatnonzero(lasers == beam)
+            if len(sel) == 0 or len(segment_id) == 0:
+                continue
+            pos = np.clip(np.searchsorted(segment_id, seg[sel]), 0, len(segment_id) - 1)
+            rows = seg_starts[pos] + idx[sel] - 1
+            ok = (segment_id[pos] == seg[sel]) & (rows >= 0) & (rows < len(along))
+            out[sel[ok]] = along[rows[ok]]
+        return out
 
     @staticmethod
     def _validate_vertical_datum(raw_value: str) -> str:
@@ -832,6 +834,13 @@ class IS2Database:
             if len(df) == 0:
                 return None
 
+        # Each photon's cumulative along-track distance, looked up by its row in
+        # the file (see _along_track_of_photons).
+        if {"laser", "ph_segment_id", "ph_index_within_seg"} <= set(df.columns):
+            beams = sorted(set(np.char.decode(df["laser"].to_numpy().astype("S4"))))
+            tables = self._h5_along_track_m(h5_fn, beams)
+            df = df.assign(along_track_m=self._along_track_of_photons(df, tables))
+
         # Keep only the columns needed for validation; drop large/redundant ones.
         keep_cols = [
             "x",
@@ -842,16 +851,9 @@ class IS2Database:
             "delta_time",
             "confidence",
             "laser",
+            "along_track_m",
         ]
         df = df[[c for c in keep_cols if c in df.columns]].copy()
-
-        # Add per-photon cumulative along-track distance from h5 geolocation data.
-        # Merge on (laser, delta_time, x, y) — the four fields that uniquely identify
-        # a photon across beams, since all beams share delta_time values.
-        if "laser" in df.columns:
-            dist_df = self._h5_along_track_m(h5_fn, df["laser"].unique().tolist())
-            if not dist_df.empty:
-                df = df.merge(dist_df, on=["laser", "delta_time", "x", "y"], how="left")
 
         return df, vertical_datum
 

@@ -124,12 +124,17 @@ def _load_h5_beam_photons(h5_path, beam):
 
     n = len(delta_time)
     seg_cumul_start = np.concatenate([[0.0], np.cumsum(seg_length[:-1])])
+    # ph_index_beg is the 1-based heights row of a segment's first photon, and
+    # 0 for a segment with no photons, so only the non-empty segments are in
+    # order and searchable; the photon's own row is likewise 1-based here.
+    has_photons = ph_index_beg > 0
     seg_of_ph = np.clip(
-        np.searchsorted(ph_index_beg, np.arange(n), side="right") - 1,
+        np.searchsorted(ph_index_beg[has_photons], np.arange(1, n + 1), side="right")
+        - 1,
         0,
-        len(ph_index_beg) - 1,
+        int(has_photons.sum()) - 1,
     )
-    along_track_m = seg_cumul_start[seg_of_ph] + dist_ph_along
+    along_track_m = seg_cumul_start[has_photons][seg_of_ph] + dist_ph_along
 
     order = np.argsort(delta_time)
     delta_time = delta_time[order]

@@ -168,16 +168,21 @@ def test_granules_are_classified_by_forked_workers(
     with caplog.at_level(logging.INFO):
         records = _db(tmp_path)._classify_files(_work(files), BBOX)
 
-    # Every file with photons gave one record, numbered largest file first.
+    # Every file with photons gave one record, each with its own number out of 6.
     by_name = {r["filename"]: r for r in records}
     assert sorted(by_name) == sorted(os.path.basename(f) for f in files[:-1])
-    assert by_name["ATL03_1_subsetted.h5"]["granule_num"] == 1  # the 9 MiB file
+    numbers = sorted(r["granule_num"] for r in records)
+    assert len(set(numbers)) == 5
+    assert set(numbers) <= set(range(1, 7))
     assert {r["total_granules"] for r in records} == {6}
-    # The largest was done here, the rest by other processes.
-    assert by_name["ATL03_1_subsetted.h5"]["pid"] == os.getpid()
-    other_pids = {r["pid"] for r in records if r["filename"] != "ATL03_1_subsetted.h5"}
-    assert other_pids
-    assert os.getpid() not in other_pids
+    # Whichever subset the prefetch reported first was done here (granule 1), the
+    # rest by other processes. The order of readiness is the fetches', so which
+    # file that is varies.
+    here = [r["granule_num"] for r in records if r["pid"] == os.getpid()]
+    assert here in ([], [1])
+    elsewhere = {r["pid"] for r in records if r["granule_num"] != 1}
+    assert elsewhere
+    assert os.getpid() not in elsewhere
     assert "No valid classified photons in ATL03_empty_subsetted.h5" in caplog.text
     assert "3 worker processes" in caplog.text
     # The prefetch child logs through its own handlers, not this process's caplog.
