@@ -8,12 +8,15 @@ import netCDF4  # noqa: F401
 
 # isort: split
 
+import contextlib
 import datetime
 import itertools
 import logging
+import multiprocessing
 import os
 import re
 import shutil
+import sys
 from typing import ClassVar, NamedTuple
 
 import dateparser
@@ -23,6 +26,7 @@ import fetchez.spatial
 import globato
 import numpy as np
 import pandas as pd
+import psutil
 import shapely
 import shapely.prepared
 import xarray
@@ -79,6 +83,108 @@ def _delta_time_to_yyyymmdd(delta_time: float) -> int:
             "%Y%m%d",
         ),
     )
+
+
+# --- Sizing the classification worker pool ----------------------------------
+# A subset is classified in memory: its photons expand into ~16 float64 columns
+# plus the classifiers' temporaries. Measured on the largest subset of a Southern
+# California run (a 448 MiB file), the process grew by 1.7 GB, about 4x the file;
+# 6x leaves headroom for denser granules.
+_CLASSIFY_BYTES_PER_H5_BYTE = 6
+_CLASSIFY_MIN_WORKER_BYTES = 1 << 30
+# Beyond this many workers the NSIDC downloads and the disk become the limit.
+_CLASSIFY_MAX_WORKERS = 8
+# The share of the memory available right now that the pool may plan on using.
+_CLASSIFY_MEMORY_SHARE = 0.6
+# Recycle a worker after this many granules, so any growth in pandas or HDF5
+# buffers stays bounded.
+_CLASSIFY_TASKS_PER_WORKER = 25
+# Workers run at this niceness so an interactive machine stays responsive.
+_CLASSIFY_NICE = 5
+
+
+def classify_worker_count(
+    setting,
+    h5_files,
+    *,
+    cpu_count: int | None = None,
+    available_bytes: int | None = None,
+    fork_available: bool | None = None,
+) -> tuple[int, str]:
+    """Decide how many processes should classify a request's granules, and why.
+
+    ``setting`` is the ``icesat2_classify_workers`` option. An integer forces that
+    many (1 is the serial path). "auto" sizes the pool from the machine so that a
+    laptop is not overloaded: one fewer than its cores, no more than the memory
+    available now allows at an estimated `_CLASSIFY_BYTES_PER_H5_BYTE` times the
+    largest file per process, and at most `_CLASSIFY_MAX_WORKERS`. Workers are
+    forked so that mask trees already built in the parent are shared rather than
+    rebuilt; where fork is unavailable the answer is 1.
+
+    Args:
+        setting: The configured value, an integer or "auto".
+        h5_files: The subset files to be classified; the largest sets the memory
+            estimate.
+        cpu_count: Stands in for ``os.cpu_count()`` (tests).
+        available_bytes: Stands in for ``psutil.virtual_memory().available`` (tests).
+        fork_available: Stands in for the platform check (tests).
+
+    Returns:
+        ``(count, reason)``, the reason being a short phrase for the log.
+    """
+    if setting is not None and str(setting).strip().lower() != "auto":
+        try:
+            forced = int(setting)
+        except (TypeError, ValueError):
+            logger.warning(
+                "icesat2_classify_workers=%r is neither an integer nor 'auto'; "
+                "sizing the pool automatically.",
+                setting,
+            )
+        else:
+            return max(1, forced), f"icesat2_classify_workers = {forced}"
+
+    if fork_available is None:
+        fork_available = (
+            sys.platform.startswith("linux")
+            and "fork" in multiprocessing.get_all_start_methods()
+        )
+    if not fork_available:
+        return 1, "this platform cannot fork worker processes"
+
+    if cpu_count is None:
+        cpu_count = os.cpu_count() or 1
+    if available_bytes is None:
+        available_bytes = psutil.virtual_memory().available
+    largest = max((os.path.getsize(f) for f in h5_files), default=0)
+    per_worker = max(_CLASSIFY_MIN_WORKER_BYTES, _CLASSIFY_BYTES_PER_H5_BYTE * largest)
+
+    by_cpu = max(1, cpu_count - 1)
+    by_memory = max(1, int(_CLASSIFY_MEMORY_SHARE * available_bytes // per_worker))
+    count = min(by_cpu, by_memory, _CLASSIFY_MAX_WORKERS)
+    reason = (
+        f"{cpu_count} cores, {available_bytes / 2**30:.1f} GB available, "
+        f"~{per_worker / 2**30:.1f} GB per worker for the largest file"
+    )
+    return count, reason
+
+
+# The database object a forked classification worker works through.
+_WORKER_DB = None
+
+
+def _start_classify_worker(config, nice: int) -> None:
+    """Set up a forked classification worker: one database object, lower priority."""
+    global _WORKER_DB
+    with contextlib.suppress(AttributeError, OSError):
+        os.nice(nice)
+    _WORKER_DB = IS2Database(ivert_config=config)
+
+
+def _classify_in_worker(job: tuple) -> tuple:
+    """Classify one subset in a worker; ``job`` is (granule index, kwargs)."""
+    index, kwargs = job
+    return index, _WORKER_DB._process_h5_to_nc_tiles(**kwargs)
 
 
 class DatabaseNotFoundError(Exception):
@@ -842,6 +948,99 @@ class IS2Database:
                     progress=progress,
                 ),
             )
+        return records
+
+    def _classify_files(
+        self,
+        files_to_process: list,
+        query_bbox: tuple,
+        classes_to_keep: tuple = (1, 2, 3, 6, 7, 40, 41, 42),
+        min_confidence_level: int = 1,
+        use_external_masks: bool = True,
+    ) -> list[dict]:
+        """Classify each downloaded subset and store its tiles, in parallel when the machine allows.
+
+        ``files_to_process`` holds ``(h5_fn, tiles)`` pairs as
+        :meth:`_process_h5_to_nc_tiles` takes them. The largest file is done in
+        this process first, which also leaves globato's mask trees built here for
+        the workers to inherit when they fork; the rest go to a pool sized by
+        :func:`classify_worker_count`, or run here one after another when that
+        size is 1. Granules that produce no photons are logged.
+
+        Returns the index records of every tile written.
+        """
+        total = len(files_to_process)
+        ordered = sorted(
+            files_to_process,
+            key=lambda item: os.path.getsize(item[0]),
+            reverse=True,
+        )
+
+        def job(index, item):
+            h5_fn, tiles = item
+            return {
+                "h5_fn": h5_fn,
+                "query_bbox": query_bbox,
+                "tiles": tiles,
+                "classes_to_keep": classes_to_keep,
+                "min_confidence_level": min_confidence_level,
+                "granule_num": index,
+                "total_granules": total,
+                "use_external_masks": use_external_masks,
+            }
+
+        records = []
+
+        def take(index, h5_fn, metas):
+            if metas:
+                records.extend(metas)
+            else:
+                logger.info(
+                    "%d/%d No valid classified photons in %s.",
+                    index,
+                    total,
+                    os.path.basename(h5_fn),
+                )
+
+        if not ordered:
+            return records
+        take(1, ordered[0][0], self._process_h5_to_nc_tiles(**job(1, ordered[0])))
+        rest = ordered[1:]
+        if not rest:
+            return records
+
+        workers, why = classify_worker_count(
+            getattr(self.config, "icesat2_classify_workers", "auto"),
+            [h5_fn for h5_fn, _ in rest],
+        )
+        workers = min(workers, len(rest))
+        if workers <= 1:
+            for index, item in enumerate(rest, start=2):
+                take(index, item[0], self._process_h5_to_nc_tiles(**job(index, item)))
+            return records
+
+        logger.info(
+            "Classifying the remaining %d granules with %d worker processes (%s).",
+            len(rest),
+            workers,
+            why,
+        )
+        jobs = [(index, job(index, item)) for index, item in enumerate(rest, start=2)]
+        pool = multiprocessing.get_context("fork").Pool(
+            workers,
+            initializer=_start_classify_worker,
+            initargs=(self.config, _CLASSIFY_NICE),
+            maxtasksperchild=_CLASSIFY_TASKS_PER_WORKER,
+        )
+        try:
+            for index, metas in pool.imap_unordered(_classify_in_worker, jobs):
+                take(index, jobs[index - 2][1]["h5_fn"], metas)
+            pool.close()
+        except BaseException:
+            pool.terminate()
+            raise
+        finally:
+            pool.join()
         return records
 
     def _process_h5_to_nc(
@@ -1626,7 +1825,6 @@ class IS2Database:
                 max_tile_scale_factor=max_tile_scale_factor,
             )
 
-            new_records = []
             files_to_process = []
             for h5_src in h5_files:
                 targets = []
@@ -1641,26 +1839,13 @@ class IS2Database:
                 if targets:
                     files_to_process.append((h5_src, targets))
 
-            for granule_num, (h5_src, targets) in enumerate(files_to_process, start=1):
-                metas = self._process_h5_to_nc_tiles(
-                    h5_src,
-                    sbbox,
-                    targets,
-                    classes_to_keep=classes_to_keep,
-                    min_confidence_level=min_confidence_level,
-                    granule_num=granule_num,
-                    total_granules=len(files_to_process),
-                    use_external_masks=use_external_masks,
-                )
-                if metas:
-                    new_records.extend(metas)
-                else:
-                    logger.info(
-                        "%d/%d No valid classified photons in %s.",
-                        granule_num,
-                        len(files_to_process),
-                        os.path.basename(h5_src),
-                    )
+            new_records = self._classify_files(
+                files_to_process,
+                sbbox,
+                classes_to_keep=classes_to_keep,
+                min_confidence_level=min_confidence_level,
+                use_external_masks=use_external_masks,
+            )
 
             if not new_records:
                 parts_empty += 1
