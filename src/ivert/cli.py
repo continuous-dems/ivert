@@ -828,7 +828,8 @@ def database_rebuild():
 
     db = is2db_mod.IS2Database()
     gdf = db.create_new_database(populate=True, overwrite=True)
-    click.echo(f"Rebuilt database with {len(gdf)} granule(s).")
+    n = len(gdf)
+    click.echo(f"Rebuilt ivert database index with {n} granule{'' if n == 1 else 's'}.")
 
 
 @database.command("delete")
