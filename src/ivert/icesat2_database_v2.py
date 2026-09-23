@@ -80,6 +80,30 @@ def _yyyymmdd_to_delta_time(yyyymmdd: int | str) -> float:
     ).total_seconds()
 
 
+def _normalize_atl_version(value: int | str) -> str:
+    """Return an NSIDC ATL version as its zero-padded string, e.g. 7 or "7" -> "007".
+
+    The config file stores it quoted ("007"), but a value set by hand may be parsed
+    as an int, and either has to compare equal to the release field of a granule
+    filename.
+    """
+    text = str(value).strip()
+    if not text.isdigit() or len(text) > 3:
+        raise ValueError(
+            f"nsidc_atl_version must be a number of up to 3 digits such as 007, not {value!r}.",
+        )
+    return text.zfill(3)
+
+
+def _atl_release_from_filename(filename: str) -> str | None:
+    """Return the release field of an ATL granule filename, or None if it has none.
+
+    "ATL03_20241107234251_08052501_007_01_subsetted.h5" -> "007".
+    """
+    parts = os.path.basename(filename).split("_")
+    return parts[3] if len(parts) >= 4 else None
+
+
 def _delta_time_to_yyyymmdd(delta_time: float) -> int:
     """Convert ICESat-2 delta_time (seconds since 2018-01-01) to a YYYYMMDD integer."""
     return int(
@@ -820,6 +844,7 @@ class IS2Database:
             vertical_datum=self._vertical_epsg_to_globato_datum(vertical_datum),
             reject_failed_qa=True,
             append_atl24=True,
+            atl_version=_normalize_atl_version(self.config.nsidc_atl_version),
             cache_dir=self.icesat2_download_dir,
             use_external_masks=use_external_masks,
         )
@@ -1820,6 +1845,8 @@ class IS2Database:
 
         os.makedirs(self.granules_dir, exist_ok=True)
 
+        atl_version = _normalize_atl_version(self.config.nsidc_atl_version)
+
         parts_downloaded = parts_empty = parts_failed = granules_added = 0
 
         for i, sbbox in enumerate(bboxes):
@@ -1848,7 +1875,8 @@ class IS2Database:
             )
 
             logger.info(
-                "Fetching ATL03 granules: region=%s  %s -> %s",
+                "Fetching ATL03 v%s granules: region=%s  %s -> %s",
+                atl_version,
                 region_str,
                 time_start,
                 time_end,
@@ -1858,6 +1886,7 @@ class IS2Database:
                 src_region=src_region,
                 outdir=cache_dir,
                 subset=True,
+                version=atl_version,
                 time_start=time_start,
                 time_end=time_end,
             )
@@ -1868,6 +1897,7 @@ class IS2Database:
                 "ATL03",
                 sbbox,
                 only_unexpired=True,
+                atl_version=atl_version,
             )
             if cached:
                 # Ping Harmony to verify the cached job completed without errors.
@@ -1906,7 +1936,12 @@ class IS2Database:
                         n_granules,
                         mod.subset_job_id,
                     )
-                    requests_csv.add_record("ATL03", sbbox, harmony_status)
+                    requests_csv.add_record(
+                        "ATL03",
+                        sbbox,
+                        harmony_status,
+                        atl_version=atl_version,
+                    )
 
             mod.run()
 
@@ -1953,6 +1988,25 @@ class IS2Database:
                 logger.info("No granules downloaded for this bbox.")
                 parts_empty += 1
                 continue
+
+            # fetchez only uses the version to look up a Harmony collection it
+            # already knows about, and falls back to whatever Harmony serves for
+            # "ATL03" otherwise, so check what actually came back.
+            wrong_release = [
+                fn for fn in h5_files if _atl_release_from_filename(fn) != atl_version
+            ]
+            if wrong_release:
+                logger.error(
+                    "Ignoring %d granule(s) that are not ATL03 v%s (nsidc_atl_version), e.g. %s. "
+                    "The installed fetchez may not support that version yet.",
+                    len(wrong_release),
+                    atl_version,
+                    os.path.basename(wrong_release[0]),
+                )
+                h5_files = [fn for fn in h5_files if fn not in wrong_release]
+                if not h5_files:
+                    parts_failed += 1
+                    continue
 
             logger.info(
                 "Downloaded %d ATL03 granule(s). Classifying and saving as NetCDF...",

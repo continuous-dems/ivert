@@ -44,7 +44,9 @@ dependencies = [
     # injected auth headers and the download died on a JSONDecodeError parsing the
     # login page it got back instead of JSON (#23).
     "fetchez>=0.6.13",
-    "globato",
+    # 0.3.9 is the first release expected to carry globato#236, which added the
+    # atl_version argument that _classify_h5() passes to globato.read().
+    "globato>=0.3.9",
     "transformez",
 ]
 
