@@ -8,12 +8,17 @@ import netCDF4  # noqa: F401
 
 # isort: split
 
+import contextlib
 import datetime
 import itertools
 import logging
+import multiprocessing
 import os
+import queue
 import re
 import shutil
+import sys
+from collections.abc import Iterator
 from typing import ClassVar, NamedTuple
 
 import dateparser
@@ -23,6 +28,7 @@ import fetchez.spatial
 import globato
 import numpy as np
 import pandas as pd
+import psutil
 import shapely
 import shapely.prepared
 import xarray
@@ -79,6 +85,161 @@ def _delta_time_to_yyyymmdd(delta_time: float) -> int:
             "%Y%m%d",
         ),
     )
+
+
+# --- Sizing the classification worker pool ----------------------------------
+# A subset is classified in memory: its photons expand into ~16 float64 columns
+# plus the classifiers' temporaries. Measured on the largest subset of a Southern
+# California run (a 448 MiB file), the process grew by 1.7 GB, about 4x the file;
+# 6x leaves headroom for denser granules.
+_CLASSIFY_BYTES_PER_H5_BYTE = 6
+_CLASSIFY_MIN_WORKER_BYTES = 1 << 30
+# Beyond this many workers the NSIDC downloads and the disk become the limit.
+_CLASSIFY_MAX_WORKERS = 8
+# The share of the memory available right now that the pool may plan on using.
+_CLASSIFY_MEMORY_SHARE = 0.6
+# Workers run at this niceness so an interactive machine stays responsive.
+_CLASSIFY_NICE = 5
+
+
+def classify_worker_count(
+    setting,
+    h5_files,
+    *,
+    cpu_count: int | None = None,
+    available_bytes: int | None = None,
+    fork_available: bool | None = None,
+) -> tuple[int, str]:
+    """Decide how many processes should classify a request's granules, and why.
+
+    ``setting`` is the ``icesat2_classify_workers`` option. An integer forces that
+    many (1 is the serial path). "auto" sizes the pool from the machine so that a
+    laptop is not overloaded: one fewer than its cores, no more than the memory
+    available now allows at an estimated `_CLASSIFY_BYTES_PER_H5_BYTE` times the
+    largest file per process, and at most `_CLASSIFY_MAX_WORKERS`. Workers are
+    forked so that mask trees already built in the parent are shared rather than
+    rebuilt; where fork is unavailable the answer is 1.
+
+    Args:
+        setting: The configured value, an integer or "auto".
+        h5_files: The subset files to be classified; the largest sets the memory
+            estimate.
+        cpu_count: Stands in for ``os.cpu_count()`` (tests).
+        available_bytes: Stands in for ``psutil.virtual_memory().available`` (tests).
+        fork_available: Stands in for the platform check (tests).
+
+    Returns:
+        ``(count, reason)``, the reason being a short phrase for the log.
+    """
+    if setting is not None and str(setting).strip().lower() != "auto":
+        try:
+            forced = int(setting)
+        except (TypeError, ValueError):
+            logger.warning(
+                "icesat2_classify_workers=%r is neither an integer nor 'auto'; "
+                "sizing the pool automatically.",
+                setting,
+            )
+        else:
+            return max(1, forced), f"icesat2_classify_workers = {forced}"
+
+    if fork_available is None:
+        fork_available = (
+            sys.platform.startswith("linux")
+            and "fork" in multiprocessing.get_all_start_methods()
+        )
+    if not fork_available:
+        return 1, "this platform cannot fork worker processes"
+
+    if cpu_count is None:
+        cpu_count = os.cpu_count() or 1
+    if available_bytes is None:
+        available_bytes = psutil.virtual_memory().available
+    largest = max((os.path.getsize(f) for f in h5_files), default=0)
+    per_worker = max(_CLASSIFY_MIN_WORKER_BYTES, _CLASSIFY_BYTES_PER_H5_BYTE * largest)
+
+    by_cpu = max(1, cpu_count - 1)
+    by_memory = max(1, int(_CLASSIFY_MEMORY_SHARE * available_bytes // per_worker))
+    count = min(by_cpu, by_memory, _CLASSIFY_MAX_WORKERS)
+    reason = (
+        f"{cpu_count} cores, {available_bytes / 2**30:.1f} GB available, "
+        f"~{per_worker / 2**30:.1f} GB per worker for the largest file"
+    )
+    return count, reason
+
+
+# --- Fetching ATL08/ATL24 ahead of classification ------------------------------
+# globato fetches a granule's ATL08 and ATL24 when it classifies it, one granule
+# at a time, and the two together are often a couple of hundred megabytes: with
+# the classification itself down to seconds, waiting for them is most of a
+# granule's time. They are fetched ahead instead, this many at once.
+_AUX_PREFETCH_THREADS = 6
+_AUX_PRODUCTS = ("ATL08", "ATL24")
+# How long the parent waits for the prefetch child's next report before
+# checking that the child is still alive.
+_READY_POLL_SECONDS = 5.0
+
+
+def _prefetch_aux_granules(h5_files, cache_dir, threads: int, ready) -> None:
+    """Fetch the ATL08 and ATL24 granules for each subset, several at a time.
+
+    Runs in a process of its own (see :meth:`IS2Database._start_aux_prefetch`),
+    through globato's own lookup, so the files land exactly where its reader
+    later looks for them. A file already in the cache costs a directory glob.
+    Each subset's path is put on ``ready`` once its files have been looked for,
+    whether or not any were found, and ``None`` once all have.
+    """
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    from globato.streams.readers.icesat2 import ATL03Reader
+
+    def fetch(h5_fn):
+        reader = ATL03Reader(h5_fn, cache_dir=cache_dir, classes="1")
+        return [reader.fetch_atlxx(h5_fn, name) for name in _AUX_PRODUCTS]
+
+    counts = [0] * len(_AUX_PRODUCTS)
+    try:
+        with ThreadPoolExecutor(max_workers=threads) as pool:
+            futures = {pool.submit(fetch, h5_fn): h5_fn for h5_fn in h5_files}
+            for future in as_completed(futures):
+                try:
+                    found = future.result()
+                except Exception:
+                    logger.warning(
+                        "Fetching aux granules for %s failed; its classification "
+                        "will fetch them itself.",
+                        os.path.basename(futures[future]),
+                        exc_info=True,
+                    )
+                else:
+                    for i, path in enumerate(found):
+                        counts[i] += path is not None
+                ready.put(futures[future])
+    finally:
+        ready.put(None)
+    logger.info(
+        "Aux granules ready for %d subsets: %s.",
+        len(h5_files),
+        ", ".join(f"{n} {name}" for name, n in zip(_AUX_PRODUCTS, counts, strict=True)),
+    )
+
+
+# The database object a forked classification worker works through.
+_WORKER_DB = None
+
+
+def _start_classify_worker(config, nice: int) -> None:
+    """Set up a forked classification worker: one database object, lower priority."""
+    global _WORKER_DB
+    with contextlib.suppress(AttributeError, OSError):
+        os.nice(nice)
+    _WORKER_DB = IS2Database(ivert_config=config)
+
+
+def _classify_in_worker(job: tuple) -> tuple:
+    """Classify one subset in a worker; ``job`` is (granule index, kwargs)."""
+    index, kwargs = job
+    return index, kwargs["h5_fn"], _WORKER_DB._process_h5_to_nc_tiles(**kwargs)
 
 
 class DatabaseNotFoundError(Exception):
@@ -495,62 +656,64 @@ class IS2Database:
         return cls._NC_SUFFIX_RE.sub("", filename)
 
     @staticmethod
-    def _h5_along_track_m(h5_fn: str, beams) -> pd.DataFrame:
-        """Return per-photon cumulative along-track distance (m) for the given beams.
+    def _h5_along_track_m(h5_fn: str, beams) -> dict:
+        """Read what is needed to give each photon of the given beams its along-track distance.
 
-        Cumulative distance = sum of segment_length values up to each photon's segment
-        (from geolocation/segment_length) plus the photon's offset within that segment
-        (from heights/dist_ph_along).
+        Cumulative along-track distance is the sum of ``segment_length`` over the
+        geolocation segments before the photon's, plus the photon's own
+        ``dist_ph_along`` within it. The photons of a beam are stored segment
+        after segment, ``segment_ph_cnt[i]`` of them for segment ``i``, which is
+        how globato numbers them too (``ph_index_within_seg``).
 
-        Returns a DataFrame with columns [laser, delta_time, x, y, along_track_m].
+        Returns ``{beam: (segment_id, segment_start_row, along_track_m)}`` with
+        ``along_track_m`` in photon (heights) order; a beam missing from the file
+        is left out.
         """
         import h5py
 
-        dfs = []
+        tables = {}
         with h5py.File(h5_fn, "r") as f:
             for beam in beams:
                 try:
-                    delta_time = f[f"{beam}/heights/delta_time"][...]
-                    lon = f[f"{beam}/heights/lon_ph"][...]
-                    lat = f[f"{beam}/heights/lat_ph"][...]
                     dist_ph_along = f[f"{beam}/heights/dist_ph_along"][...]
-                    ph_index_beg = f[f"{beam}/geolocation/ph_index_beg"][...]
+                    segment_id = f[f"{beam}/geolocation/segment_id"][...]
+                    seg_ph_cnt = f[f"{beam}/geolocation/segment_ph_cnt"][...]
                     seg_length = f[f"{beam}/geolocation/segment_length"][...]
                 except KeyError:
                     continue
 
-                # Cumulative distance at the start of each segment
-                seg_cumul_start = np.concatenate(
-                    [[0.0], np.cumsum(seg_length[:-1])],
-                )
+                n = len(dist_ph_along)
+                seg_starts = np.concatenate(([0], np.cumsum(seg_ph_cnt)[:-1]))
+                seg_cumul_start = np.concatenate(([0.0], np.cumsum(seg_length[:-1])))
+                seg_of_ph = np.repeat(np.arange(len(seg_ph_cnt)), seg_ph_cnt)[:n]
+                along = seg_cumul_start[seg_of_ph] + dist_ph_along[: len(seg_of_ph)]
+                tables[beam] = (segment_id, seg_starts, along)
+        return tables
 
-                # Map each photon to its segment via ph_index_beg
-                n = len(delta_time)
-                seg_of_ph = np.clip(
-                    np.searchsorted(ph_index_beg, np.arange(n), side="right") - 1,
-                    0,
-                    len(ph_index_beg) - 1,
-                )
+    @staticmethod
+    def _along_track_of_photons(df: pd.DataFrame, tables: dict) -> np.ndarray:
+        """Look each photon's along-track distance up by its beam, segment and place in it.
 
-                dfs.append(
-                    pd.DataFrame(
-                        {
-                            "laser": beam,
-                            "delta_time": delta_time,
-                            "x": lon,
-                            "y": lat,
-                            "along_track_m": seg_cumul_start[seg_of_ph] + dist_ph_along,
-                        },
-                    ),
-                )
-
-        return (
-            pd.concat(dfs, ignore_index=True)
-            if dfs
-            else pd.DataFrame(
-                columns=["laser", "delta_time", "x", "y", "along_track_m"],
-            )
-        )
+        The lookup is by the photon's row in the file (``ph_segment_id`` and
+        ``ph_index_within_seg``, which globato carries through), not by its
+        coordinates: globato moves ATL24 bathymetry photons to ATL24's positions,
+        so their coordinates no longer match the file. NaN where a photon's
+        segment is not in the file's table.
+        """
+        out = np.full(len(df), np.nan)
+        # globato yields the beam name as 4 bytes; a str is accepted too.
+        lasers = np.char.decode(df["laser"].to_numpy().astype("S4"))
+        seg = df["ph_segment_id"].to_numpy()
+        idx = df["ph_index_within_seg"].to_numpy()
+        for beam, (segment_id, seg_starts, along) in tables.items():
+            sel = np.flatnonzero(lasers == beam)
+            if len(sel) == 0 or len(segment_id) == 0:
+                continue
+            pos = np.clip(np.searchsorted(segment_id, seg[sel]), 0, len(segment_id) - 1)
+            rows = seg_starts[pos] + idx[sel] - 1
+            ok = (segment_id[pos] == seg[sel]) & (rows >= 0) & (rows < len(along))
+            out[sel[ok]] = along[rows[ok]]
+        return out
 
     @staticmethod
     def _validate_vertical_datum(raw_value: str) -> str:
@@ -671,6 +834,13 @@ class IS2Database:
             if len(df) == 0:
                 return None
 
+        # Each photon's cumulative along-track distance, looked up by its row in
+        # the file (see _along_track_of_photons).
+        if {"laser", "ph_segment_id", "ph_index_within_seg"} <= set(df.columns):
+            beams = sorted(set(np.char.decode(df["laser"].to_numpy().astype("S4"))))
+            tables = self._h5_along_track_m(h5_fn, beams)
+            df = df.assign(along_track_m=self._along_track_of_photons(df, tables))
+
         # Keep only the columns needed for validation; drop large/redundant ones.
         keep_cols = [
             "x",
@@ -681,16 +851,9 @@ class IS2Database:
             "delta_time",
             "confidence",
             "laser",
+            "along_track_m",
         ]
         df = df[[c for c in keep_cols if c in df.columns]].copy()
-
-        # Add per-photon cumulative along-track distance from h5 geolocation data.
-        # Merge on (laser, delta_time, x, y) — the four fields that uniquely identify
-        # a photon across beams, since all beams share delta_time values.
-        if "laser" in df.columns:
-            dist_df = self._h5_along_track_m(h5_fn, df["laser"].unique().tolist())
-            if not dist_df.empty:
-                df = df.merge(dist_df, on=["laser", "delta_time", "x", "y"], how="left")
 
         return df, vertical_datum
 
@@ -843,6 +1006,180 @@ class IS2Database:
                 ),
             )
         return records
+
+    def _start_aux_prefetch(self, h5_files: list):
+        """Start fetching the subsets' ATL08 and ATL24 granules in a child process.
+
+        Returns ``(child, ready)``: the child process to join, and a queue on
+        which it reports each subset's path once that subset's files have been
+        looked for, then ``None``. Returns ``None`` where fork is unavailable, in
+        which case the classifiers fetch for themselves as before. The fetching
+        happens in a forked child rather than in threads here, because the
+        classification pool forks this process too, and forking with live
+        threads is unsafe.
+        """
+        if not h5_files or not (
+            sys.platform.startswith("linux")
+            and "fork" in multiprocessing.get_all_start_methods()
+        ):
+            return None
+        context = multiprocessing.get_context("fork")
+        ready = context.Queue()
+        child = context.Process(
+            target=_prefetch_aux_granules,
+            args=(
+                list(h5_files),
+                self.icesat2_download_dir,
+                _AUX_PREFETCH_THREADS,
+                ready,
+            ),
+            daemon=True,
+        )
+        child.start()
+        return child, ready
+
+    @staticmethod
+    def _as_ready(h5_files: list, prefetch) -> Iterator[str]:
+        """Yield the subsets in the order their aux granules become available.
+
+        With no prefetch, that is the given order. Otherwise each subset is
+        yielded when the prefetch child reports it, and whatever it has not
+        reported when it finishes (or dies) is yielded in the given order, so a
+        prefetch failure costs downloads, not granules.
+        """
+        if prefetch is None:
+            yield from h5_files
+            return
+        child, ready = prefetch
+        pending = list(h5_files)
+        while pending:
+            try:
+                item = ready.get(timeout=_READY_POLL_SECONDS)
+            except queue.Empty:
+                if child.is_alive():
+                    continue
+                logger.warning(
+                    "The aux prefetch stopped early; the remaining %d granules "
+                    "fetch their own ATL08/ATL24.",
+                    len(pending),
+                )
+                break
+            if item is None:
+                break
+            if item in pending:
+                pending.remove(item)
+                yield item
+        yield from pending
+
+    def _classify_files(
+        self,
+        files_to_process: list,
+        query_bbox: tuple,
+        classes_to_keep: tuple = (1, 2, 3, 6, 7, 40, 41, 42),
+        min_confidence_level: int = 1,
+        use_external_masks: bool = True,
+    ) -> list[dict]:
+        """Classify each downloaded subset and store its tiles, in parallel when the machine allows.
+
+        ``files_to_process`` holds ``(h5_fn, tiles)`` pairs as
+        :meth:`_process_h5_to_nc_tiles` takes them. The subsets are taken largest
+        first. Their ATL08 and ATL24 granules are fetched ahead by a child process
+        (see :meth:`_start_aux_prefetch`), and each subset is classified once its
+        files are in: the first in this process, which also leaves globato's mask
+        trees built here for the workers to inherit when they fork, and the rest
+        by a pool sized by :func:`classify_worker_count`, or here one after
+        another when that size is 1. So only the prefetch downloads, and its
+        progress bars are the only ones on the screen. Granules that produce no
+        photons are logged.
+
+        Returns the index records of every tile written.
+        """
+        total = len(files_to_process)
+        ordered = sorted(
+            files_to_process,
+            key=lambda item: os.path.getsize(item[0]),
+            reverse=True,
+        )
+        tiles_of = dict(ordered)
+        records = []
+        if not ordered:
+            return records
+
+        def job(index, h5_fn):
+            return {
+                "h5_fn": h5_fn,
+                "query_bbox": query_bbox,
+                "tiles": tiles_of[h5_fn],
+                "classes_to_keep": classes_to_keep,
+                "min_confidence_level": min_confidence_level,
+                "granule_num": index,
+                "total_granules": total,
+                "use_external_masks": use_external_masks,
+            }
+
+        def take(index, h5_fn, metas):
+            if metas:
+                records.extend(metas)
+            else:
+                logger.info(
+                    "%d/%d No valid classified photons in %s.",
+                    index,
+                    total,
+                    os.path.basename(h5_fn),
+                )
+
+        h5_files = [h5_fn for h5_fn, _ in ordered]
+        prefetch = self._start_aux_prefetch(h5_files)
+        try:
+            ready = self._as_ready(h5_files, prefetch)
+            first = next(ready)
+            take(1, first, self._process_h5_to_nc_tiles(**job(1, first)))
+            if total == 1:
+                return records
+
+            workers, why = classify_worker_count(
+                getattr(self.config, "icesat2_classify_workers", "auto"),
+                h5_files[1:],
+            )
+            workers = min(workers, total - 1)
+            numbered = ((index, h5_fn) for index, h5_fn in enumerate(ready, start=2))
+            if workers <= 1:
+                for index, h5_fn in numbered:
+                    take(
+                        index,
+                        h5_fn,
+                        self._process_h5_to_nc_tiles(**job(index, h5_fn)),
+                    )
+                return records
+
+            logger.info(
+                "Classifying the remaining %d granules with %d worker processes (%s).",
+                total - 1,
+                workers,
+                why,
+            )
+            jobs = ((index, job(index, h5_fn)) for index, h5_fn in numbered)
+            pool = multiprocessing.get_context("fork").Pool(
+                workers,
+                initializer=_start_classify_worker,
+                initargs=(self.config, _CLASSIFY_NICE),
+            )
+            try:
+                for index, h5_fn, metas in pool.imap_unordered(
+                    _classify_in_worker,
+                    jobs,
+                ):
+                    take(index, h5_fn, metas)
+                pool.close()
+            except BaseException:
+                pool.terminate()
+                raise
+            finally:
+                pool.join()
+            return records
+        finally:
+            if prefetch is not None:
+                prefetch[0].join()
 
     def _process_h5_to_nc(
         self,
@@ -1626,7 +1963,6 @@ class IS2Database:
                 max_tile_scale_factor=max_tile_scale_factor,
             )
 
-            new_records = []
             files_to_process = []
             for h5_src in h5_files:
                 targets = []
@@ -1641,26 +1977,13 @@ class IS2Database:
                 if targets:
                     files_to_process.append((h5_src, targets))
 
-            for granule_num, (h5_src, targets) in enumerate(files_to_process, start=1):
-                metas = self._process_h5_to_nc_tiles(
-                    h5_src,
-                    sbbox,
-                    targets,
-                    classes_to_keep=classes_to_keep,
-                    min_confidence_level=min_confidence_level,
-                    granule_num=granule_num,
-                    total_granules=len(files_to_process),
-                    use_external_masks=use_external_masks,
-                )
-                if metas:
-                    new_records.extend(metas)
-                else:
-                    logger.info(
-                        "%d/%d No valid classified photons in %s.",
-                        granule_num,
-                        len(files_to_process),
-                        os.path.basename(h5_src),
-                    )
+            new_records = self._classify_files(
+                files_to_process,
+                sbbox,
+                classes_to_keep=classes_to_keep,
+                min_confidence_level=min_confidence_level,
+                use_external_masks=use_external_masks,
+            )
 
             if not new_records:
                 parts_empty += 1

@@ -157,6 +157,12 @@ def db(tmp_path, monkeypatch):
     monkeypatch.setattr(is2db, "_FetchezIceSat2", _FakeFetchezIceSat2)
     monkeypatch.setattr(is2db, "ICESat2RequestsCSV", _FakeRequestsCSV)
     monkeypatch.setattr(is2db.fetchez.core, "run_fetchez", _fake_run_fetchez)
+    # The ATL08/ATL24 prefetch would look these made-up granules up at NSIDC.
+    monkeypatch.setattr(
+        is2db.IS2Database,
+        "_start_aux_prefetch",
+        lambda _self, _files: None,
+    )
     return is2db.IS2Database(ivert_config=config)
 
 

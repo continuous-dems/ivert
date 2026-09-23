@@ -48,6 +48,8 @@ Whatever defines the area — a bounding box, DEM extents, or vector polygons, t
 
 Storage goes the other way. Each downloaded subset is classified once and then stored as one file per tile of roughly 2°, on the same grid as the requests, because a query reads every database file that touches it in full, and small files keep small queries cheap.
 
+Classification uses the machine it is on. Each subset also needs its ATL08 (land classes) and ATL24 (bathymetry) granules, which a background process fetches ahead of the classification, several at a time; its progress bars are the ones you see. The subsets are then classified as their files arrive, by a pool of worker processes sized at run time by the `icesat2_classify_workers` setting: `auto` (the default) uses one fewer than the machine's cores, no more than the memory currently available allows (about six times the size of the largest subset file per process), and at most 8 — so a laptop with a few gigabytes free runs one or two workers while a large server runs eight. Set it to a number to force that many, or to `1` to classify one subset at a time. Workers are only forked on Linux; elsewhere `auto` is 1.
+
 ### Date range options
 
 | Flag | Default | Description |
