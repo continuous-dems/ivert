@@ -290,6 +290,9 @@ def validate_list_of_dems(
 
     files_to_export = []
     list_of_results_dfs = []
+    # The DEM behind each entry of list_of_results_dfs, in the same order. DEMs that
+    # come back empty or fail are skipped, so this can't be indexed from dem_list.
+    list_of_results_dems = []
     list_of_empty_files = []
 
     # For each DEM, validate it.
@@ -367,6 +370,7 @@ def validate_list_of_dems(
 
         if os.path.exists(results_h5_file):
             list_of_results_dfs.append(results_h5_file)
+            list_of_results_dems.append(dem_path)
 
         elif os.path.exists(empty_fname):
             list_of_empty_files.append(empty_fname)
@@ -381,7 +385,7 @@ def validate_list_of_dems(
     # Generate the overall summary stats file.
     total_results_df = plot_validation_results.get_data_from_h5_or_list(
         list_of_results_dfs,
-        orig_filenames=dem_list,
+        orig_filenames=list_of_results_dems,
         include_filenames=True,
     )
 
