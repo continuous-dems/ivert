@@ -105,3 +105,10 @@ def _install_handler(level: int) -> None:
     handler.setFormatter(LevelPrefixFormatter(always_prefix=level <= logging.DEBUG))
     logging.basicConfig(level=level, handlers=[handler], force=True)
     logging.getLogger().setLevel(level)
+
+    # pyogrio (the writer behind GeoDataFrame.to_file) logs "Created <n> records" at INFO
+    # on every vector file it writes, which reads as stray noise in IVERT's output. Keep
+    # its warnings, and let the INFO chatter through only at debug verbosity.
+    logging.getLogger("pyogrio").setLevel(
+        logging.NOTSET if level <= logging.DEBUG else logging.WARNING,
+    )
