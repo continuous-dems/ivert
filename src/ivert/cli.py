@@ -865,10 +865,15 @@ def database_delete(delete_all, yes):
 
     nc_files = []
     if delete_all and os.path.isdir(db.granules_dir):
+        # The index is itself a .nc file in granules_dir; don't list it twice.
+        index_realpaths = {os.path.realpath(f) for f in index_files}
         nc_files = sorted(
-            os.path.join(db.granules_dir, fn)
-            for fn in os.listdir(db.granules_dir)
-            if os.path.splitext(fn)[-1].lower() == ".nc"
+            fpath
+            for fpath in (
+                os.path.join(db.granules_dir, fn) for fn in os.listdir(db.granules_dir)
+            )
+            if os.path.splitext(fpath)[-1].lower() == ".nc"
+            and os.path.realpath(fpath) not in index_realpaths
         )
 
     all_files = index_files + nc_files
