@@ -5,7 +5,7 @@ as geolocated point vector files (GeoPackage, Shapefile, or CSV/XYZ), and reads
 the IVERT database index .nc file and writes it as a polygon vector file, one
 rectangular data_bbox footprint per granule.
 
-This module is the library backing the 'ivert database export' command; it has
+This module is the library backing the 'ivert database convert' command; it has
 no command-line interface of its own.
 """
 
@@ -247,7 +247,7 @@ def write_vector(
 
 
 # ---------------------------------------------------------------------------
-# Multi-format helpers (used by 'ivert database export')
+# Multi-format helpers (used by 'ivert database convert')
 # ---------------------------------------------------------------------------
 def normalize_format_keys(output_format: str, allowed=None) -> list:
     """Parse a comma-separated output-format string into a validated list of format keys.
