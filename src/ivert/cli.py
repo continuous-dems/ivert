@@ -924,12 +924,16 @@ def database_size():
     else:
         rows.append(("index", 0, "—", db.db_fname))
 
-    # .nc granule files
+    # .nc granule files (the index is also a .nc file in granules_dir)
+    index_realpath = os.path.realpath(db.db_fname)
     nc_files = (
         [
-            os.path.join(db.granules_dir, fn)
-            for fn in os.listdir(db.granules_dir)
-            if os.path.splitext(fn)[-1].lower() == ".nc"
+            fpath
+            for fpath in (
+                os.path.join(db.granules_dir, fn) for fn in os.listdir(db.granules_dir)
+            )
+            if os.path.splitext(fpath)[-1].lower() == ".nc"
+            and os.path.realpath(fpath) != index_realpath
         ]
         if os.path.isdir(db.granules_dir)
         else []
