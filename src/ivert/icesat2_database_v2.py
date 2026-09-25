@@ -36,6 +36,7 @@ import tqdm.contrib.logging
 import xarray
 from fetchez.modules.earthdata import IceSat2 as _FetchezIceSat2
 
+import ivert.landmask
 import ivert.utils.configfile
 import ivert.utils.cuboid_funcs
 from ivert.icesat2_requests import ICESat2RequestsCSV
@@ -378,6 +379,7 @@ class IS2Database:
 
         self.granules_dir = self.config.ivert_database_directory
         self.icesat2_download_dir = self.config.icesat2_download_directory
+        self.landmask_dir = self.config.ivert_landmask_directory
 
     def create_new_database(
         self,
@@ -637,6 +639,42 @@ class IS2Database:
         stay in front, where globato and the release check read them.
         """
         return cls._granule_stem(h5_fn) + cls._query_bbox_suffix(query_bbox) + ".h5"
+
+    def storage_tiles(self) -> list[tuple[float, float, float, float]]:
+        """The distinct (xmin, xmax, ymin, ymax) storage tiles the database holds."""
+        gdf = self.open_gdf()
+        if gdf is None or len(gdf) == 0:
+            return []
+        cols = [
+            "query_bbox_xmin",
+            "query_bbox_xmax",
+            "query_bbox_ymin",
+            "query_bbox_ymax",
+        ]
+        return [
+            tuple(float(v) for v in row)
+            for row in gdf[cols].drop_duplicates().to_numpy()
+        ]
+
+    def _store_landmasks(self, storage_tiles) -> None:
+        """Copy the cached OSM landmask of each storage tile into the landmask store.
+
+        Only from the cache, which globato has just filled for these tiles; a tile
+        it could not fill is left for a validation to fetch. Never fails a download.
+        """
+        try:
+            ivert.landmask.ensure_landmasks(
+                storage_tiles,
+                self.landmask_dir,
+                self.icesat2_download_dir,
+                fetch=False,
+            )
+        except Exception:
+            logger.warning(
+                "Could not store the landmasks of this part; validations will "
+                "rebuild them when needed.",
+                exc_info=True,
+            )
 
     @classmethod
     def _nc_filename(cls, h5_fn: str, query_bbox: tuple) -> str:
@@ -1996,6 +2034,10 @@ class IS2Database:
                 min_confidence_level=min_confidence_level,
                 use_external_masks=use_external_masks,
             )
+
+            # Keep the landmask globato just fetched for this part, one file per
+            # storage tile, so validations here need not query OSM for it again.
+            self._store_landmasks(storage_tiles)
 
             if not new_records:
                 parts_empty += 1

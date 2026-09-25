@@ -19,6 +19,7 @@ Two entry points matter:
     everything below WARNING -- silently losing nearly all of the validation output.
 """
 
+import contextlib
 import logging
 
 # Verbosity names accepted on the command line and in ivert_defaults.ini, mapped to the
@@ -112,3 +113,20 @@ def _install_handler(level: int) -> None:
     logging.getLogger("pyogrio").setLevel(
         logging.NOTSET if level <= logging.DEBUG else logging.WARNING,
     )
+
+
+@contextlib.contextmanager
+def keep_root_logging():
+    """Restore the root logger's handlers and level after the block.
+
+    fetchez.get() sets up logging for itself on every call: it replaces the root
+    logger's handlers and, with verbose=False, raises its level to WARNING, which
+    would silence IVERT's own progress messages for the rest of the run.
+    """
+    root = logging.getLogger()
+    handlers, level = root.handlers[:], root.level
+    try:
+        yield
+    finally:
+        root.handlers[:] = handlers
+        root.setLevel(level)

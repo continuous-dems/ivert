@@ -32,6 +32,7 @@ import shapely
 import shapely.geometry
 import tqdm
 
+import ivert.bathy_filters
 import ivert.icesat2_database_v2
 import ivert.plot_validation_results
 import ivert.transform_points
@@ -584,6 +585,7 @@ def validate_dem(
     orig_dem_name: str | None = None,
     min_confidence_level: int = 4,
     min_bathy_confidence: float = 0.90,
+    bathy_filter_settings: ivert.bathy_filters.BathyFilterSettings | None = None,
     export_error_formats: str | list | None = None,
     exclude_zones: list | None = None,
 ):
@@ -642,6 +644,9 @@ def validate_dem(
         min_bathy_confidence: Minimum ATL24 bathymetry confidence to use (0.0-1.0).
             Bathy-floor photons (class 40) below this confidence are excluded from validation.
             Defaults to 0.90.
+        bathy_filter_settings: Which filters to run on bathy-floor (class 40) photons
+            to remove misclassified ones, and their thresholds. See ivert.bathy_filters.
+            Defaults to None, which uses the 'bathy_*' config values.
         export_error_formats: GIS formats to export the per-cell errors into,
             as a comma-separated string or list drawn from 'tif', 'gpkg', 'shp', 'xyz'. Defaults
             to None, which uses the 'export_error_formats' config value.
@@ -684,6 +689,7 @@ def validate_dem(
         "numprocs": numprocs,
         "min_confidence_level": min_confidence_level,
         "min_bathy_confidence": min_bathy_confidence,
+        "bathy_filter_settings": bathy_filter_settings,
         "export_error_formats": export_error_formats,
         "exclude_zones": exclude_zones,
         # The work below runs in a *spawned* sub-process, which starts with logging
@@ -785,6 +791,7 @@ def validate_dem(
                 numprocs=numprocs,
                 min_confidence_level=min_confidence_level,
                 min_bathy_confidence=min_bathy_confidence,
+                bathy_filter_settings=bathy_filter_settings,
                 exclude_zones=exclude_zones,
                 max_subdivides=max_subdivides,
                 orig_dem_name=orig_dem_name,
@@ -801,6 +808,7 @@ def validate_dem(
         )
 
         shared_results_df = None
+        bathy_filter_report = None
 
         # First, merge the results dataframes.
         if "results_dataframe_file" in common_keys:
@@ -810,6 +818,13 @@ def validate_dem(
                 for i in range(len(sub_shared_ret_values))
                 if common_key in sub_shared_ret_values[i]
             ]
+            # The bathymetry filter counts of the parts add up to the whole's.
+            bathy_filter_report = ivert.bathy_filters.BathyFilterReport.combine(
+                [ivert.bathy_filters.read_report_from_h5(fn) for fn in all_fnames],
+            )
+            if bathy_filter_report is not None:
+                bathy_filter_report.n_validations = 1
+
             # Concatenate the results dataframes.
             output_dfs = []
             for fname in all_fnames:
@@ -849,6 +864,7 @@ def validate_dem(
                 complib="zlib",
                 mode="w",
             )
+            ivert.bathy_filters.write_report_to_h5(output_fname, bathy_filter_report)
 
             shared_ret_values[common_key] = output_fname
 
@@ -902,7 +918,11 @@ def validate_dem(
                 output_dir,
                 os.path.splitext(os.path.basename(dem_name))[0] + "_summary_stats.txt",
             )
-            write_summary_stats_file(shared_results_df, output_fname)
+            write_summary_stats_file(
+                shared_results_df,
+                output_fname,
+                bathy_filter_report=bathy_filter_report,
+            )
             shared_ret_values["summary_stats_filename"] = output_fname
 
         # Export the photon dataframe if it was called to be returned.
@@ -1084,6 +1104,9 @@ def _check_existing_outputs(
                 write_summary_stats_file(
                     results_dataframe,
                     summary_stats_filename,
+                    bathy_filter_report=ivert.bathy_filters.read_report_from_h5(
+                        results_dataframe_file,
+                    ),
                 )
             files_to_export.append(summary_stats_filename)
             shared_ret_values["summary_stats_filename"] = summary_stats_filename
@@ -1793,6 +1816,7 @@ def _write_validation_outputs(
     files_to_export,
     export_error_formats=None,
     min_coverage_pct=None,
+    bathy_filter_report=None,
 ):
     """Concatenate results, filter outliers, and write all output files.
 
@@ -1866,6 +1890,10 @@ def _write_validation_outputs(
             complib="zlib",
             mode="w",
         )
+        ivert.bathy_filters.write_report_to_h5(
+            results_dataframe_file,
+            bathy_filter_report,
+        )
     logger.info("%s written.", results_dataframe_file)
     files_to_export.append(results_dataframe_file)
     shared_ret_values["results_dataframe_file"] = results_dataframe_file
@@ -1874,6 +1902,7 @@ def _write_validation_outputs(
         write_summary_stats_file(
             results_dataframe,
             summary_stats_filename,
+            bathy_filter_report=bathy_filter_report,
         )
         files_to_export.append(summary_stats_filename)
         shared_ret_values["summary_stats_filename"] = summary_stats_filename
@@ -1935,6 +1964,7 @@ def validate_dem_parallel(
     numprocs: int = parallel_funcs.physical_cpu_count(),
     min_confidence_level: int = 4,
     min_bathy_confidence: float = 0.90,
+    bathy_filter_settings: ivert.bathy_filters.BathyFilterSettings | None = None,
     export_error_formats: str | list | None = None,
     exclude_zones: list | None = None,
     log_level: int | None = None,
@@ -1993,6 +2023,9 @@ def validate_dem_parallel(
 
     files_to_export = []
 
+    if icesat2_photon_database_obj is None:
+        icesat2_photon_database_obj = ivert.icesat2_database_v2.IS2Database()
+
     fetch_result = _fetch_photons(
         dem_name,
         band_num,
@@ -2004,6 +2037,15 @@ def validate_dem_parallel(
         min_confidence_level=min_confidence_level,
         min_bathy_confidence=min_bathy_confidence,
     )
+
+    bathy_filter_report = None
+    if fetch_result is not None and ivert.bathy_filters.BATHY_FLOOR_CLASS in classes:
+        fetch_result, bathy_filter_report = _filter_bathy_photons(
+            fetch_result,
+            bathy_filter_settings,
+            icesat2_photon_database_obj,
+        )
+
     if fetch_result is None:
         if mark_empty_results:
             with open(empty_results_filename, "w", encoding="utf-8") as f:
@@ -2092,7 +2134,32 @@ def validate_dem_parallel(
         files_to_export,
         export_error_formats=export_error_formats,
         min_coverage_pct=min_coverage_pct,
+        bathy_filter_report=bathy_filter_report,
     )
+
+
+def _filter_bathy_photons(fetch_result, settings, icesat2_photon_database_obj):
+    """Run the bathymetry filters on the photons _fetch_photons returned.
+
+    Returns (fetch_result, report). fetch_result becomes None if no photons are left.
+    """
+    dem_ds, dem_array, photon_df, dem_epsg_str, photon_src_epsg = fetch_result
+    if settings is None:
+        settings = ivert.bathy_filters.BathyFilterSettings.from_config(ivert_config)
+
+    photon_df, report = ivert.bathy_filters.apply_bathy_filters(
+        photon_df,
+        settings,
+        photon_src_epsg=photon_src_epsg,
+        cache_dir=TRANSFORMEZ_CACHE_DIR,
+        landmask_store_dir=ivert_config.ivert_landmask_directory,
+        osm_cache_dir=ivert_config.icesat2_download_directory,
+        database_tiles=icesat2_photon_database_obj.storage_tiles(),
+    )
+    if len(photon_df) == 0:
+        logger.info("No photons remain after the bathymetry filters.")
+        return None, report
+    return (dem_ds, dem_array, photon_df, dem_epsg_str, photon_src_epsg), report
 
 
 def _format_stat(value) -> str:
@@ -2121,12 +2188,15 @@ def _format_stat(value) -> str:
 def write_summary_stats_file(
     results_df: pd.DataFrame,
     statsfile_name: str,
+    bathy_filter_report: ivert.bathy_filters.BathyFilterReport | None = None,
 ) -> None:
     """Write the summary statistics file.
 
     Args:
         results_df: pandas dataframe - contains the summary statistics
         statsfile_name: string - the name of the file to write
+        bathy_filter_report: what the bathymetry filters removed, listed at the end
+            of the file. None leaves that section out.
 
     Returns:
         None
@@ -2209,6 +2279,9 @@ def write_summary_stats_file(
             lines.append(
                 f"    RMSE for grid cells with >{coverage_threshold * 100:0.1f}% coverage ({pct_of_cells:d}% of cells) (m): {_format_stat(rmse)}",
             )
+
+    if bathy_filter_report is not None:
+        lines.extend(bathy_filter_report.summary_lines())
 
     out_text = "\n".join(lines)
     with open(statsfile_name, "w", encoding="utf-8") as outf:

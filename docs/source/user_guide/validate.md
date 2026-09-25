@@ -58,6 +58,10 @@ ICESat-2 photons are stored either in WGS84 'ellipsoid' (EPSG:4979) or EGM2008 '
 | `-sd, --outlier-sd F` | `2.5` | Outlier threshold in standard deviations (use `-1` to disable)                  |
 | `-mp, --min-photons N` | `3` | Minimum photons a grid cell must contain to be validated. Cells with fewer are omitted from the results entirely |
 
+#### Bathymetry filters
+
+Before validating, IVERT removes class-40 (bathymetry floor) photons that ATL24 misclassified: surface returns over deep water, and noise below sea level on land. Four tests (`deep`, `offshore`, `reference`, `land`) check each photon against ETOPO 2022 and the OpenStreetMap landmask. All four are on by default; `-bf none` turns them off. Every threshold has its own `--bathy-*` flag and `bathy_*` setting. See [Bathymetry filters](bathy_filters.md) for what each test does, how to tune it, and which files it downloads and keeps.
+
 #### How per-cell statistics are computed
 
 Once a cell clears `-mp/--min-photons`, how its elevation is summarized depends on how many photons it holds:
@@ -111,6 +115,7 @@ The `_summary_stats.txt` file contains:
 - Full percentile breakdown of per-cell errors (0, 1, 5, 10, 20, 30, 40, 50, 60, 70, 80, 90, 95, 99, 100th percentiles)
 - Number of cells with bathymetry photons
 - Mean roughness (standard deviation of photon elevations within each cell)
+- The bathymetry filters applied, their thresholds, and how many class-40 photons each removed
 
 ### Multi-DEM collection output files
 

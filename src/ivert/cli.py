@@ -1977,6 +1977,7 @@ def _run_validate(
     overwrite=False,
     exclude_zones=None,
     minimum_coverage_pct=None,
+    bathy_filter_settings=None,
 ):
     """Branch to validate_dem or validate_list_of_dems based on the number of input files."""
     from ivert import validate_dem as vd_module
@@ -2082,6 +2083,7 @@ def _run_validate(
             "min_photons_per_cell": min_photons,
             "min_confidence_level": confidence_level,
             "min_bathy_confidence": bathy_confidence,
+            "bathy_filter_settings": bathy_filter_settings,
             "overwrite": overwrite,
         }
         if vdatum != "NONE_PROVIDED":
@@ -2118,6 +2120,7 @@ def _run_validate(
             "outliers_sd_threshold": outlier_sd_threshold,
             "min_confidence_level": confidence_level,
             "min_bathy_confidence": bathy_confidence,
+            "bathy_filter_settings": bathy_filter_settings,
             "overwrite": overwrite,
         }
         if vdatum != "NONE_PROVIDED":
@@ -2284,6 +2287,84 @@ def _run_validate(
     ),
 )
 @click.option(
+    "-bf",
+    "--bathy-filters",
+    "bathy_filters",
+    default=None,
+    metavar="RULES",
+    help=(
+        "Comma-separated filters that remove misclassified bathy-floor (class 40) "
+        "photons: 'deep' (reference bathymetry too deep for ICESat-2), 'offshore' "
+        "(near-surface returns far from the coast), 'reference' (much shallower than "
+        "the reference bathymetry), 'land' (below sea level on land). 'none' turns them "
+        "off. Overrides the 'bathy_filters' setting (default: all four)."
+    ),
+)
+@click.option(
+    "--bathy-max-depth",
+    type=click.FloatRange(min=0),
+    default=None,
+    metavar="M",
+    help="'deep' filter: depth past which ICESat-2 cannot see the seafloor. "
+    "Overrides 'bathy_max_depth_m'.",
+)
+@click.option(
+    "--bathy-ref-window",
+    type=click.FloatRange(min=0),
+    default=None,
+    metavar="M",
+    help="'deep' filter: radius searched for the shallowest reference cell. "
+    "Overrides 'bathy_ref_window_m'.",
+)
+@click.option(
+    "--bathy-near-surface",
+    type=click.FloatRange(min=0),
+    default=None,
+    metavar="M",
+    help="'offshore' filter: photons less than this far below sea level (the EGM2008 "
+    "geoid, which ignores the tide) are near-surface. Raise in macrotidal areas. "
+    "Overrides 'bathy_near_surface_m'.",
+)
+@click.option(
+    "--bathy-min-coast-dist",
+    type=click.FloatRange(min=0),
+    default=None,
+    metavar="M",
+    help="'offshore' filter: only photons farther than this from the coastline. "
+    "Overrides 'bathy_min_coast_dist_m'.",
+)
+@click.option(
+    "--bathy-ref-tolerance",
+    type=click.FloatRange(min=0),
+    default=None,
+    metavar="M",
+    help="'reference' filter: how much shallower than the reference a photon may be. "
+    "Overrides 'bathy_ref_tolerance_m'.",
+)
+@click.option(
+    "--bathy-land-max-below-sl",
+    type=click.FloatRange(min=0),
+    default=None,
+    metavar="M",
+    help="'land' filter: how far below sea level a photon on land may be. "
+    "Overrides 'bathy_land_max_below_sl_m'.",
+)
+@click.option(
+    "--bathy-offshore-min-ref-depth",
+    default=None,
+    metavar="M",
+    help="'offshore' filter: apply only where the reference is also deeper than this, "
+    "to protect shallow banks. 'none' turns it off. "
+    "Overrides 'bathy_offshore_min_ref_depth_m' (default: off).",
+)
+@click.option(
+    "--bathy-ref-raster",
+    default=None,
+    metavar="FILE",
+    help="Reference bathymetry raster for the filters, in metres relative to EGM2008, "
+    "instead of ETOPO 2022. 'none' uses ETOPO. Overrides 'bathy_ref_raster'.",
+)
+@click.option(
     "-o",
     "--outdir",
     default=None,
@@ -2367,6 +2448,15 @@ def validate(
     buildings,
     confidence_level,
     bathy_confidence,
+    bathy_filters,
+    bathy_max_depth,
+    bathy_ref_window,
+    bathy_near_surface,
+    bathy_min_coast_dist,
+    bathy_ref_tolerance,
+    bathy_land_max_below_sl,
+    bathy_offshore_min_ref_depth,
+    bathy_ref_raster,
     outdir,
     ndv,
     export_formats,
@@ -2414,6 +2504,29 @@ def validate(
         else None
     )
 
+    from ivert import bathy_filters as bathy_filters_module
+
+    try:
+        bathy_filter_settings = bathy_filters_module.BathyFilterSettings.from_config(
+            rules=bathy_filters,
+            max_depth_m=bathy_max_depth,
+            ref_window_m=bathy_ref_window,
+            near_surface_m=bathy_near_surface,
+            min_coast_dist_m=bathy_min_coast_dist,
+            ref_tolerance_m=bathy_ref_tolerance,
+            land_max_below_sl_m=bathy_land_max_below_sl,
+            offshore_min_ref_depth_m=bathy_offshore_min_ref_depth,
+            ref_raster=bathy_ref_raster,
+        )
+    except ValueError as exc:
+        raise click.UsageError(str(exc)) from exc
+    if bathy_filter_settings.ref_raster and not os.path.isfile(
+        bathy_filter_settings.ref_raster,
+    ):
+        raise click.UsageError(
+            f"Bathymetry reference raster not found: {bathy_filter_settings.ref_raster}",
+        )
+
     _run_validate(
         files_or_directory,
         vdatum,
@@ -2433,6 +2546,7 @@ def validate(
         overwrite=overwrite,
         exclude_zones=exclude_zones,
         minimum_coverage_pct=minimum_coverage_pct,
+        bathy_filter_settings=bathy_filter_settings,
     )
 
 
