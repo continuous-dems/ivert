@@ -105,7 +105,7 @@ def _read_polygons(path: str, bbox) -> list:
     return list(shapely.make_valid(shapely.from_wkb(wkb)))
 
 
-def _land_from_files(paths, bbox):
+def land_from_files(paths, bbox):
     """The land of several landmask files, merged and clipped to bbox."""
     polygons = []
     for path in paths:
@@ -115,7 +115,7 @@ def _land_from_files(paths, bbox):
     return shapely.union_all(polygons).intersection(_box(bbox))
 
 
-def _write_land(path: str, land) -> None:
+def write_land(path: str, land) -> None:
     """Write land polygons to a GeoJSON file, atomically.
 
     Validations of neighbouring DEMs may run at the same time and fill the same
@@ -142,6 +142,17 @@ def _write_land(path: str, land) -> None:
         raise
 
 
+def clip_stored_landmask(path: str, bbox, store_dir: str) -> str:
+    """Write the part of a stored landmask inside an (xmin, xmax, ymin, ymax) box.
+
+    The result is a stored landmask of its own, named for bbox, in store_dir.
+    Returns its path.
+    """
+    out = store_filename(store_dir, bbox)
+    write_land(out, land_from_files([path], bbox))
+    return out
+
+
 def _fill_from_cache(bbox, store_dir: str, cache_dir: str) -> bool:
     """Store the landmask of bbox from cached OSM landmasks, if they cover all of it."""
     need = _box(bbox)
@@ -156,7 +167,7 @@ def _fill_from_cache(bbox, store_dir: str, cache_dir: str) -> bool:
         _AREA_TOLERANCE
     ):
         return False
-    _write_land(store_filename(store_dir, bbox), _land_from_files(cached, bbox))
+    write_land(store_filename(store_dir, bbox), land_from_files(cached, bbox))
     return True
 
 
@@ -282,7 +293,7 @@ def load_landmask(bbox, store_dir: str, cache_dir: str, database_tiles=()):
     if not extents:
         return shapely.Polygon(), shapely.Polygon(), shapely.MultiLineString([])
 
-    land = _land_from_files(extents, bbox)
+    land = land_from_files(extents, bbox)
     covered = shapely.union_all(list(extents.values())).intersection(need)
 
     edges = shapely.union_all([e.boundary for e in extents.values()] + [need.boundary])

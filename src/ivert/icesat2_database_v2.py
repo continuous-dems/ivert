@@ -907,6 +907,64 @@ class IS2Database:
 
         return df, vertical_datum
 
+    @classmethod
+    def _granule_attrs(
+        cls,
+        df: pd.DataFrame,
+        nc_fn: str,
+        query_bbox: tuple,
+        base_attrs: dict,
+    ) -> dict:
+        """The global attributes of a granule file holding the photons in df.
+
+        Everything that describes the photons themselves (data_bbox, zbounds, the
+        per-class counts) is computed from df. base_attrs supplies the rest:
+        'source_granule', 'downloaded_on_utc', 'horizontal_datum' and
+        'vertical_datum', and optionally 'laser_name'.
+        """
+        xmin, xmax = float(df["x"].min()), float(df["x"].max())
+        ymin, ymax = float(df["y"].min()), float(df["y"].max())
+        zmin = float(df["z"].min()) if "z" in df.columns else float("nan")
+        zmax = float(df["z"].max()) if "z" in df.columns else float("nan")
+        if "delta_time" in df.columns:
+            tmin = int(_delta_time_to_yyyymmdd(float(df["delta_time"].min())))
+            tmax = int(_delta_time_to_yyyymmdd(float(df["delta_time"].max())))
+        else:
+            tmin, tmax = int(query_bbox[4]), int(query_bbox[5])
+
+        cc = df["class_code"]
+        return {
+            "granule_id": os.path.splitext(os.path.basename(nc_fn))[0],
+            "source_granule": str(base_attrs["source_granule"]),
+            "laser_name": str(base_attrs.get("laser_name", "all")),
+            "query_bbox": [float(v) for v in query_bbox[:4]]
+            + [int(v) for v in query_bbox[4:]],
+            "data_bbox": [xmin, xmax, ymin, ymax, tmin, tmax],
+            "zbounds": [zmin, zmax],
+            "numphotons": len(df),
+            "numphotons_unclassified": int(np.count_nonzero(cc == -1)),
+            "numphotons_noise": int(np.count_nonzero(cc == 0)),
+            "numphotons_ground": int(np.count_nonzero(cc == 1)),
+            "numphotons_canopy": int(np.count_nonzero(cc == 2)),
+            "numphotons_canopy_top": int(np.count_nonzero(cc == 3)),
+            "numphotons_ice_surface": int(np.count_nonzero(cc == 6)),
+            "numphotons_buildings": int(np.count_nonzero(cc == 7)),
+            "numphotons_bathy_floor": int(np.count_nonzero(cc == 40)),
+            "numphotons_bathy_surface": int(np.count_nonzero(cc == 41)),
+            "numphotons_inland_water_surface": int(np.count_nonzero(cc == 42)),
+            "downloaded_on_utc": int(base_attrs["downloaded_on_utc"]),
+            "horizontal_datum": str(base_attrs["horizontal_datum"]),
+            "vertical_datum": str(base_attrs["vertical_datum"]),
+        }
+
+    @staticmethod
+    def _save_nc(df: pd.DataFrame, nc_fn: str, attrs: dict) -> None:
+        """Write photons and their global attributes to a NetCDF granule file."""
+        xr_ds = xarray.Dataset.from_dataframe(df.reset_index(drop=True))
+        xr_ds.attrs = attrs
+        os.makedirs(os.path.dirname(nc_fn) or ".", exist_ok=True)
+        xr_ds.to_netcdf(nc_fn)
+
     def _write_nc(
         self,
         df: pd.DataFrame,
@@ -921,51 +979,20 @@ class IS2Database:
         The file carries rich metadata attributes so the database can be rebuilt
         from headers alone.
         """
-        xmin, xmax = float(df["x"].min()), float(df["x"].max())
-        ymin, ymax = float(df["y"].min()), float(df["y"].max())
-        zmin = float(df["z"].min()) if "z" in df.columns else float("nan")
-        zmax = float(df["z"].max()) if "z" in df.columns else float("nan")
-        if "delta_time" in df.columns:
-            tmin = int(_delta_time_to_yyyymmdd(float(df["delta_time"].min())))
-            tmax = int(_delta_time_to_yyyymmdd(float(df["delta_time"].max())))
-        else:
-            tmin, tmax = int(query_bbox[4]), int(query_bbox[5])
-
-        cc = df["class_code"]
-        metadata_attrs = {
-            "granule_id": os.path.splitext(os.path.basename(nc_fn))[0],
-            "source_granule": self._granule_stem(h5_fn),
-            "laser_name": "all",
-            "query_bbox": list(query_bbox),
-            "data_bbox": [xmin, xmax, ymin, ymax, tmin, tmax],
-            "zbounds": [zmin, zmax],
-            "numphotons": len(df),
-            "numphotons_unclassified": int(np.count_nonzero(cc == -1)),
-            "numphotons_noise": int(np.count_nonzero(cc == 0)),
-            "numphotons_ground": int(np.count_nonzero(cc == 1)),
-            "numphotons_canopy": int(np.count_nonzero(cc == 2)),
-            "numphotons_canopy_top": int(np.count_nonzero(cc == 3)),
-            "numphotons_ice_surface": int(np.count_nonzero(cc == 6)),
-            "numphotons_buildings": int(np.count_nonzero(cc == 7)),
-            "numphotons_bathy_floor": int(np.count_nonzero(cc == 40)),
-            "numphotons_bathy_surface": int(np.count_nonzero(cc == 41)),
-            "numphotons_inland_water_surface": int(np.count_nonzero(cc == 42)),
-            "downloaded_on_utc": int(
-                datetime.datetime.now(datetime.UTC).strftime("%Y%m%d"),
-            ),
-            "horizontal_datum": "EPSG:4326",
-            "vertical_datum": vertical_datum,
-        }
-
-        # Build xarray Dataset and embed metadata as global attributes.
-        xr_ds = xarray.Dataset.from_dataframe(df.reset_index(drop=True))
-        xr_ds.attrs = metadata_attrs
-
-        os.makedirs(
-            os.path.dirname(nc_fn) or ".",
-            exist_ok=True,
+        metadata_attrs = self._granule_attrs(
+            df,
+            nc_fn,
+            query_bbox,
+            {
+                "source_granule": self._granule_stem(h5_fn),
+                "downloaded_on_utc": datetime.datetime.now(datetime.UTC).strftime(
+                    "%Y%m%d",
+                ),
+                "horizontal_datum": "EPSG:4326",
+                "vertical_datum": vertical_datum,
+            },
         )
-        xr_ds.to_netcdf(nc_fn)
+        self._save_nc(df, nc_fn, metadata_attrs)
         logger.info(
             "%sSaved %s (%s photons, %s ground, %s bathy).",
             progress,
@@ -979,6 +1006,62 @@ class IS2Database:
             metadata_attrs,
             os.path.basename(nc_fn),
         )
+
+    @classmethod
+    def clip_granule_file(cls, nc_fn: str, cuboids, out_dir: str) -> list[dict]:
+        """Write the photons of a granule file that fall in each cuboid to a file of its own.
+
+        Each (xmin, xmax, ymin, ymax, tmin, tmax) cuboid, with tmin/tmax as YYYYMMDD,
+        becomes the query_bbox of a new file in out_dir, named like any granule file
+        for that box. Boxes are half-open, as in read_granule(): x < xmax, y < ymax,
+        and dates before tmax, so a photon on a shared edge goes to exactly one
+        piece. Every column is kept. The new files keep the original's source
+        granule, download date and datums; their photon bounds and per-class counts
+        are recomputed. A cuboid holding no photons writes no file.
+
+        Returns:
+            The index records (see _index_record_from_attrs) of the files written.
+
+        """
+        with xarray.open_dataset(nc_fn) as ds:
+            df = ds.to_dataframe().reset_index(drop=True)
+            attrs = dict(ds.attrs)
+
+        base_attrs = {
+            "source_granule": attrs.get(
+                "source_granule",
+                cls._source_granule_from_filename(os.path.basename(nc_fn)),
+            ),
+            "laser_name": attrs.get("laser_name", "all"),
+            "downloaded_on_utc": attrs.get(
+                cls._stored_col_name("downloaded_on_utc", attrs),
+                0,
+            ),
+            "horizontal_datum": attrs.get("horizontal_datum", "EPSG:4326"),
+            "vertical_datum": attrs.get("vertical_datum", "EPSG:4979"),
+        }
+
+        records = []
+        for cuboid in cuboids:
+            piece = cls._photons_in_bbox(df, cuboid)
+            if "delta_time" in piece.columns:
+                dt = piece["delta_time"]
+                piece = piece[
+                    (dt >= _yyyymmdd_to_delta_time(cuboid[4]))
+                    & (dt < _yyyymmdd_to_delta_time(cuboid[5]))
+                ]
+            if len(piece) == 0:
+                continue
+            out_fn = os.path.join(
+                out_dir,
+                cls._granule_stem(nc_fn) + cls._query_bbox_suffix(cuboid) + ".nc",
+            )
+            piece_attrs = cls._granule_attrs(piece, out_fn, cuboid, base_attrs)
+            cls._save_nc(piece, out_fn, piece_attrs)
+            records.append(
+                cls._index_record_from_attrs(piece_attrs, os.path.basename(out_fn)),
+            )
+        return records
 
     @staticmethod
     def _photons_in_bbox(df: pd.DataFrame, bbox: tuple) -> pd.DataFrame:

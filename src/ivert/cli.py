@@ -2,10 +2,12 @@
 
 import contextlib
 import glob
+import inspect
 import logging
 import os
 import sys
 import typing
+import warnings
 from pathlib import Path
 
 # Set NUMEXPR_MAX_THREADS before any import loads NumExpr, to suppress the
@@ -296,7 +298,7 @@ def classes():
 
     click.echo(
         "\n  These codes are used with the --classes option of "
-        "'ivert database download', 'ivert database export', and 'ivert validate'.",
+        "'ivert database download', 'ivert database convert', and 'ivert validate'.",
     )
 
 
@@ -863,10 +865,15 @@ def database_delete(delete_all, yes):
 
     nc_files = []
     if delete_all and os.path.isdir(db.granules_dir):
+        # The index is itself a .nc file in granules_dir; don't list it twice.
+        index_realpaths = {os.path.realpath(f) for f in index_files}
         nc_files = sorted(
-            os.path.join(db.granules_dir, fn)
-            for fn in os.listdir(db.granules_dir)
-            if os.path.splitext(fn)[-1].lower() == ".nc"
+            fpath
+            for fpath in (
+                os.path.join(db.granules_dir, fn) for fn in os.listdir(db.granules_dir)
+            )
+            if os.path.splitext(fpath)[-1].lower() == ".nc"
+            and os.path.realpath(fpath) not in index_realpaths
         )
 
     all_files = index_files + nc_files
@@ -917,12 +924,16 @@ def database_size():
     else:
         rows.append(("index", 0, "—", db.db_fname))
 
-    # .nc granule files
+    # .nc granule files (the index is also a .nc file in granules_dir)
+    index_realpath = os.path.realpath(db.db_fname)
     nc_files = (
         [
-            os.path.join(db.granules_dir, fn)
-            for fn in os.listdir(db.granules_dir)
-            if os.path.splitext(fn)[-1].lower() == ".nc"
+            fpath
+            for fpath in (
+                os.path.join(db.granules_dir, fn) for fn in os.listdir(db.granules_dir)
+            )
+            if os.path.splitext(fpath)[-1].lower() == ".nc"
+            and os.path.realpath(fpath) != index_realpath
         ]
         if os.path.isdir(db.granules_dir)
         else []
@@ -1214,7 +1225,7 @@ def database_download(
         )
 
 
-# Formats offered by 'ivert database export' (a subset of export_vector's
+# Formats offered by 'ivert database convert' (a subset of export_vector's
 # SUPPORTED_FORMATS; csv is intentionally omitted in favour of the GIS formats).
 _EXPORT_FORMATS = ("gpkg", "shp", "xyz")
 
@@ -1222,12 +1233,12 @@ _EXPORT_FORMATS = ("gpkg", "shp", "xyz")
 _EXPORT_DATE_MIN = 19000101
 _EXPORT_DATE_MAX = 99991231
 
-# Estimated-photon-count threshold above which 'ivert database export' prompts
+# Estimated-photon-count threshold above which 'ivert database convert' prompts
 # for confirmation (unless -f/--force is given).
 _EXPORT_WARN_PHOTON_THRESHOLD = 25_000_000
 
 # Vector-file extensions whose extent can define an export region.
-# Vector-file extensions that 'ivert database download' and 'ivert database export'
+# Vector-file extensions that 'ivert database download', 'convert' and 'dump'
 # accept as a polygon layer defining a region.
 _REGION_VECTOR_EXTENSIONS = (
     ".shp",
@@ -1240,7 +1251,7 @@ _REGION_VECTOR_EXTENSIONS = (
 
 
 class _ExportTarget(typing.NamedTuple):
-    """What the positional argument of 'ivert database export' resolved to.
+    """What the positional argument of 'ivert database convert' or 'dump' resolved to.
 
     kind is "all" (the whole database), "region" (a bounding box and/or a set of
     polygons), "granule" (one IVERT .nc photon granule file), or "index" (the
@@ -1343,7 +1354,7 @@ def _dissolve_region_files(paths):
 
 
 def _resolve_export_target(tokens, projection, wsen):
-    """Resolve the positional argument of 'ivert database export' to an _ExportTarget.
+    """Resolve the positional argument of 'ivert database convert' or 'dump'.
 
     Tokens are one of: nothing (export the entire database), a 4-value
     slash-separated bounding box, or a single path to an IVERT .nc file (a photon
@@ -1421,14 +1432,14 @@ def _resolve_export_target(tokens, projection, wsen):
 
 
 def _echo_export_summary(written, count, noun):
-    """Report the files an export wrote (or that it wrote none)."""
+    """Report the files a conversion wrote (or that it wrote none)."""
     if not written:
         click.echo(
             "\nNo files written (all target files already exist; use -ow to overwrite).",
         )
         return
 
-    click.echo(f"\nExported {count:,} {noun} to {len(written)} file(s):")
+    click.echo(f"\nWrote {count:,} {noun} to {len(written)} file(s):")
     for path in written:
         click.echo(f"  {path}")
 
@@ -1495,7 +1506,7 @@ def _export_single_granule(
     _echo_export_summary(written, len(gdf), "photons")
 
 
-@database.command("export")
+@database.command("convert")
 @click.argument("bbox_or_file", nargs=-1, required=False)
 @click.option(
     "-of",
@@ -1587,7 +1598,7 @@ def _export_single_granule(
     default=False,
     help="Skip the confirmation prompt when the export is estimated to be large.",
 )
-def database_export(
+def database_convert(
     bbox_or_file,
     output_format,
     output,
@@ -1599,40 +1610,40 @@ def database_export(
     overwrite,
     force,
 ):
-    """Export IVERT ICESat-2 photons to GIS vector formats.
+    """Convert IVERT ICESat-2 photons to GIS vector formats.
 
-    BBOX_OR_FILE (optional) says what to export. It is one of:
+    BBOX_OR_FILE (optional) says what to convert. It is one of:
 
     \b
-      * nothing — export every photon in the database
+      * nothing — convert every photon in the database
       * a 4-value bounding box in W/E/S/N order (slash-separated,
         e.g. -74/-73/40.5/41)
       * a georeferenced raster file, whose extent defines the region
-      * a polygon-vector file, whose polygon(s) define the area(s) to export
-      * a single IVERT .nc photon granule, exported in its entirety
-      * the IVERT database index .nc file, exported as a polygon layer of
+      * a polygon-vector file, whose polygon(s) define the area(s) to convert
+      * a single IVERT .nc photon granule, converted in its entirety
+      * the IVERT database index .nc file, converted to a polygon layer of
         granule footprints (one rectangle per granule, from its data_bbox)
 
     The last two are auto-detected from the contents of the .nc file.
 
     Photon outputs carry the same per-photon fields as 'ivert database' stores
     (x, y, z, class_code, class_name, confidence, delta_time, granule_id, and
-    bathy_confidence where present). The database index exports every field it
+    bathy_confidence where present). The database index converts every field it
     holds per granule, and cannot be written as 'xyz' since it holds polygons
     rather than points.
 
     Examples:
-        ivert database export
+        ivert database convert
 
-        ivert database export -of gpkg,shp -o bahamas_photons
+        ivert database convert -of gpkg,shp -o bahamas_photons
 
-        ivert database export -- -74/-73/40.5/41 -c 40/41 -ds 2023.01.01 -de 2024.01.01
+        ivert database convert -- -74/-73/40.5/41 -c 40/41 -ds 2023.01.01 -de 2024.01.01
 
-        ivert database export coastline.gpkg -of xyz
+        ivert database convert coastline.gpkg -of xyz
 
-        ivert database export granules/ATL24_20230101_x-74y40.nc
+        ivert database convert granules/ATL24_20230101_x-74y40.nc
 
-        ivert database export granules/_ivert_database_index.nc -of gpkg,shp
+        ivert database convert granules/_ivert_database_index.nc -of gpkg,shp
 
     (Note: Use the '--' delimiter to end command-line options if coordinates begin
     with a negative '-')
@@ -1740,12 +1751,12 @@ def database_export(
     if est_photons >= _EXPORT_WARN_PHOTON_THRESHOLD and not force:
         scope = "the entire database" if bbox is None else "the requested region"
         click.echo(
-            f"WARNING: Exporting {scope} covers {len(granule_rows):,} granule(s) with up "
+            f"WARNING: Converting {scope} covers {len(granule_rows):,} granule(s) with up "
             f"to ~{est_photons:,} photons. This may produce very large output file(s) and "
             f"take a while.",
             err=True,
         )
-        if not click.confirm("\nContinue with the export anyway?", default=False):
+        if not click.confirm("\nContinue with the conversion anyway?", default=False):
             raise click.Abort
 
     # --- Read, subset, and merge granules. ---
@@ -1785,7 +1796,7 @@ def database_export(
         )
 
     if not gdfs:
-        raise click.ClickException("No photons found to export after filtering.")
+        raise click.ClickException("No photons found to convert after filtering.")
 
     merged = geopandas.GeoDataFrame(
         pd.concat(gdfs, ignore_index=True),
@@ -1796,6 +1807,329 @@ def database_export(
     out_base = output or os.path.join(os.getcwd(), "ivert_photons")
     written = ev.write_vector_multi(merged, out_base, fmt_keys, overwrite=overwrite)
     _echo_export_summary(written, len(merged), "photons")
+
+
+_EXPORT_DEPRECATION = (
+    "'ivert database export' is deprecated and will be removed in a later IVERT "
+    "release; use 'ivert database convert' instead."
+)
+
+
+def _database_export_deprecated(**kwargs: object):
+    """Run 'ivert database convert' under its old name, with a deprecation warning."""
+    # Python hides DeprecationWarning by default, so say it on stderr as well.
+    warnings.warn(_EXPORT_DEPRECATION, DeprecationWarning, stacklevel=2)
+    click.echo(f"Warning: {_EXPORT_DEPRECATION}", err=True)
+    return database_convert.callback(**kwargs)
+
+
+# 'export' was renamed 'convert', since it converts photons into other formats rather
+# than exporting the database as it is (that is 'dump'). The old name still works,
+# with the same options, until a later release removes it.
+database.add_command(
+    click.Command(
+        name="export",
+        callback=_database_export_deprecated,
+        params=database_convert.params,
+        help=(
+            "Deprecated alias for 'ivert database convert', to be removed in a later "
+            "IVERT release.\n\n" + inspect.cleandoc(database_convert.help)
+        ),
+        short_help="Deprecated alias for 'convert'.",
+    ),
+)
+
+
+@database.command("dump")
+@click.argument("bbox_or_file", nargs=-1, required=False)
+@click.option(
+    "-o",
+    "--output",
+    "output",
+    default=None,
+    metavar="PATH",
+    help=(
+        "The archive to write ('.zip' is added if missing), or an existing directory "
+        "to write 'ivert_database_<YYYYMMDD>.zip' into. Default: that name in the "
+        "current directory."
+    ),
+)
+@click.option(
+    "-ds",
+    "--start-date",
+    "date_start",
+    default=None,
+    metavar="DATE",
+    help=(
+        "Only dump photons on or after this date. Accepts any format supported by "
+        "Python's dateparser library (e.g. '2023.01.01', '1 year ago')."
+    ),
+)
+@click.option(
+    "-de",
+    "--end-date",
+    "date_end",
+    default=None,
+    metavar="DATE",
+    help="Only dump photons before this date.",
+)
+@click.option(
+    "-p",
+    "--projection",
+    default="EPSG:4326",
+    show_default=True,
+    help="Horizontal projection (EPSG code) that the bounding-box coordinates are in.",
+)
+@click.option(
+    "--wsen",
+    is_flag=True,
+    default=False,
+    help=(
+        "Treat the bounding box as W/S/E/N order (lower-left, upper-right). "
+        "Default order is W/E/S/N (Xmin/Xmax/Ymin/Ymax)."
+    ),
+)
+@click.option(
+    "-ow",
+    "--overwrite",
+    is_flag=True,
+    default=False,
+    help="Overwrite the archive if it already exists.",
+)
+@click.option(
+    "-f",
+    "--force",
+    is_flag=True,
+    default=False,
+    help="Skip the confirmation prompt when the dump is estimated to be large.",
+)
+def database_dump(
+    bbox_or_file,
+    output,
+    date_start,
+    date_end,
+    projection,
+    wsen,
+    overwrite,
+    force,
+):
+    """Pack the IVERT database, or part of it, into a zip archive.
+
+    The archive holds the database's ICESat-2 photon granule files and its
+    landmasks, as they are, with a summary of what is inside. Restore it on this
+    or another machine with 'ivert database restore'.
+
+    BBOX_OR_FILE (optional) limits the dump to a region. It is one of:
+
+    \b
+      * nothing — dump the whole database
+      * a 4-value bounding box in W/E/S/N order (slash-separated,
+        e.g. -74/-73/40.5/41)
+      * a georeferenced raster file, whose extent defines the region
+      * a polygon-vector file, whose polygons are covered with rectangles
+        that define the region
+
+    Granule files and landmasks reaching outside the region (or the dates given
+    with -ds/-de) are cut to it.
+
+    Examples:
+        ivert database dump -o my_database.zip
+
+        ivert database dump -o monterey.zip -- -122.5/-121.5/36/37.2
+
+        ivert database dump study_area.gpkg -ds 2022.01.01 -de 2023.01.01
+
+    (Note: Use the '--' delimiter to end command-line options if coordinates begin
+    with a negative '-')
+    """  # noqa: D301  (\b is click's no-rewrap marker; r""" would break it)
+    import datetime
+
+    from ivert import database_archive
+    from ivert import icesat2_database_v2 as is2db_mod
+
+    target = _resolve_export_target(list(bbox_or_file), projection, wsen)
+    if target.kind in ("granule", "index"):
+        raise click.UsageError(
+            "'ivert database dump' takes a region (a bounding box, raster or polygon "
+            "file), not a single .nc file.",
+        )
+
+    db = is2db_mod.IS2Database()
+
+    rects = None
+    if target.geometry is not None:
+        rects = is2db_mod.tile_geometry_into_bboxes(target.geometry)
+    elif target.bbox is not None:
+        rects = [tuple(target.bbox)]
+
+    date_range = None
+    if date_start is not None or date_end is not None:
+        try:
+            tmin = (
+                db.convert_date_to_yyyymmdd(date_start)
+                if date_start is not None
+                else _EXPORT_DATE_MIN
+            )
+            tmax = (
+                db.convert_date_to_yyyymmdd(date_end)
+                if date_end is not None
+                else _EXPORT_DATE_MAX
+            )
+        except Exception as exc:
+            raise click.ClickException(f"Could not parse date: {exc}") from exc
+        if tmin >= tmax:
+            raise click.ClickException(
+                f"--start-date ({tmin}) must be before --end-date ({tmax}).",
+            )
+        date_range = (tmin, tmax)
+
+    default_name = (
+        f"ivert_database_{datetime.datetime.now(datetime.UTC).strftime('%Y%m%d')}.zip"
+    )
+    if output is None:
+        output = os.path.join(os.getcwd(), default_name)
+    elif os.path.isdir(output):
+        output = os.path.join(output, default_name)
+    elif not os.path.splitext(output)[1]:
+        output += ".zip"
+    output = os.path.abspath(output)
+    if os.path.exists(output) and not overwrite:
+        raise click.ClickException(
+            f"{output} already exists. Use -ow/--overwrite to replace it.",
+        )
+
+    # Warn before a very large dump, from the index's photon counts.
+    gdf = db.open_gdf()
+    if gdf is not None and len(gdf) > 0 and not force:
+        n_photons = int(gdf["numphotons"].sum())
+        if n_photons >= _EXPORT_WARN_PHOTON_THRESHOLD and rects is None:
+            click.echo(
+                f"WARNING: The database holds ~{n_photons:,} photons in "
+                f"{len(gdf):,} granule files; the archive may be very large.",
+                err=True,
+            )
+            if not click.confirm("\nContinue with the dump anyway?", default=False):
+                raise click.Abort
+
+    try:
+        result = database_archive.dump(output, rects, date_range, db=db)
+    except database_archive.ArchiveError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+    logger.info("%s", result.summary)
+    size_mb = os.path.getsize(result.path) / 1e6
+    click.echo(f"Wrote {result.path} ({size_mb:,.1f} MB).")
+
+
+_OVERLAP_CHOICES = {
+    1: ("all", "Import everything, even where it duplicates photons already stored."),
+    2: ("keep", "Keep the existing data; import only what lies outside it."),
+    3: ("replace", "Import everything, and remove the existing data it overlaps."),
+    4: ("cancel", "Import nothing and exit."),
+}
+
+
+@database.command("restore")
+@click.argument("archive", type=click.Path(exists=True, dir_okay=False))
+@click.option(
+    "-oo",
+    "--on-overlap",
+    "on_overlap",
+    type=click.Choice(["all", "keep", "replace", "cancel"]),
+    default=None,
+    help=(
+        "What to do where the archive overlaps data already in the database, "
+        "instead of asking: 'all' imports everything (possibly duplicating photons), "
+        "'keep' keeps the existing data and imports only what lies outside it, "
+        "'replace' imports everything and removes the existing data it overlaps, "
+        "'cancel' imports nothing."
+    ),
+)
+@click.option(
+    "--dry-run",
+    is_flag=True,
+    default=False,
+    help="Show what the archive holds and where it overlaps the database; change nothing.",
+)
+def database_restore(archive, on_overlap, dry_run):
+    """Unpack an 'ivert database dump' archive into the IVERT database.
+
+    ARCHIVE is a zip written by 'ivert database dump'. Its photon granule files
+    and landmasks are added to the local database, and the database index is
+    rebuilt.
+
+    If the archive covers places and dates the database already holds, IVERT
+    lists the overlap and asks what to do, unless -oo/--on-overlap says. The
+    archive must use the same vertical datum as the database.
+    """
+    from ivert import database_archive
+
+    try:
+        plan = database_archive.plan_restore(archive)
+    except database_archive.ArchiveError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+    logger.info("%s", plan.summary)
+
+    mode = on_overlap
+    if plan.overlaps:
+        click.echo(
+            f"\n{len(plan.overlaps):,} of the archive's query boxes overlap data "
+            "already in the database:",
+        )
+        for c in plan.overlaps[:20]:
+            click.echo(
+                f"  W {c[0]:g} to E {c[1]:g}, S {c[2]:g} to N {c[3]:g}, "
+                f"dates {c[4]} to {c[5]}",
+            )
+        if len(plan.overlaps) > 20:
+            click.echo(f"  ... and {len(plan.overlaps) - 20:,} more")
+    elif not dry_run:
+        mode = "all"
+
+    if dry_run:
+        click.echo("\nDry run: nothing was changed.")
+        return
+
+    if mode is None:
+        if not sys.stdin.isatty():
+            raise click.UsageError(
+                "The archive overlaps data already in the database. Rerun with "
+                "-oo/--on-overlap all|keep|replace|cancel to say what to do.",
+            )
+        click.echo("\nWhat should be done where they overlap?")
+        for number, (name, text) in _OVERLAP_CHOICES.items():
+            click.echo(f"  {number}) {name}: {text}")
+        choice = click.prompt(
+            "Choose",
+            type=click.IntRange(1, len(_OVERLAP_CHOICES)),
+            default=4,
+        )
+        mode = _OVERLAP_CHOICES[choice][0]
+
+    if mode == "cancel":
+        click.echo("Nothing was imported.")
+        return
+
+    try:
+        result = database_archive.restore(plan, mode)
+    except database_archive.ArchiveError as exc:
+        raise click.ClickException(str(exc)) from exc
+    parts = [f"{result.granules_added:,} granule files added"]
+    if result.granules_clipped:
+        parts.append(f"{result.granules_clipped:,} clipped to what the database lacked")
+    if result.granules_skipped:
+        parts.append(f"{result.granules_skipped:,} skipped as already present")
+    if result.existing_removed:
+        parts.append(
+            f"{result.existing_removed:,} existing files replaced "
+            f"({result.existing_clipped:,} of them kept outside the archive's area)",
+        )
+    parts.append(f"{result.landmasks_added:,} landmask tiles added")
+    click.echo(
+        f"Restored {os.path.basename(archive)} ({mode}): {'; '.join(parts)}. "
+        f"The database index now lists {result.n_index_records:,} granule files.",
+    )
 
 
 ###############################################################
