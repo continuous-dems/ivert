@@ -2311,6 +2311,8 @@ def _run_validate(
     overwrite=False,
     exclude_zones=None,
     minimum_coverage_pct=None,
+    minimum_coverage_pct_land=None,
+    minimum_coverage_pct_bathy=None,
     bathy_filter_settings=None,
 ):
     """Branch to validate_dem or validate_list_of_dems based on the number of input files."""
@@ -2414,6 +2416,8 @@ def _run_validate(
             "location_name": region_name,
             "measure_coverage": measure_coverage,
             "min_coverage_pct": minimum_coverage_pct,
+            "min_coverage_pct_land": minimum_coverage_pct_land,
+            "min_coverage_pct_bathy": minimum_coverage_pct_bathy,
             "min_photons_per_cell": min_photons,
             "min_confidence_level": confidence_level,
             "min_bathy_confidence": bathy_confidence,
@@ -2450,6 +2454,8 @@ def _run_validate(
             "include_photon_validation": include_photons,
             "measure_coverage": measure_coverage,
             "min_coverage_pct": minimum_coverage_pct,
+            "min_coverage_pct_land": minimum_coverage_pct_land,
+            "min_coverage_pct_bathy": minimum_coverage_pct_bathy,
             "min_photons_per_cell": min_photons,
             "outliers_sd_threshold": outlier_sd_threshold,
             "min_confidence_level": confidence_level,
@@ -2535,7 +2541,32 @@ def _run_validate(
     help=(
         "Only validate grid cells whose measured coverage is at or above this "
         "percentage (0-100); lower-coverage cells are dropped from the results, "
-        "statistics, and plots. Requires the -mc/--measure-coverage flag."
+        "statistics, and plots. Applies to every cell unless -mcpl or -mcpb sets "
+        "a threshold for that type of cell. Turns on -mc/--measure-coverage."
+    ),
+)
+@click.option(
+    "-mcpl",
+    "--minimum-coverage-pct-land",
+    "minimum_coverage_pct_land",
+    type=click.FloatRange(0, 100),
+    default=None,
+    help=(
+        "Like -mcp, but only for land cells (cells with no bathymetry photons), "
+        "overriding -mcp for them. Turns on -mc/--measure-coverage."
+    ),
+)
+@click.option(
+    "-mcpb",
+    "--minimum-coverage-pct-bathy",
+    "minimum_coverage_pct_bathy",
+    type=click.FloatRange(0, 100),
+    default=None,
+    help=(
+        "Like -mcp, but only for bathymetry cells (cells with any bathymetry "
+        "photons), overriding -mcp for them. Bathymetry cells are usually far "
+        "sparser than land cells, so they often need a lower threshold. "
+        "Turns on -mc/--measure-coverage."
     ),
 )
 @click.option(
@@ -2775,6 +2806,8 @@ def validate(
     include_photons,
     measure_coverage,
     minimum_coverage_pct,
+    minimum_coverage_pct_land,
+    minimum_coverage_pct_bathy,
     band_num,
     outlier_sd_threshold,
     classes,
@@ -2826,11 +2859,16 @@ def validate(
     if not files_or_directory:
         raise click.UsageError("Missing argument 'FILES_OR_DIRECTORY'.")
 
-    if minimum_coverage_pct is not None and not measure_coverage:
-        raise click.UsageError(
-            "--minimum-coverage-pct requires the -mc/--measure-coverage flag "
-            "(coverage must be measured before it can be filtered on).",
+    # A coverage threshold needs coverage measured, so any of them implies -mc.
+    if any(
+        pct is not None
+        for pct in (
+            minimum_coverage_pct,
+            minimum_coverage_pct_land,
+            minimum_coverage_pct_bathy,
         )
+    ):
+        measure_coverage = True
 
     exclude_zones = (
         [_parse_exclude_spec(value, wsen=wsen) for value in exclude]
@@ -2880,6 +2918,8 @@ def validate(
         overwrite=overwrite,
         exclude_zones=exclude_zones,
         minimum_coverage_pct=minimum_coverage_pct,
+        minimum_coverage_pct_land=minimum_coverage_pct_land,
+        minimum_coverage_pct_bathy=minimum_coverage_pct_bathy,
         bathy_filter_settings=bathy_filter_settings,
     )
 
