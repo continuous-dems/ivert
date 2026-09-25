@@ -199,7 +199,7 @@ ivert database dump -o monterey_2022.zip -ds 2022.01.01 -de 2023.01.01 -- -122.5
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `-o, --output PATH` | `./ivert_dump_<YYYYMMDD>.zip` | The archive to write (`.zip` is added if missing), or an existing directory to write the default name into |
+| `-o, --output PATH` | `./ivert_database_<YYYYMMDD>.zip` | The archive to write (`.zip` is added if missing), or an existing directory to write the default name into |
 | `-ds, --start-date TEXT` | no lower bound | Only dump photons on or after this date |
 | `-de, --end-date TEXT` | no upper bound | Only dump photons before this date |
 | `-p, --projection TEXT` | `EPSG:4326` | Horizontal CRS of the bounding box |

@@ -31,6 +31,8 @@ import tempfile
 import zipfile
 
 import numpy as np
+import tqdm
+import tqdm.contrib.logging
 
 import ivert
 import ivert.icesat2_database_v2
@@ -164,6 +166,84 @@ def _merged(cuboids) -> list:
 
 
 ###############################################################
+# Progress bars and archive members
+###############################################################
+
+# Bytes copied at a time into or out of an archive, between progress-bar updates.
+_COPY_CHUNK = 4 * 1024 * 1024
+
+
+@contextlib.contextmanager
+def _progress_bar(**kwargs: object):
+    """A tqdm progress bar, drawn only at 'info' verbosity or above."""
+    # 'disable=None' tells tqdm to draw the bar only when attached to a terminal,
+    # and stay silent when output is redirected to a file or a pipe. Log records
+    # are routed through tqdm.write() meanwhile, so a warning doesn't break the bar.
+    with (
+        tqdm.contrib.logging.logging_redirect_tqdm(),
+        tqdm.tqdm(
+            disable=None if logger.isEnabledFor(logging.INFO) else True,
+            **kwargs,
+        ) as bar,
+    ):
+        yield bar
+
+
+def _progress(iterable, **kwargs: object):
+    """Iterate over iterable, advancing a progress bar as each item is finished."""
+    if hasattr(iterable, "__len__"):
+        kwargs.setdefault("total", len(iterable))
+    kwargs.setdefault("unit", "file")
+    with _progress_bar(**kwargs) as bar:
+        for item in iterable:
+            yield item
+            bar.update()
+
+
+def _byte_bar(total, desc):
+    """A progress bar counting bytes."""
+    return _progress_bar(
+        total=total,
+        desc=desc,
+        unit="B",
+        unit_scale=True,
+        unit_divisor=1024,
+    )
+
+
+def _write_member(zf, src, arcname, bar) -> None:
+    """Add a file to an open zip archive, advancing bar by the bytes it reads."""
+    info = zipfile.ZipInfo.from_file(src, arcname)
+    info.compress_type = zf.compression
+    with open(src, "rb") as fin, zf.open(info, "w") as fout:
+        while chunk := fin.read(_COPY_CHUNK):
+            fout.write(chunk)
+            bar.update(len(chunk))
+
+
+def _extract_all(zf, dest) -> None:
+    """Unpack every file of an open zip archive into dest, with a progress bar.
+
+    Raises:
+        ArchiveError: if a member's name would put it outside dest.
+
+    """
+    root = os.path.realpath(dest)
+    infos = [info for info in zf.infolist() if not info.is_dir()]
+    with _byte_bar(sum(i.file_size for i in infos), "Unpacking archive") as bar:
+        for info in infos:
+            target = os.path.realpath(os.path.join(root, info.filename))
+            if os.path.commonpath([root, target]) != root:
+                msg = f"{zf.filename} holds a file outside its own folders: {info.filename}"
+                raise ArchiveError(msg)
+            os.makedirs(os.path.dirname(target), exist_ok=True)
+            with zf.open(info) as fin, open(target, "wb") as fout:
+                while chunk := fin.read(_COPY_CHUNK):
+                    fout.write(chunk)
+                    bar.update(len(chunk))
+
+
+###############################################################
 # Manifest and summary
 ###############################################################
 
@@ -276,6 +356,18 @@ def read_manifest(archive: str) -> dict:
             "Upgrade IVERT to restore it."
         )
         raise ArchiveError(msg)
+    # Restore joins these names onto the database's own directories, so each must
+    # be a plain file name that cannot reach outside them.
+    for section in ("granules", "landmasks"):
+        for entry in manifest.get(section, []):
+            name = entry.get("filename") if isinstance(entry, dict) else None
+            if (
+                not isinstance(name, str)
+                or name in ("", ".", "..")
+                or name != os.path.basename(name)
+            ):
+                msg = f"{archive} lists an invalid {section} file name: {name!r}"
+                raise ArchiveError(msg)
     return manifest
 
 
@@ -342,7 +434,11 @@ def dump(
     try:
         members = []  # (source path, name in the archive)
         granule_records = []
-        for _, row in gdf.iterrows():
+        for _, row in _progress(
+            gdf.iterrows(),
+            total=len(gdf),
+            desc="Staging granules",
+        ):
             src = os.path.join(db.granules_dir, row["filename"])
             if not os.path.exists(src):
                 logger.warning("Skipping missing granule file %s.", row["filename"])
@@ -370,7 +466,8 @@ def dump(
 
         landmask_staging = os.path.join(staging, "landmasks")
         landmasks = []
-        for path, bbox in ivert.landmask.stored_landmasks(db.landmask_dir).items():
+        stored = ivert.landmask.stored_landmasks(db.landmask_dir)
+        for path, bbox in _progress(stored.items(), desc="Staging landmasks"):
             if rects is None or any(_contains(r, bbox) for r in rects):
                 pieces = [(path, bbox)]
             else:
@@ -405,8 +502,10 @@ def dump(
         ) as zf:
             zf.writestr(MANIFEST_NAME, json.dumps(manifest, indent=1))
             zf.writestr(SUMMARY_NAME, summary + "\n")
-            for src, arcname in members:
-                zf.write(src, arcname)
+            total = sum(os.path.getsize(src) for src, _ in members)
+            with _byte_bar(total, "Compressing") as bar:
+                for src, arcname in members:
+                    _write_member(zf, src, arcname, bar)
         _move(tmp_zip, output_zip)
     finally:
         shutil.rmtree(staging, ignore_errors=True)
@@ -555,7 +654,7 @@ def restore(plan: RestorePlan, mode: str, db=None) -> RestoreResult:
     )
     try:
         with zipfile.ZipFile(plan.archive) as zf:
-            zf.extractall(staging)
+            _extract_all(zf, staging)
         _restore_granules(plan, mode, db, staging, result)
         _restore_landmasks(plan, mode, db, staging, result)
     finally:
@@ -573,7 +672,7 @@ def _restore_granules(plan, mode, db, staging, result) -> None:
 
     if mode == "keep":
         existing = _merged(db.unique_bboxes(data_or_query="query") or [])
-        for g in imported:
+        for g in _progress(imported, desc="Importing granules"):
             src = os.path.join(src_dir, g["filename"])
             if g["filename"] in present:
                 result.granules_skipped += 1
@@ -603,7 +702,11 @@ def _restore_granules(plan, mode, db, staging, result) -> None:
         imported_names = {g["filename"] for g in imported}
         imported_cuboids = _merged(tuple(g["query_bbox"]) for g in imported)
         gdf = db.open_gdf()
-        for _, row in gdf.iterrows() if gdf is not None else ():
+        for _, row in _progress(
+            gdf.iterrows() if gdf is not None else (),
+            total=0 if gdf is None else len(gdf),
+            desc="Cutting existing granules",
+        ):
             if row["filename"] in imported_names:
                 continue  # replaced outright by the imported file of the same name
             cuboid = _query_cuboid(row)
@@ -645,7 +748,7 @@ def _restore_landmasks(plan, mode, db, staging, result) -> None:
 
     if mode == "keep":
         rects = list(existing.values())
-        for lm in imported:
+        for lm in _progress(imported, desc="Importing landmasks"):
             src = os.path.join(src_dir, lm["filename"])
             if lm["filename"] in existing_names:
                 continue
@@ -665,7 +768,10 @@ def _restore_landmasks(plan, mode, db, staging, result) -> None:
     if mode == "replace":
         imported_names = {lm["filename"] for lm in imported}
         imported_rects = [tuple(lm["bbox"]) for lm in imported]
-        for path, rect in existing.items():
+        for path, rect in _progress(
+            existing.items(),
+            desc="Cutting existing landmasks",
+        ):
             if os.path.basename(path) in imported_names:
                 continue
             if not any(_intersection(rect, r) for r in imported_rects):

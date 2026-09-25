@@ -1841,7 +1841,7 @@ database.add_command(
     metavar="PATH",
     help=(
         "The archive to write ('.zip' is added if missing), or an existing directory "
-        "to write 'ivert_dump_<YYYYMMDD>.zip' into. Default: that name in the "
+        "to write 'ivert_database_<YYYYMMDD>.zip' into. Default: that name in the "
         "current directory."
     ),
 )
@@ -1975,7 +1975,7 @@ def database_dump(
         date_range = (tmin, tmax)
 
     default_name = (
-        f"ivert_dump_{datetime.datetime.now(datetime.UTC).strftime('%Y%m%d')}.zip"
+        f"ivert_database_{datetime.datetime.now(datetime.UTC).strftime('%Y%m%d')}.zip"
     )
     if output is None:
         output = os.path.join(os.getcwd(), default_name)
@@ -2102,7 +2102,10 @@ def database_restore(archive, on_overlap, dry_run):
         click.echo("Nothing was imported.")
         return
 
-    result = database_archive.restore(plan, mode)
+    try:
+        result = database_archive.restore(plan, mode)
+    except database_archive.ArchiveError as exc:
+        raise click.ClickException(str(exc)) from exc
     parts = [f"{result.granules_added:,} granule files added"]
     if result.granules_clipped:
         parts.append(f"{result.granules_clipped:,} clipped to what the database lacked")
