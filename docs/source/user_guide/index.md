@@ -8,6 +8,7 @@ Welcome to the Ivert user guide! Here you will find everything you need to know 
 cli_usage
 setup
 validate
+bathy_filters
 database
 classes
 cache

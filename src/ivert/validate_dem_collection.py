@@ -10,6 +10,7 @@ import click
 import numpy as np
 import pandas as pd
 
+import ivert.bathy_filters
 import ivert.icesat2_database_v2
 import ivert.utils.query_yes_no as yes_no
 from ivert import plot_validation_results, validate_dem
@@ -107,13 +108,15 @@ def validate_list_of_dems(
     outliers_sd_threshold: float = 2.5,
     min_confidence_level: int = 1,
     min_bathy_confidence: float = 0.75,
+    bathy_filter_settings: ivert.bathy_filters.BathyFilterSettings | None = None,
     export_error_formats: str | list | None = None,
     exclude_zones: list | None = None,
 ):
     """Take a list of DEMs, presumably in a single area, and output validation files for those DEMs.
 
     DEMs should encompass a contiguous area so as to use the same set of ICESat-2 granules for
-    validation.
+    validation. 'bathy_filter_settings' is passed to validate_dem.validate_dem(); None uses
+    the 'bathy_*' config values.
     """
     if output_dir is None:
         if isinstance(dem_list_or_dir, str) and os.path.isdir(dem_list_or_dir):
@@ -235,6 +238,7 @@ def validate_list_of_dems(
             validate_dem.write_summary_stats_file(
                 results_df,
                 statsfile_name,
+                bathy_filter_report=ivert.bathy_filters.read_report_from_h5(results_h5),
             )
 
         if not os.path.exists(plot_file_name):
@@ -347,6 +351,7 @@ def validate_list_of_dems(
                 min_photons_per_cell=min_photons_per_cell,
                 min_confidence_level=min_confidence_level,
                 min_bathy_confidence=min_bathy_confidence,
+                bathy_filter_settings=bathy_filter_settings,
                 export_error_formats=export_error_formats,
                 exclude_zones=exclude_zones,
             )
@@ -397,10 +402,16 @@ def validate_list_of_dems(
         )
         files_to_export.append(csv_name)
 
+    # The bathymetry filter counts, summed over the DEMs validated.
+    bathy_filter_report = ivert.bathy_filters.BathyFilterReport.combine(
+        [ivert.bathy_filters.read_report_from_h5(fn) for fn in list_of_results_dfs],
+    )
+
     # Output the statistics summary file.
     validate_dem.write_summary_stats_file(
         total_results_df,
         statsfile_name,
+        bathy_filter_report=bathy_filter_report,
     )
     files_to_export.append(statsfile_name)
 
@@ -414,6 +425,7 @@ def validate_list_of_dems(
 
     if results_h5 is not None:
         total_results_df.to_hdf(results_h5, key="results", complib="zlib", complevel=3)
+        ivert.bathy_filters.write_report_to_h5(results_h5, bathy_filter_report)
         logger.info("%s written.", results_h5)
         files_to_export.append(results_h5)
 
