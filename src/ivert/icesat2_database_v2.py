@@ -182,6 +182,12 @@ _AUX_PRODUCTS = ("ATL08", "ATL24")
 # checking that the child is still alive.
 _READY_POLL_SECONDS = 5.0
 
+# Granule files are written with zlib at this level, plus the shuffle filter.
+# Level 1 gets nearly all of the size savings of higher levels (about a quarter of
+# the uncompressed size, with class_code as int8 and no index coordinate) and
+# decodes fastest. Older, uncompressed granules are still read as-is.
+_GRANULE_COMPLEVEL = 1
+
 
 def _prefetch_aux_granules(h5_files, cache_dir, threads: int, ready) -> None:
     """Fetch the ATL08 and ATL24 granules for each subset, several at a time.
@@ -959,11 +965,52 @@ class IS2Database:
 
     @staticmethod
     def _save_nc(df: pd.DataFrame, nc_fn: str, attrs: dict) -> None:
-        """Write photons and their global attributes to a NetCDF granule file."""
-        xr_ds = xarray.Dataset.from_dataframe(df.reset_index(drop=True))
+        """Write photons and their global attributes to a NetCDF granule file.
+
+        class_code is stored as int8, the row-number 'index' coordinate is left
+        out, and every variable is zlib-compressed with the shuffle filter.
+        """
+        df = df.reset_index(drop=True)
+        if "class_code" in df.columns:
+            cc = df["class_code"]
+            if len(cc) and (cc.min() < -128 or cc.max() > 127):
+                raise ValueError(
+                    f"class_code values {cc.min()}..{cc.max()} don't fit in int8.",
+                )
+            df = df.assign(class_code=cc.astype(np.int8))
+
+        xr_ds = xarray.Dataset.from_dataframe(df).drop_vars("index")
         xr_ds.attrs = attrs
+
+        # There is nothing to chunk in an empty file, so leave it uncompressed.
+        encoding = {}
+        if len(df):
+            encoding = {
+                var: {"zlib": True, "complevel": _GRANULE_COMPLEVEL, "shuffle": True}
+                for var in xr_ds.data_vars
+            }
+
         os.makedirs(os.path.dirname(nc_fn) or ".", exist_ok=True)
-        xr_ds.to_netcdf(nc_fn)
+        xr_ds.to_netcdf(nc_fn, encoding=encoding)
+
+    @staticmethod
+    def _read_granule_nc(nc_fn: str) -> tuple[pd.DataFrame, dict]:
+        """Read a granule file's photons and global attributes.
+
+        Reads files in the current format as well as older ones, which are
+        uncompressed, carry an 'index' coordinate and store class_code as int64.
+        Either way, the photons come back with a plain RangeIndex and class_code
+        as int8.
+        """
+        with xarray.open_dataset(nc_fn) as ds:
+            df = ds.to_dataframe().reset_index(drop=True)
+            attrs = dict(ds.attrs)
+
+        if "index" in df.columns:
+            df = df.drop(columns="index")
+        if "class_code" in df.columns:
+            df["class_code"] = df["class_code"].astype(np.int8)
+        return df, attrs
 
     def _write_nc(
         self,
@@ -1023,9 +1070,7 @@ class IS2Database:
             The index records (see _index_record_from_attrs) of the files written.
 
         """
-        with xarray.open_dataset(nc_fn) as ds:
-            df = ds.to_dataframe().reset_index(drop=True)
-            attrs = dict(ds.attrs)
+        df, attrs = cls._read_granule_nc(nc_fn)
 
         base_attrs = {
             "source_granule": attrs.get(
@@ -1566,9 +1611,7 @@ class IS2Database:
         if photon_classes is None:
             photon_classes = (1, 40)
 
-        ds = xarray.open_dataset(granule_fn)
-        df = ds.to_dataframe().reset_index(drop=True)
-        ds.close()
+        df, _ = IS2Database._read_granule_nc(granule_fn)
 
         # Filter by photon class.
         df = df[df["class_code"].isin(photon_classes)]
