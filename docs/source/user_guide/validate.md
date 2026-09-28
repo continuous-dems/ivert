@@ -79,8 +79,22 @@ The `numphotons` column always reports the raw photon count for the cell, while 
 | Flag | Default | Description |
 |------|---------|-------------|
 | `-ph, --include-photons` | off | Also write a point database of individual ICESat-2 photons used |
-| `-mc, --measure-coverage` | off | Measure relative photon coverage per grid cell |
 | `-ef, --export-formats FORMATS` | `tif,gpkg` | Comma-separated list of GIS error-export formats: `tif`, `gpkg`, `shp`, `xyz`. Use `none` or `""` to disable exports. |
+
+### Coverage filtering
+
+On coarse DEMs (around 1 arc-second or coarser), one grid cell can hold photons from only a sliver of its area, so the cell's ICESat-2 mean may not represent the whole cell. IVERT can measure each cell's *coverage*: the fraction of a 15×15 grid of sub-cells that contain at least one photon. It can then drop cells whose coverage is too low.
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `-mc, --measure-coverage` | off | Measure coverage per cell and add a `coverage_frac` column to the results |
+| `-mcp, --minimum-coverage-pct P` | off | Drop cells with less than `P`% coverage (0–100), in every cell unless one of the flags below sets that cell type's threshold |
+| `-mcpl, --minimum-coverage-pct-land P` | off | Threshold for land cells only (cells with no bathymetry photons); overrides `-mcp` for them |
+| `-mcpb, --minimum-coverage-pct-bathy P` | off | Threshold for bathymetry cells only (cells with any bathymetry photons); overrides `-mcp` for them |
+
+Any of the three thresholds turns on `-mc` by itself. The log reports how many cells of each type remained.
+
+Bathymetry cells are few, and their photons are usually much sparser than land photons, so a threshold that suits land can remove nearly all of them. For example, `-mcp 40 -mcpb 10` keeps land cells with at least 40% coverage and bathymetry cells with at least 10%. `-mcpl 40` alone filters only land cells and keeps every bathymetry cell. Look at the `coverage_frac` column from a `-mc` run to choose thresholds: typical coverage depends strongly on the DEM's cell size.
 
 ### Labeling
 

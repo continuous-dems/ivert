@@ -577,6 +577,8 @@ def validate_dem(
     mark_empty_results: bool = True,
     measure_coverage: bool = False,
     min_coverage_pct: float | None = None,
+    min_coverage_pct_land: float | None = None,
+    min_coverage_pct_bathy: float | None = None,
     max_photons_per_cell: int | None = None,
     min_photons_per_cell: int = 3,
     numprocs: int = parallel_funcs.physical_cpu_count(),
@@ -627,6 +629,10 @@ def validate_dem(
             percentage (0-100) from the validation results, stats, and plots. Requires
             measure_coverage=True (coverage must be measured to filter on it). Defaults to None
             (no coverage filtering).
+        min_coverage_pct_land: As min_coverage_pct, but for land cells only (cells with no
+            bathymetry photons), overriding min_coverage_pct for them. Defaults to None.
+        min_coverage_pct_bathy: As min_coverage_pct, but for bathymetry cells only (cells
+            with any bathymetry photons), overriding min_coverage_pct for them. Defaults to None.
         max_photons_per_cell: Maximum number of photons per cell.
         min_photons_per_cell: Minimum number of photons a grid cell must contain to be
             validated. Cells with fewer photons are omitted from the results entirely. Cells with
@@ -684,6 +690,8 @@ def validate_dem(
         "mark_empty_results": mark_empty_results,
         "measure_coverage": measure_coverage,
         "min_coverage_pct": min_coverage_pct,
+        "min_coverage_pct_land": min_coverage_pct_land,
+        "min_coverage_pct_bathy": min_coverage_pct_bathy,
         "max_photons_per_cell": max_photons_per_cell,
         "min_photons_per_cell": min_photons_per_cell,
         "numprocs": numprocs,
@@ -786,6 +794,8 @@ def validate_dem(
                 mark_empty_results=mark_empty_results,
                 measure_coverage=measure_coverage,
                 min_coverage_pct=min_coverage_pct,
+                min_coverage_pct_land=min_coverage_pct_land,
+                min_coverage_pct_bathy=min_coverage_pct_bathy,
                 max_photons_per_cell=max_photons_per_cell,
                 min_photons_per_cell=min_photons_per_cell,
                 numprocs=numprocs,
@@ -1816,6 +1826,8 @@ def _write_validation_outputs(
     files_to_export,
     export_error_formats=None,
     min_coverage_pct=None,
+    min_coverage_pct_land=None,
+    min_coverage_pct_bathy=None,
     bathy_filter_report=None,
 ):
     """Concatenate results, filter outliers, and write all output files.
@@ -1834,17 +1846,12 @@ def _write_validation_outputs(
     # Drop cells below the requested minimum ICESat-2 coverage. Coverage is a
     # per-cell property, so filtering here (per subset, before any outlier removal)
     # gives the same result as filtering the merged dataframe.
-    if min_coverage_pct is not None and "coverage_frac" in results_dataframe.columns:
-        n_before = len(results_dataframe)
-        results_dataframe = results_dataframe[
-            results_dataframe["coverage_frac"] >= (min_coverage_pct / 100.0)
-        ].copy()
-        logger.info(
-            "%s of %s DEM cells remain after applying the %s%% minimum-coverage filter.",
-            f"{len(results_dataframe):,}",
-            f"{n_before:,}",
-            f"{min_coverage_pct:g}",
-        )
+    results_dataframe = _apply_coverage_filter(
+        results_dataframe,
+        min_coverage_pct,
+        min_coverage_pct_land,
+        min_coverage_pct_bathy,
+    )
 
     logger.info(
         "%s photon records used in %s DEM cells.",
@@ -1959,6 +1966,8 @@ def validate_dem_parallel(
     omit_bboxes: list[float] | tuple[float] | None = None,
     measure_coverage: bool = False,
     min_coverage_pct: float | None = None,
+    min_coverage_pct_land: float | None = None,
+    min_coverage_pct_bathy: float | None = None,
     max_photons_per_cell: int | None = None,
     min_photons_per_cell: int = 3,
     numprocs: int = parallel_funcs.physical_cpu_count(),
@@ -2134,6 +2143,8 @@ def validate_dem_parallel(
         files_to_export,
         export_error_formats=export_error_formats,
         min_coverage_pct=min_coverage_pct,
+        min_coverage_pct_land=min_coverage_pct_land,
+        min_coverage_pct_bathy=min_coverage_pct_bathy,
         bathy_filter_report=bathy_filter_report,
     )
 
@@ -2160,6 +2171,53 @@ def _filter_bathy_photons(fetch_result, settings, icesat2_photon_database_obj):
         logger.info("No photons remain after the bathymetry filters.")
         return None, report
     return (dem_ds, dem_array, photon_df, dem_epsg_str, photon_src_epsg), report
+
+
+def _apply_coverage_filter(
+    results_df,
+    min_coverage_pct=None,
+    min_coverage_pct_land=None,
+    min_coverage_pct_bathy=None,
+):
+    """Drop the cells whose ICESat-2 coverage is below the threshold for their type.
+
+    A bathymetry cell is one with any bathymetry photons (numphotons_bathy > 0), as in
+    the plots and summary stats; every other cell is a land cell. The land and
+    bathymetry thresholds (percentages, 0-100) each fall back to min_coverage_pct
+    when not given. A cell type with no threshold is not filtered.
+
+    Returns the filtered dataframe (results_df itself if nothing applies).
+    """
+    land_pct = (
+        min_coverage_pct if min_coverage_pct_land is None else min_coverage_pct_land
+    )
+    bathy_pct = (
+        min_coverage_pct if min_coverage_pct_bathy is None else min_coverage_pct_bathy
+    )
+    if (land_pct is None and bathy_pct is None) or "coverage_frac" not in results_df:
+        return results_df
+
+    is_bathy = (results_df["numphotons_bathy"] > 0).to_numpy()
+    coverage = results_df["coverage_frac"].to_numpy()
+    keep = np.ones(len(results_df), dtype=bool)
+    parts = []
+    for label, cells, pct in (
+        ("land", ~is_bathy, land_pct),
+        ("bathymetry", is_bathy, bathy_pct),
+    ):
+        if pct is None:
+            continue
+        keep[cells] = coverage[cells] >= (pct / 100.0)
+        parts.append(
+            f"{np.count_nonzero(keep & cells):,} of {np.count_nonzero(cells):,} "
+            f"{label} cells (>= {pct:g}%)",
+        )
+
+    logger.info(
+        "%s remain after the minimum-coverage filter.",
+        " and ".join(parts),
+    )
+    return results_df[keep].copy()
 
 
 def _format_stat(value) -> str:
