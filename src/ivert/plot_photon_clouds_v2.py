@@ -161,9 +161,14 @@ def load_nc(nc_path):
     with netCDF4.Dataset(nc_path) as ds:
         for v in ds.variables:
             raw = ds.variables[v][:]
-            arr = raw.data if hasattr(raw, "data") else np.array(raw)
-            if np.asarray(arr).dtype.kind == "O":
-                arr = np.asarray(arr).astype(str)
+            arr = np.asarray(raw.data if hasattr(raw, "data") else raw)
+            if arr.dtype.kind == "O":
+                arr = arr.astype(str)
+            elif arr.dtype.kind == "S" and arr.ndim == 2:
+                # A fixed-width string variable such as 'laser' (char laser(index,
+                # string4)) comes back one character per column; join each row
+                # into one string ('gt1l') so it fits a DataFrame column.
+                arr = netCDF4.chartostring(arr)
             data[v] = arr
     return pd.DataFrame(data)
 
