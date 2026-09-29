@@ -16,6 +16,7 @@ Developed by the [continuous-dems team](https://github.com/continuous-dems). Pri
 - Statistical outputs: mean bias, RMSE, standard deviation, a full percentile breakdown of per-cell errors, and optional per-cell photon coverage.
 - Automatically-generated validation plots (per-DEM and collection-wide).
 - Export per-cell errors to GeoTIFF, GeoPackage, Shapefile, or XYZ text.
+- Every validation writes a manifest of its settings and IVERT version, so a run can be repeated exactly, by you or anyone you share it with, on the same DEMs or new ones (`ivert validate -m`).
 - Local, spatially-indexed photon database — download once, validate many times — with commands to list, size, rebuild, and delete cached data.
 - Export classified photons from the database to GeoPackage, Shapefile, or XYZ text.
 - Runs fully offline on any machine, with configurable data directories and per-project config profiles.

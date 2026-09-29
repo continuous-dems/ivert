@@ -87,6 +87,116 @@ def write_summary_csv_file(
     return output_df
 
 
+def _summary_results_base(place_name):
+    """Return the base name (ending in '_results') of a collection's summary files."""
+    # If a place name wasn't provided, just use "summary_results"
+    if place_name is None:
+        stats_and_plots_base = "summary_results"
+    else:
+        # Remove any problematic characters from the place name to create a file name.
+        stats_and_plots_base = (
+            place_name.replace(" ", "_")
+            .replace("/", "_")
+            .replace(":", "_")
+            .replace("|", "_")
+            .replace("\\", "_")
+            .replace("?", "_")
+            .replace("*", "_")
+            .replace("<", "_")
+            .replace(">", "_")
+            .replace('"', "_")
+            .replace("'", "_")
+            .replace("`", "_")
+            .replace("!", "_")
+            .replace("@", "_")
+            .replace("#", "_")
+            .replace("$", "_")
+            .replace("%", "_")
+            .replace("^", "_")
+            .replace("&", "_")
+            .replace("(", "_")
+            .replace(")", "_")
+            .replace("+", "_")
+            .replace("=", "_")
+            .replace("{", "_")
+            .replace("}", "_")
+            .replace("[", "_")
+            .replace("]", "_")
+            .replace(";", "_")
+            .replace(",", "_")
+            .replace("/", "_")
+            .replace("__", "_")
+            + "_results"
+        ).replace("__", "_")
+    return stats_and_plots_base
+
+
+def _resolve_dem_list(dem_list_or_dir, fname_filter, fname_omit):
+    """Return the list of DEM paths a collection validation will run over."""
+    path = dem_list_or_dir
+    # If we have a one-item list here, get the item in that list.
+    if type(path) in (list, tuple) and len(path) == 1:
+        path = path[0]
+
+    if (type(path) in (list, tuple)) and (len(path) > 1):
+        dem_list = path
+    elif os.path.isdir(path):
+        dem_list = sorted([os.path.join(path, fname) for fname in os.listdir(path)])
+    else:
+        assert os.path.exists(path)
+        dem_list = [path]
+
+    # Filter for needed strings in filenames, such as "_wgs84.tif"
+    if fname_filter is not None:
+        # Include only filenames that MATCH the match string.
+        dem_list = [fn for fn in dem_list if (re.search(fname_filter, fn) is not None)]
+
+    # Filter out unwanted filename strings.
+    if fname_omit is not None:
+        # Only include filenames that DO NOT MATCH the omission string.
+        dem_list = [fn for fn in dem_list if (re.search(fname_omit, fn) is None)]
+
+    return dem_list
+
+
+def dems_needing_validation(
+    dem_list_or_dir,
+    output_dir,
+    place_name=None,
+    include_photons=False,
+    overwrite=False,
+    fname_filter=r"\.tif\Z",
+    fname_omit=None,
+):
+    """Split a collection's DEMs into those validate_list_of_dems() would validate and those it would reuse.
+
+    'output_dir' must be the absolute output directory, as 'ivert validate' passes it.
+    A collection whose summary results .h5 already exists returns early without
+    validating anything, so then every DEM counts as reused.
+
+    Returns:
+        (to_validate, reused): two lists of DEM paths.
+
+    """
+    dem_list = _resolve_dem_list(dem_list_or_dir, fname_filter, fname_omit)
+    if overwrite:
+        return list(dem_list), []
+    results_h5 = os.path.join(output_dir, _summary_results_base(place_name) + ".h5")
+    if os.path.exists(results_h5):
+        return [], list(dem_list)
+    to_validate, reused = [], []
+    for dem in dem_list:
+        if validate_dem.dem_needs_validation(
+            dem,
+            output_dir,
+            include_photons=include_photons,
+        ):
+            to_validate.append(dem)
+        else:
+            reused.append(dem)
+    return to_validate, reused
+
+
 def validate_list_of_dems(
     dem_list_or_dir: str | list[str],
     classes: list[int] | tuple[int, ...] = (1, 6, 40),
@@ -169,47 +279,9 @@ def validate_list_of_dems(
             output_dir,
         )
 
-    # If a place name wasn't provided, just use "summary_results"
-    if place_name is None:
-        stats_and_plots_base = "summary_results"
-    else:
-        # Remove any problematic characters from the place name to create a file name.
-        stats_and_plots_base = (
-            place_name.replace(" ", "_")
-            .replace("/", "_")
-            .replace(":", "_")
-            .replace("|", "_")
-            .replace("\\", "_")
-            .replace("?", "_")
-            .replace("*", "_")
-            .replace("<", "_")
-            .replace(">", "_")
-            .replace('"', "_")
-            .replace("'", "_")
-            .replace("`", "_")
-            .replace("!", "_")
-            .replace("@", "_")
-            .replace("#", "_")
-            .replace("$", "_")
-            .replace("%", "_")
-            .replace("^", "_")
-            .replace("&", "_")
-            .replace("(", "_")
-            .replace(")", "_")
-            .replace("+", "_")
-            .replace("=", "_")
-            .replace("{", "_")
-            .replace("}", "_")
-            .replace("[", "_")
-            .replace("]", "_")
-            .replace(";", "_")
-            .replace(",", "_")
-            .replace("/", "_")
-            .replace("__", "_")
-            + "_results"
-        ).replace("__", "_")
+    stats_and_plots_base = _summary_results_base(place_name)
 
-    # Swap only the trailing "_results" appended above. A blanket
+    # Swap only the trailing "_results" that _summary_results_base() appends. A blanket
     # str.replace("_results", ...) rewrites every occurrence, so a place name that
     # itself contains "results" (e.g. "oregon results 2024" -> "oregon_results_2024")
     # would have its own text rewritten mid-name as well.
@@ -267,28 +339,7 @@ def validate_list_of_dems(
             )
         return None
 
-    path = dem_list_or_dir
-    # If we have a one-item list here, get the item in that list.
-    if type(path) in (list, tuple) and len(path) == 1:
-        path = path[0]
-
-    if (type(path) in (list, tuple)) and (len(path) > 1):
-        dem_list = path
-    elif os.path.isdir(path):
-        dem_list = sorted([os.path.join(path, fname) for fname in os.listdir(path)])
-    else:
-        assert os.path.exists(path)
-        dem_list = [path]
-
-    # Filter for needed strings in filenames, such as "_wgs84.tif"
-    if fname_filter is not None:
-        # Include only filenames that MATCH the match string.
-        dem_list = [fn for fn in dem_list if (re.search(fname_filter, fn) is not None)]
-
-    # Filter out unwanted filename strings.
-    if fname_omit is not None:
-        # Only include filenames that DO NOT MATCH the omission string.
-        dem_list = [fn for fn in dem_list if (re.search(fname_omit, fn) is None)]
+    dem_list = _resolve_dem_list(dem_list_or_dir, fname_filter, fname_omit)
 
     # if use_icesat2_photon_database:
     # Generate a single photon database object and pass it repeatedly to all the objects.

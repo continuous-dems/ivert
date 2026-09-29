@@ -5,6 +5,7 @@ import glob
 import inspect
 import logging
 import os
+import shlex
 import sys
 import typing
 import warnings
@@ -2292,6 +2293,71 @@ def _parse_exclude_spec(value, wsen=False):
     return value
 
 
+def _manifest_option_values(ctx, manifest_file):
+    """Return the manifest's values for every tracked option not given on the command line.
+
+    Warns and asks before going on if the manifest's options don't match the ones this
+    version of 'ivert validate' has.
+    """
+    from click.core import ParameterSource
+
+    from ivert import manifest as manifest_module
+
+    manifest_version, manifest_options = manifest_module.read_manifest(manifest_file)
+    params = manifest_module.tracked_params(ctx.command)
+    manifest_options = manifest_module.reconcile_options(
+        manifest_file,
+        manifest_version,
+        manifest_options,
+        params,
+        ivert_version,
+        interactive=_stdin_is_interactive(),
+    )
+    logger.info("Using settings from manifest %s", manifest_file)
+    return {
+        name: manifest_module.parse_option(ctx, params[name], raw, manifest_file)
+        for name, raw in manifest_options.items()
+        if ctx.get_parameter_source(name) != ParameterSource.COMMANDLINE
+    }
+
+
+def _write_run_manifest(path, options, inputs, outdir, num_reused=0, num_dems=1):
+    """Write a run's manifest, warning first if it replaces one with different settings.
+
+    Without --overwrite, DEMs that already have results are reused rather than
+    re-validated, so their results still reflect the old manifest's settings. The
+    warning is only given when 'num_reused' of the run's 'num_dems' DEMs are reused.
+    """
+    from ivert import manifest as manifest_module
+
+    if num_reused and os.path.exists(path):
+        old_options = manifest_module.read_manifest_options(path)
+        new_options = {k: manifest_module.format_value(v) for k, v in options.items()}
+        if old_options is not None and old_options != new_options:
+            changed = sorted(
+                k
+                for k in set(old_options) | set(new_options)
+                if old_options.get(k) != new_options.get(k)
+            )
+            logger.warning(
+                "The settings of this run differ from those in %s (%s). %d of %d DEMs "
+                "already have results, which will be reused, not re-validated with the "
+                "new settings; use -ow/--overwrite to redo them.",
+                path,
+                ", ".join(changed),
+                num_reused,
+                num_dems,
+            )
+
+    run_info = {
+        "command": shlex.join(["ivert", *sys.argv[1:]]),
+        "inputs": [os.path.abspath(f) for f in inputs],
+        "outdir": os.path.abspath(outdir),
+    }
+    manifest_module.write_manifest(path, ivert_version, options, run_info)
+    logger.info("Wrote run manifest %s", path)
+
+
 def _run_validate(
     files_or_directory,
     vdatum,
@@ -2314,8 +2380,15 @@ def _run_validate(
     minimum_coverage_pct_land=None,
     minimum_coverage_pct_bathy=None,
     bathy_filter_settings=None,
+    manifest_options=None,
 ):
-    """Branch to validate_dem or validate_list_of_dems based on the number of input files."""
+    """Branch to validate_dem or validate_list_of_dems based on the number of input files.
+
+    'manifest_options' maps each tracked option to its value for this run. It is written
+    out as the run's manifest, with the values resolved here filled in, but only if
+    there is validation work to do.
+    """
+    from ivert import manifest as manifest_module
     from ivert import validate_dem as vd_module
     from ivert import validate_dem_collection as vdc_module
     from ivert import vdatum_lookup
@@ -2387,6 +2460,23 @@ def _run_validate(
         class_list.append(7)
     class_list = sorted(set(class_list))
 
+    if manifest_options is not None:
+        if export_error_formats is None:
+            from ivert.utils.configfile import Config
+
+            export_error_formats_resolved = Config().export_error_formats
+        else:
+            export_error_formats_resolved = export_error_formats
+        manifest_options = {
+            **manifest_options,
+            "vdatum": None if vdatum == "NONE_PROVIDED" else vdatum,
+            "classes": "/".join(str(c) for c in class_list),
+            "export_formats": ",".join(
+                vd_module._normalize_export_formats(export_error_formats_resolved),
+            )
+            or "none",
+        }
+
     # Fail early, and legibly, if there is no photon database to validate against.
     # If the granules are on disk but the index file isn't, this rebuilds it.
     from ivert import icesat2_database_v2 as is2db_mod
@@ -2432,6 +2522,18 @@ def _run_validate(
             kwargs["export_error_formats"] = export_error_formats
         if exclude_zones:
             kwargs["exclude_zones"] = exclude_zones
+        if manifest_options is not None and vd_module.dem_needs_validation(
+            expanded[0],
+            single_outdir,
+            include_photons=include_photons,
+            overwrite=overwrite,
+        ):
+            _write_run_manifest(
+                manifest_module.manifest_path(single_outdir, dem_name=expanded[0]),
+                manifest_options,
+                expanded,
+                single_outdir,
+            )
         vd_module.validate_dem(**kwargs)
     else:
         dem_input = expanded[0] if len(expanded) == 1 else expanded
@@ -2471,11 +2573,43 @@ def _run_validate(
             kwargs["export_error_formats"] = export_error_formats
         if exclude_zones:
             kwargs["exclude_zones"] = exclude_zones
+        if manifest_options is not None:
+            to_validate, reused = vdc_module.dems_needing_validation(
+                dem_input,
+                multi_outdir,
+                place_name=region_name,
+                include_photons=include_photons,
+                overwrite=overwrite,
+            )
+            if to_validate:
+                _write_run_manifest(
+                    manifest_module.manifest_path(multi_outdir),
+                    manifest_options,
+                    expanded,
+                    multi_outdir,
+                    num_reused=len(reused),
+                    num_dems=len(to_validate) + len(reused),
+                )
         vdc_module.validate_list_of_dems(**kwargs)
 
 
 @ivert_cli.command("validate")
 @click.argument("files_or_directory", nargs=-1, required=False)
+@click.option(
+    "-m",
+    "--manifest",
+    "manifest",
+    type=click.Path(exists=True, dir_okay=False),
+    default=None,
+    metavar="FILE",
+    help=(
+        "Run with the settings recorded in an IVERT manifest, the "
+        "'ivert_manifest.ini' (or '<dem>_ivert_manifest.ini') file that every "
+        "validation writes into its output directory. Options given on the command "
+        "line override the manifest's values. The manifest's input files and output "
+        "directory are not used: name the DEMs (and -o) as usual."
+    ),
+)
 @click.option(
     "-V",
     "--vdatum",
@@ -2830,6 +2964,7 @@ def validate(
     overwrite,
     exclude,
     wsen,
+    manifest,
 ):
     """Validate one or more DEMs against ICESat-2 photon data.
 
@@ -2837,7 +2972,13 @@ def validate(
     (all `*.tif` files are used), or a glob pattern (e.g., `data/ncei*.tif`).
 
     Example: ivert validate mydem.tif -V navd88 -n "Oregon Coast"
+
+    Each run that validates anything writes a manifest of its settings into the
+    output directory; pass it back with -m/--manifest to repeat them.
     """
+    # Snapshot the option values before anything below changes them.
+    option_values = dict(locals())
+
     if list_vdatums:
         from ivert import vdatum_lookup
 
@@ -2859,6 +3000,14 @@ def validate(
     if not files_or_directory:
         raise click.UsageError("Missing argument 'FILES_OR_DIRECTORY'.")
 
+    if manifest is not None:
+        # Re-run with the manifest's values filled in under the command-line ones.
+        ctx = click.get_current_context()
+        option_values.update(_manifest_option_values(ctx, manifest))
+        option_values["manifest"] = None
+        ctx.invoke(validate.callback, **option_values)
+        return
+
     # A coverage threshold needs coverage measured, so any of them implies -mc.
     if any(
         pct is not None
@@ -2874,6 +3023,11 @@ def validate(
         [_parse_exclude_spec(value, wsen=wsen) for value in exclude]
         if exclude
         else None
+    )
+    # Record exclusion files by absolute path so the manifest works from anywhere.
+    option_values["exclude"] = tuple(
+        os.path.abspath(zone) if isinstance(zone, str) else value
+        for value, zone in zip(exclude, exclude_zones or [], strict=True)
     )
 
     from ivert import bathy_filters as bathy_filters_module
@@ -2899,6 +3053,33 @@ def validate(
             f"Bathymetry reference raster not found: {bathy_filter_settings.ref_raster}",
         )
 
+    # Record the settings actually in effect, config fallbacks included, so the
+    # manifest doesn't depend on the config of whoever re-runs it. 'none' (rather than
+    # blank) keeps an unset filter setting from picking up that user's config value.
+    option_values.update(
+        {
+            "measure_coverage": measure_coverage,
+            "bathy_filters": ",".join(bathy_filter_settings.rules) or "none",
+            "bathy_max_depth": bathy_filter_settings.max_depth_m,
+            "bathy_ref_window": bathy_filter_settings.ref_window_m,
+            "bathy_near_surface": bathy_filter_settings.near_surface_m,
+            "bathy_min_coast_dist": bathy_filter_settings.min_coast_dist_m,
+            "bathy_ref_tolerance": bathy_filter_settings.ref_tolerance_m,
+            "bathy_land_max_below_sl": bathy_filter_settings.land_max_below_sl_m,
+            "bathy_offshore_min_ref_depth": (
+                "none"
+                if bathy_filter_settings.offshore_min_ref_depth_m is None
+                else bathy_filter_settings.offshore_min_ref_depth_m
+            ),
+            "bathy_ref_raster": bathy_filter_settings.ref_raster or "none",
+        },
+    )
+    from ivert import manifest as manifest_module
+
+    manifest_options = {
+        name: option_values[name] for name in manifest_module.tracked_params(validate)
+    }
+
     _run_validate(
         files_or_directory,
         vdatum,
@@ -2921,6 +3102,7 @@ def validate(
         minimum_coverage_pct_land=minimum_coverage_pct_land,
         minimum_coverage_pct_bathy=minimum_coverage_pct_bathy,
         bathy_filter_settings=bathy_filter_settings,
+        manifest_options=manifest_options,
     )
 
 

@@ -1004,6 +1004,38 @@ def get_dem_dataset_and_vars(dem_fn) -> tuple:
     return dem_ds, dem_array, dem_bbox, dem_step_xy
 
 
+def _results_dataframe_filename(dem_name, output_dir):
+    """Return the '<dem>_results.h5' path for a DEM's validation results in output_dir."""
+    return os.path.join(
+        output_dir,
+        os.path.splitext(os.path.basename(dem_name))[0] + "_results.h5",
+    )
+
+
+def _empty_results_filename(results_dataframe_file):
+    """Return the '<dem>_results_EMPTY.txt' marker path matching a results dataframe file."""
+    base, _ = os.path.splitext(results_dataframe_file)
+    return base + "_EMPTY.txt"
+
+
+def dem_needs_validation(dem_name, output_dir, include_photons=False, overwrite=False):
+    """Return True if validating this DEM into output_dir would do any validation work.
+
+    Mirrors the checks in _check_existing_outputs(): a DEM is done when its results
+    .h5 file exists (plus its photon-level results file, if include_photons is set),
+    or when an earlier run marked it as empty. Summary files, plots and error exports
+    that can be rebuilt from existing results don't count as validation work.
+    """
+    if overwrite:
+        return True
+    results_dataframe_file = _results_dataframe_filename(dem_name, output_dir)
+    if os.path.exists(results_dataframe_file):
+        return include_photons and not os.path.exists(
+            _photon_results_filename(results_dataframe_file),
+        )
+    return not os.path.exists(_empty_results_filename(results_dataframe_file))
+
+
 def _setup_output_paths(
     dem_name,
     output_dir,
@@ -1023,10 +1055,7 @@ def _setup_output_paths(
         logger.info("Creating output directory %s", output_dir)
         os.makedirs(output_dir)
 
-    results_dataframe_file = os.path.join(
-        output_dir,
-        os.path.splitext(os.path.basename(dem_name))[0] + "_results.h5",
-    )
+    results_dataframe_file = _results_dataframe_filename(dem_name, output_dir)
 
     if interim_data_dir is None:
         interim_data_dir = output_dir
@@ -1036,8 +1065,7 @@ def _setup_output_paths(
 
     empty_results_filename = ""
     if mark_empty_results:
-        base, _ = os.path.splitext(results_dataframe_file)
-        empty_results_filename = base + "_EMPTY.txt"
+        empty_results_filename = _empty_results_filename(results_dataframe_file)
 
     summary_stats_filename = ""
     if write_summary_stats:

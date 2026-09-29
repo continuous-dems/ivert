@@ -102,6 +102,26 @@ Bathymetry cells are few, and their photons are usually much sparser than land p
 |------|---------|-------------|
 | `-n, --name TEXT` | *(DEM filename)* | Region name shown on plots |
 
+### Reproducing a run: manifests
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `-m, --manifest FILE` | — | Run with the settings recorded in a manifest from an earlier run |
+
+Every run that validates anything writes a manifest into its output directory: `<dem>_ivert_manifest.ini` for a single DEM, `ivert_manifest.ini` for a collection. It is a plain INI file you can read and edit. It records the IVERT version and the value of every option that can change the results, defaults included. Settings that fall back to your config are written out in full (the bathymetry filters and their thresholds, the export formats), so the manifest gives the same run on a machine with a different config. Options that don't affect the results aren't recorded (`-o`, `-ow`, `--verbosity`). The `[run]` section lists the command, input files and output directory for reference only. It is never applied.
+
+To repeat a run, on the same DEMs or new ones, pass its manifest back:
+
+```
+ivert validate -m old_results/ivert_manifest.ini /data/new_dems/
+```
+
+Options given on the command line override the manifest's values, so `-m manifest.ini -sd 3` repeats a run with only the outlier threshold changed.
+
+If the manifest's options don't match those of the installed IVERT (the manifest came from an older or newer version, or was edited), IVERT warns, names the version situation, and lists the options the manifest has that this version doesn't and those it lacks. It then asks whether to go on without the unrecognized options, with current defaults for the missing ones. Answering no stops the run. When IVERT isn't running in a terminal, it stops without asking.
+
+A run that finds every DEM already validated (without `-ow`) does no work and leaves the existing manifest alone. When a collection run does work but its settings differ from the manifest already in the output directory, and some DEMs already have results, IVERT warns how many of them are reused rather than redone. Their results still reflect the old settings. Use `-ow` to redo them with the new ones.
+
 ---
 
 ## Output files
@@ -120,6 +140,7 @@ For a DEM named `survey.tif`, IVERT writes these files to the output directory:
 | `survey_errors.shp` | Shapefile of per-cell errors (if `shp` in export formats) |
 | `survey_errors.xyz` | Whitespace-delimited `x y error` text file (if `xyz` in export formats) |
 | `survey_photons.gpkg` | Individual ICESat-2 photons used (if `-ph` flag given) |
+| `survey_ivert_manifest.ini` | The run's settings and IVERT version, for `-m/--manifest` |
 
 The `_summary_stats.txt` file contains:
 
@@ -141,6 +162,7 @@ When validating multiple DEMs (a directory or glob pattern), IVERT also writes a
 | `{name}_individual_results.csv` | Per-DEM summary table: RMSE, mean bias, standard deviation, cell count, and mean photons per cell for each DEM |
 | `{name}_plot.png` | Combined validation plot across all DEMs in the collection |
 | `{name}_summary_stats.txt` | Same format as the per-DEM summary stats file, aggregated over all cells across all DEMs |
+| `ivert_manifest.ini` | The run's settings and IVERT version, for `-m/--manifest`. Per-DEM manifests are not written in a collection run |
 
 ---
 
@@ -169,6 +191,11 @@ ivert validate mydem.tif -ef tif,gpkg,shp,xyz
 **Disable error exports entirely:**
 ```
 ivert validate mydem.tif -ef none
+```
+
+**Repeat an earlier run's settings on new DEMs, with one option changed:**
+```
+ivert validate -m /data/results/ivert_manifest.ini /data/more_dems/ -sd 3
 ```
 
 **List available vertical datum names:**
