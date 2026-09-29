@@ -12,6 +12,7 @@ fixture works is worse than no test, because it looks like coverage.
 """
 
 import os
+from pathlib import Path
 
 import pytest
 
@@ -36,7 +37,7 @@ def test_the_real_user_config_is_never_the_target():
     """The safety property itself, stated plainly enough to read at a glance."""
     config = configfile.Config()
 
-    assert not config.user_config_path.startswith(os.path.expanduser("~/.ivert"))
+    assert not Path(config.user_config_path).is_relative_to(Path.home() / ".ivert")
 
 
 def test_the_config_singleton_starts_unset():
