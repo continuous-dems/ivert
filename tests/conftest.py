@@ -1,10 +1,7 @@
 """Shared fixtures for the IVERT test suite.
 
-IVERT carries process-global state -- a user config file it reads and writes, a
-module-level Config singleton, and cached lookups of the platform and of
-globato's photon classes. Left alone, tests would read and write the developer's
-real configuration and pass or fail depending on whose machine they ran on. The
-autouse fixture below closes all of that off.
+The autouse fixture below keeps every test off the developer's real config, and
+out of state earlier tests leave behind.
 """
 
 import pytest
@@ -15,11 +12,7 @@ from ivert.utils import configfile
 
 @pytest.fixture(autouse=True)
 def isolate_ivert_state(tmp_path, monkeypatch):
-    """Keep every test off the developer's real config, cache and platform.
-
-    Applied automatically to every test, because forgetting it in one place is
-    enough to write into a real ~/.ivert config file.
-    """
+    """Keep every test off the real ~/.ivert and out of other tests' state."""
     # Config.user_config_path honors IVERT_USER_CONFIG ahead of the packaged
     # default, so setting it redirects reads *and* writes into a per-test
     # temporary directory.
@@ -36,9 +29,7 @@ def isolate_ivert_state(tmp_path, monkeypatch):
     # file, so the first test to build one would otherwise leak it into the rest.
     monkeypatch.setattr(configfile, "ivert_config", None)
 
-    # photon_classes() is lru_cached over a parse of globato's docstring; clear
-    # it on both sides so a test that patches globato neither sees nor leaves a
-    # stale result.
+    # photon_classes() caches its result; clear it so no test sees another's.
     photon_classes.photon_classes.cache_clear()
     yield
     photon_classes.photon_classes.cache_clear()
