@@ -82,7 +82,7 @@ def write_summary_csv_file(
     )
 
     output_df.to_csv(csv_name, index=False)
-    logger.info("%s written.", csv_name)
+    logger.debug("%s written.", csv_name)
 
     return output_df
 
@@ -236,22 +236,24 @@ def validate_list_of_dems(
 
         if not os.path.exists(statsfile_name):
             results_df = pd.read_hdf(results_h5)
-            logger.info("%s read.", results_df)
+            logger.info("%s read.", results_h5)
             validate_dem.write_summary_stats_file(
                 results_df,
                 statsfile_name,
                 bathy_filter_report=ivert.bathy_filters.read_report_from_h5(results_h5),
             )
+            validate_dem.log_written_files([statsfile_name])
 
         if not os.path.exists(plot_file_name):
             if results_df is None:
                 results_df = pd.read_hdf(results_h5)
-                logger.info("%s read.", results_df)
+                logger.info("%s read.", results_h5)
             plot_validation_results.plot_histograms_and_line(
                 results_df,
                 plot_file_name,
                 place_name=place_name,
             )
+            validate_dem.log_written_files([plot_file_name])
 
         if results_df is None:
             logger.info(
@@ -293,6 +295,9 @@ def validate_list_of_dems(
     # This saves us a lot of re-reading the geodataframe repeatedly.
     # photon_db_obj = icesat2_photon_database.ICESat2_Database()
     photon_db_obj = ivert.icesat2_database_v2.IS2Database()
+    # Read the index now, so the loaded copy is pickled into each tile's validation
+    # sub-process instead of every sub-process re-reading it from disk.
+    photon_db_obj.open_gdf()
 
     files_to_export = []
     list_of_results_dfs = []
@@ -398,6 +403,9 @@ def validate_list_of_dems(
         include_filenames=True,
     )
 
+    # Everything appended from here on is a collection-wide summary output.
+    num_tile_files = len(files_to_export)
+
     if write_summary_csv:
         write_summary_csv_file(
             total_results_df,
@@ -430,9 +438,9 @@ def validate_list_of_dems(
     if results_h5 is not None:
         total_results_df.to_hdf(results_h5, key="results", complib="zlib", complevel=3)
         ivert.bathy_filters.write_report_to_h5(results_h5, bathy_filter_report)
-        logger.info("%s written.", results_h5)
         files_to_export.append(results_h5)
 
+    validate_dem.log_written_files(files_to_export[num_tile_files:])
     return files_to_export
 
 
