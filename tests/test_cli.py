@@ -21,8 +21,6 @@ def _command_paths(command, path=()):
             yield from _command_paths(subcommand, (*path, name))
 
 
-# Walked rather than hard-coded, so a command added later is covered without
-# anyone remembering to list it here.
 ALL_COMMAND_PATHS = list(_command_paths(ivert_cli))
 
 
