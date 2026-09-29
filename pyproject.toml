@@ -87,7 +87,7 @@ testpaths = ["tests"]
 addopts = "--strict-markers --strict-config -m 'not network and not slow'"
 markers = [
     "network: hits NSIDC/Harmony; needs Earthdata credentials in ~/.netrc",
-    "slow: runs a full DEM validation; minutes, not seconds",
+    "slow: A test that takes too long to run every time (i.e. tens of seconds or more)",
 ]
 
 [tool.ruff.lint]
