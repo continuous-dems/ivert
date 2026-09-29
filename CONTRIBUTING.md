@@ -123,10 +123,18 @@ decorator that silently does nothing.
 
 ### Writing a test
 
-`tests/` is intentionally not a package — there is no `__init__.py` — so every
-test file's basename has to be unique across the whole tree. Name a file after
-the module it covers: `tests/test_cuboid_funcs.py` covers
-`src/ivert/utils/cuboid_funcs.py`.
+`tests/` mirrors the layout of `src/ivert/`. Name a test file after the module
+it covers, and put it in the folder matching that module's subpackage:
+
+- `src/ivert/cli.py` → `tests/test_cli.py`
+- `src/ivert/utils/cuboid_funcs.py` → `tests/utils/test_cuboid_funcs.py`
+
+A module with several test files keeps them side by side, named for what each
+covers (the `tests/test_*.py` files for `icesat2_database_v2.py`, for example).
+Create a subpackage's folder when its first test arrives. It needs no
+`__init__.py`: pytest runs with `--import-mode=importlib`, which loads each
+test file by its path, so files in different folders may share a name. One
+test file can't import another; put shared fixtures in `conftest.py`.
 
 Fixture data is generated in a fixture, never committed. `data/` is gitignored
 and holds tens of gigabytes of granules, and the `check-added-large-files` hook
