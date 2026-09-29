@@ -1,30 +1,23 @@
 """Single source of truth for ICESat-2 photon classification codes.
 
-The authoritative definitions live in globato's ``ATL03Reader.meta_desc``
-docstring. Parsing them here keeps IVERT's CLI help, vector exports, and plot
-legends in sync with the upstream classifier instead of each module carrying its
-own (drift-prone) copy of the code list.
+The authoritative definitions are globato's ``PHOTON_CLASSES`` constant. Reading
+them here keeps IVERT's CLI help, vector exports, and plot legends in sync with
+the upstream classifier instead of each module carrying its own (drift-prone)
+copy of the code list.
 """
 
-import functools
 import re
 
 
-@functools.lru_cache(maxsize=1)
 def photon_classes():
     """Return ``((code, description), ...)`` in the order globato lists them.
 
-    Parsed from globato's ``ATL03Reader.meta_desc`` docstring. Raises
-    ``ImportError`` if globato is not installed.
+    Read from globato's ``PHOTON_CLASSES``. Raises ``ImportError`` if globato is
+    not installed.
     """
-    from globato.streams.readers.icesat2 import ATL03Reader
+    from globato.streams.readers.icesat2 import PHOTON_CLASSES
 
-    classes = []
-    for line in ATL03Reader.meta_desc.splitlines():
-        match = re.match(r"^\s*(-?\d+)\s*:\s*(.+?)\s*$", line)
-        if match:
-            classes.append((int(match.group(1)), match.group(2)))
-    return tuple(classes)
+    return tuple(PHOTON_CLASSES.items())
 
 
 def class_descriptions():
