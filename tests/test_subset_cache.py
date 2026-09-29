@@ -139,7 +139,8 @@ def _photons(xs, y=32.5):
             "class_code": [1] * len(xs),
             "delta_time": [t0 + i for i in range(len(xs))],
             "confidence": [4] * len(xs),
-            "laser": ["gt1l"] * len(xs),
+            # 4-byte beam names, as globato hands them over and the .nc files store them.
+            "laser": [b"gt1l"] * len(xs),
         },
     )
 
@@ -149,6 +150,7 @@ def db(tmp_path, monkeypatch):
     config = SimpleNamespace(
         ivert_database_index=str(tmp_path / "db" / "_ivert_database_index.nc"),
         ivert_database_directory=str(tmp_path / "db"),
+        ivert_landmask_directory=str(tmp_path / "landmasks"),
         icesat2_download_directory=str(tmp_path / "cache"),
         icesat2_vertical_datum="ellipsoid",
         nsidc_atl_version="007",
