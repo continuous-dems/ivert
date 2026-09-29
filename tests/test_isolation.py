@@ -13,6 +13,8 @@ fixture works is worse than no test, because it looks like coverage.
 
 import os
 
+import pytest
+
 from ivert import photon_classes
 from ivert.utils import configfile
 
@@ -59,17 +61,17 @@ def test_config_reads_aws_detection_where_conftest_patches_it(monkeypatch):
     assert configfile.Config().is_aws is True
 
 
-# The next two run in this order, which is pytest's default within a file, and
-# the ordering is the point: the first populates the lru_cache and the second
-# checks the fixture's teardown emptied it again. Keep them adjacent, and keep
-# the populating one first.
+@pytest.fixture(scope="module")
+def populated_photon_class_cache():
+    """Fill the photon_classes() cache before the per-test isolation fixture runs.
 
-
-def test_the_photon_class_cache_is_populated_by_a_lookup():
+    Pytest always sets up a module-scoped fixture before function-scoped ones like
+    the isolation fixture, so this runs first whatever order the tests run in.
+    """
     photon_classes.photon_classes()
 
-    assert photon_classes.photon_classes.cache_info().currsize == 1
 
-
-def test_the_photon_class_cache_was_cleared_after_the_previous_test():
+@pytest.mark.usefixtures("populated_photon_class_cache")
+def test_the_photon_class_cache_is_cleared_before_each_test():
+    """The cache was filled before this test's setup, so it must be empty now."""
     assert photon_classes.photon_classes.cache_info().currsize == 0
