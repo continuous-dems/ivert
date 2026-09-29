@@ -20,9 +20,6 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # 3.12 is the floor in pyproject; 3.14 is the newest release. Every
-        # compiled dependency ships cp314 wheels, so nothing here has to build
-        # from source.
         python-version: ["3.12", "3.14"]
 
     steps:
@@ -43,6 +40,4 @@ jobs:
           pip install --group test -e .
 
       - name: "Run the test suite"
-        # The network and slow markers are excluded by pyproject's addopts, so
-        # this needs no credentials and touches no network beyond the install.
         run: "pytest -v --cov=ivert --cov-report=term-missing"
