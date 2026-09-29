@@ -818,6 +818,7 @@ def validate_dem(
         )
 
         shared_results_df = None
+        written_files = []
         bathy_filter_report = None
 
         # First, merge the results dataframes.
@@ -878,7 +879,7 @@ def validate_dem(
 
             shared_ret_values[common_key] = output_fname
 
-            logger.info("%s written and exported.", os.path.basename(output_fname))
+            written_files.append(output_fname)
 
         # Second, export the per-cell errors from the merged dataframe.
         if export_error_formats is None:
@@ -900,6 +901,7 @@ def validate_dem(
                     export_error_formats,
                 )
 
+            written_files.extend(exported)
             shared_ret_values["error_export_files"] = exported
 
         # If we're doing an empty results file, create one in the output directory if no results were returned.
@@ -933,6 +935,7 @@ def validate_dem(
                 output_fname,
                 bathy_filter_report=bathy_filter_report,
             )
+            written_files.append(output_fname)
             shared_ret_values["summary_stats_filename"] = output_fname
 
         # Export the photon dataframe if it was called to be returned.
@@ -953,6 +956,7 @@ def validate_dem(
                 os.path.splitext(os.path.basename(dem_name))[0] + "_photons.h5",
             )
             results_df.to_hdf(output_fname, key="icesat2", complib="zlib", mode="w")
+            written_files.append(output_fname)
             shared_ret_values[common_key] = output_fname
 
         # Plot the results.
@@ -970,8 +974,10 @@ def validate_dem(
                 output_fname,
                 place_name=location_name,
             )
+            written_files.append(output_fname)
             shared_ret_values["plot_filename"] = output_fname
 
+        log_written_files(written_files)
         return list(shared_ret_values.values())
 
     raise RuntimeError(
@@ -1103,6 +1109,7 @@ def _check_existing_outputs(
                 return None
 
         results_dataframe = None
+        written_files = []
         files_to_export.append(results_dataframe_file)
         shared_ret_values["results_dataframe_file"] = results_dataframe_file
 
@@ -1118,6 +1125,7 @@ def _check_existing_outputs(
                         results_dataframe_file,
                     ),
                 )
+                written_files.append(summary_stats_filename)
             files_to_export.append(summary_stats_filename)
             shared_ret_values["summary_stats_filename"] = summary_stats_filename
 
@@ -1132,11 +1140,13 @@ def _check_existing_outputs(
                 if results_dataframe is None:
                     logger.info("Reading %s ...", results_dataframe_file)
                     results_dataframe = read_dataframe_file(results_dataframe_file)
-                export_error_results(
-                    results_dataframe,
-                    dem_ds_tmp,
-                    results_dataframe_file,
-                    export_error_formats,
+                written_files.extend(
+                    export_error_results(
+                        results_dataframe,
+                        dem_ds_tmp,
+                        results_dataframe_file,
+                        export_error_formats,
+                    ),
                 )
             files_to_export.extend(export_files)
             shared_ret_values["error_export_files"] = export_files
@@ -1153,6 +1163,7 @@ def _check_existing_outputs(
                     plot_filename,
                     place_name=location_name,
                 )
+                written_files.append(plot_filename)
             files_to_export.append(plot_filename)
             shared_ret_values["plot_filename"] = plot_filename
 
@@ -1160,6 +1171,7 @@ def _check_existing_outputs(
             files_to_export.append(photon_results_file)
             shared_ret_values["photon_results_dataframe_file"] = photon_results_file
 
+        log_written_files(written_files)
         if results_dataframe is None:
             logger.info("Work already done here. Moving on.")
 
@@ -1232,7 +1244,7 @@ def _fetch_photons(
     if photon_df is None or len(photon_df) == 0:
         return None
 
-    logger.info(
+    logger.debug(
         "%s ICESat-2 photons present in photon dataframe.",
         f"{len(photon_df):,}",
     )
@@ -1376,7 +1388,6 @@ def _compute_photon_overlap(
     dem_overlap_elevs = dem_array[dem_overlap_mask]
 
     num_goodpixels = np.count_nonzero(dem_goodpixel_mask)
-    logger.info("%s land cells exist in the DEM.", f"{num_goodpixels:,}")
     if num_goodpixels == 0:
         logger.info(
             "No land cells found in DEM with overlapping ICESat-2 data. Stopping and moving on.",
@@ -1853,12 +1864,6 @@ def _write_validation_outputs(
         min_coverage_pct_bathy,
     )
 
-    logger.info(
-        "%s photon records used in %s DEM cells.",
-        f"{results_dataframe['numphotons_intd'].sum():,}",
-        f"{len(results_dataframe):,}",
-    )
-
     if outliers_sd_threshold is not None:
         assert type(outliers_sd_threshold) in (int, float)
         diff_mean = results_dataframe["diff_mean"]
@@ -1901,8 +1906,8 @@ def _write_validation_outputs(
             results_dataframe_file,
             bathy_filter_report,
         )
-    logger.info("%s written.", results_dataframe_file)
     files_to_export.append(results_dataframe_file)
+    written_files = [results_dataframe_file]
     shared_ret_values["results_dataframe_file"] = results_dataframe_file
 
     if write_summary_stats:
@@ -1912,6 +1917,7 @@ def _write_validation_outputs(
             bathy_filter_report=bathy_filter_report,
         )
         files_to_export.append(summary_stats_filename)
+        written_files.append(summary_stats_filename)
         shared_ret_values["summary_stats_filename"] = summary_stats_filename
 
     if export_error_formats is None:
@@ -1926,6 +1932,7 @@ def _write_validation_outputs(
             export_error_formats,
         )
         files_to_export.extend(exported)
+        written_files.extend(exported)
         shared_ret_values["error_export_files"] = exported
 
     if plot_results:
@@ -1938,8 +1945,10 @@ def _write_validation_outputs(
             figsize=(10, 4),
         )
         files_to_export.append(plot_filename)
+        written_files.append(plot_filename)
         shared_ret_values["plot_filename"] = plot_filename
 
+    log_written_files(written_files)
     return files_to_export
 
 
@@ -2201,6 +2210,7 @@ def _apply_coverage_filter(
     coverage = results_df["coverage_frac"].to_numpy()
     keep = np.ones(len(results_df), dtype=bool)
     parts = []
+    thresholds = []
     for label, cells, pct in (
         ("land", ~is_bathy, land_pct),
         ("bathymetry", is_bathy, bathy_pct),
@@ -2210,12 +2220,18 @@ def _apply_coverage_filter(
         keep[cells] = coverage[cells] >= (pct / 100.0)
         parts.append(
             f"{np.count_nonzero(keep & cells):,} of {np.count_nonzero(cells):,} "
-            f"{label} cells (>= {pct:g}%)",
+            f"{label} cells",
         )
+        thresholds.append((label, pct))
 
+    if len(thresholds) == 1:
+        threshold_str = f">= {thresholds[0][1]:g}%"
+    else:
+        threshold_str = ", ".join(f"{label} >= {pct:g}%" for label, pct in thresholds)
     logger.info(
-        "%s remain after the minimum-coverage filter.",
+        "%s remain after the minimum-coverage filter (%s).",
         " and ".join(parts),
+        threshold_str,
     )
     return results_df[keep].copy()
 
@@ -2241,6 +2257,43 @@ def _format_stat(value) -> str:
         decimals = 1 - int(np.floor(np.log10(abs(x))))
         return f"{x:.{decimals}f}"
     return f"{x:.2f}"
+
+
+def _format_file_size(num_bytes: int) -> str:
+    """Format a file size in decimal units, e.g. '512 B', '2.34 kB', '1.24 MB'."""
+    if num_bytes < 1000:
+        return f"{num_bytes:d} B"
+    size = float(num_bytes)
+    for unit in ("kB", "MB", "GB", "TB"):
+        size /= 1000.0
+        if size < 1000.0 or unit == "TB":
+            break
+    return f"{size:.2f} {unit}"
+
+
+def log_written_files(filenames) -> None:
+    """Log a list of written output files, grouped by folder, with their sizes.
+
+    Each folder is named once as 'In <folder>:', followed by one line per file
+    giving its base name and size. Files that don't exist are skipped.
+
+    Args:
+        filenames: an iterable of output file paths, in the order to list them.
+
+    """
+    files_by_dir = {}
+    for fname in filenames:
+        if fname and os.path.isfile(fname):
+            folder = os.path.dirname(os.path.abspath(fname))
+            files_by_dir.setdefault(folder, []).append(fname)
+
+    for folder, fnames in files_by_dir.items():
+        lines = [f"In {folder}:"]
+        lines.extend(
+            f"    {os.path.basename(fn)} ({_format_file_size(os.path.getsize(fn))})"
+            for fn in fnames
+        )
+        logger.info("\n".join(lines))
 
 
 def write_summary_stats_file(
@@ -2346,7 +2399,7 @@ def write_summary_stats_file(
         outf.write(out_text)
 
     if os.path.exists(statsfile_name):
-        logger.info("%s written.", statsfile_name)
+        logger.debug("%s written.", statsfile_name)
     else:
         logger.info("%s NOT written.", statsfile_name)
 
@@ -2391,7 +2444,7 @@ def generate_result_geotiff(
         tiled=True,
     ) as out_ds:
         out_ds.write(result_array, 1)
-    logger.info("%s written.", result_tif_filename)
+    logger.debug("%s written.", result_tif_filename)
 
 
 # Error-export formats supported by export_error_results(), selectable via the
@@ -2463,7 +2516,7 @@ def _export_errors_vector(results_dataframe, dem_ds, out_fname, fmt):
     layer_name = os.path.splitext(os.path.basename(out_fname))[0]
     gdf.to_file(out_fname, driver=driver_name, layer=layer_name)
 
-    logger.info("%s written.", out_fname)
+    logger.debug("%s written.", out_fname)
 
 
 def _export_errors_xyz(results_dataframe, dem_ds, out_fname):
@@ -2475,7 +2528,7 @@ def _export_errors_xyz(results_dataframe, dem_ds, out_fname):
         np.column_stack([x_centers, y_centers, errors]),
         fmt="%.8g",
     )
-    logger.info("%s written.", out_fname)
+    logger.debug("%s written.", out_fname)
 
 
 def _normalize_export_formats(formats):

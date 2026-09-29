@@ -1679,13 +1679,13 @@ class IS2Database:
 
         gdf_subset = self.query_granules(bbox)
 
-        logger.info("Reading %d granules overlapping %r.", len(gdf_subset), bbox)
+        logger.debug("Reading %d granules overlapping %r.", len(gdf_subset), bbox)
 
         # print(gdf_subset)
         fnames = gdf_subset["filename"].apply(
             lambda x: os.path.join(self.granules_dir, x),
         )
-        logger.info(
+        logger.debug(
             "%d granules exist with %s ground photons and %s bathy_floor photons.",
             np.count_nonzero(fnames.apply(os.path.exists)),
             f"{gdf_subset['numphotons_ground'].sum():,}",
@@ -1736,7 +1736,7 @@ class IS2Database:
                 photons_df = self.omit_photons_from_exclusion_bbox(photons_df, omit_bb)
 
         if len(photons_df) > 0:
-            logger.info(
+            logger.debug(
                 "Trimmed granules from %s to %s photons (%s ground, %s bathy).",
                 f"{gdf_subset['numphotons'].sum():,}",
                 f"{len(photons_df):,}",

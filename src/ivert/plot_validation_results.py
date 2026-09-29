@@ -435,7 +435,7 @@ def plot_histograms_and_line(
 
     # Save the figure to disk.
     fig.savefig(output_figure_name)
-    logger.info("%s written.", output_figure_name)
+    logger.debug("%s written.", output_figure_name)
 
     # Compute the RMSE and spit that out too.
     logger.info("\tRMSE: %s m", f"{rmse:0.3f}")
@@ -755,7 +755,7 @@ def plot_histogram_and_error_stats_4_panels(
 
     # Save the figure to disk.
     fig.savefig(output_figure_name)
-    logger.info("%s written.", output_figure_name)
+    logger.debug("%s written.", output_figure_name)
 
     # Compute the RMSE and spit that out too.
     rmse = (np.sum(meandiff**2) / len(meandiff)) ** 0.5
