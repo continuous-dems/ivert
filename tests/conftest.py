@@ -21,8 +21,8 @@ def isolate_ivert_state(tmp_path, monkeypatch):
     enough to write into a real ~/.ivert config file.
     """
     # Config.user_config_path honors IVERT_USER_CONFIG ahead of the packaged
-    # default, so this is the seam that redirects reads *and* writes into a
-    # per-test temporary directory.
+    # default, so setting it redirects reads *and* writes into a per-test
+    # temporary directory.
     monkeypatch.setenv(
         "IVERT_USER_CONFIG",
         str(tmp_path / "ivert_user_config.ini"),

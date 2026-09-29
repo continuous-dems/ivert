@@ -5,9 +5,9 @@ configuration, and it is invisible: no test mentions it. If it silently stopped
 applying, every other test here would still pass -- while reading and writing a
 real ~/.ivert. These make that failure loud.
 
-Where a check would be true anyway on a laptop or a CI runner, it tests the
-*seam* instead of the state: it patches the thing to its non-default value and
-confirms IVERT actually reads it there. A test that passes whether or not the
+Where a check would be true anyway on a laptop or a CI runner, it instead
+patches the setting to its non-default value and confirms IVERT reads it from
+the place the fixture patches. A test that passes whether or not the
 fixture works is worse than no test, because it looks like coverage.
 """
 
@@ -20,7 +20,7 @@ from ivert.utils import configfile
 def test_user_config_is_redirected_into_a_temporary_directory(tmp_path):
     """Config.user_config_path must keep honoring IVERT_USER_CONFIG.
 
-    That environment variable is the seam the whole suite hangs off. If its
+    Every test's isolation depends on that environment variable. If its
     precedence in user_config_path ever changes, every test starts reading the
     developer's real settings and this is what catches it.
     """
@@ -42,7 +42,7 @@ def test_the_config_singleton_starts_unset():
     assert configfile.ivert_config is None
 
 
-def test_config_reads_aws_detection_through_the_patchable_seam(monkeypatch):
+def test_config_reads_aws_detection_where_conftest_patches_it(monkeypatch):
     """The AWS switch has to stay reachable where conftest patches it.
 
     configfile does "from ivert.utils import is_aws" and calls
@@ -52,7 +52,7 @@ def test_config_reads_aws_detection_through_the_patchable_seam(monkeypatch):
 
     Asserting is_aws is False would not catch that: it is False anyway
     everywhere except an EC2 instance. Patching it True is what proves the
-    seam.
+    fixture's patch reaches Config.
     """
     monkeypatch.setattr("ivert.utils.is_aws.is_aws", lambda: True)
 
