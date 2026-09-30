@@ -71,21 +71,6 @@ def get_data_from_h5_or_list(
             msg,
             h5_name_or_list,
         )
-    # print(data)
-
-    # cellstd         = data['stddev'].astype(float)
-    # meandiff        = data['diff_mean']
-    # # numphotons      = data['numphotons']
-    # numphotons_intd = data['numphotons_intd']
-    # canopy_fraction = data["canopy_fraction"]
-    # Plot some histograms
-
-    # Get rid of data with 3 or less ground photons in the inter-decile range, and all nans.
-    # If empty_val means something, return it.
-    # good_data_mask = (numphotons_intd > 3) & ~numpy.isnan(meandiff) & ~numpy.isnan(meddiff) & ~numpy.isnan(canopy_fraction) \
-    #                  & (meandiff != empty_val) & (canopy_fraction != empty_val) & (cellstd != empty_val)
-
-    # data_subset = data[good_data_mask].copy()
     if len(data) == 0:
         logger.info("No reliable results contained in list of results h5 files.")
 
@@ -122,8 +107,6 @@ def plot_histograms_and_line(
         data = get_data_from_h5_or_list(results_h5_or_list_or_df, empty_val=empty_val)
 
     meandiff = data["diff_mean"]
-    # numphotons      = data['numphotons']
-    # numphotons_intd = data['numphotons_intd']
     numphotons_bathy = data["numphotons_bathy"]
     dem_elev = data["dem_elev"]
     mean_elev = data["mean"]
@@ -419,7 +402,6 @@ def plot_histograms_and_line(
         fontweight=plot_label_weight,
         transform=ax3.transAxes,
     )
-    # lbltxt.set_bbox(dict(facecolor="white", alpha=0.7, edgecolor="white", boxstyle="square,pad=0"))
 
     # Figure title
     if place_name is None:
@@ -478,10 +460,7 @@ def plot_histogram_and_error_stats_4_panels(
     else:
         data = get_data_from_h5_or_list(results_h5_or_list_or_df, empty_val=empty_val)
 
-    # meddiff         = data['diff_median']
-    # cellstd         = data['stddev'].astype(float)
     meandiff = data["diff_mean"]
-    # numphotons      = data['numphotons']
     numphotons_intd = data["numphotons_intd"]
     canopy_fraction = data["canopy_fraction"]
     dem_elev = data["dem_elev"]
@@ -529,7 +508,6 @@ def plot_histogram_and_error_stats_4_panels(
 
     # Crop the left & right
     cutoffs = np.percentile(meandiff, [1, 99])
-    # cutoffs = [-max(numpy.abs(cutoffs)), max(numpy.abs(cutoffs))]
     # Do not crop the photo to make the stddev lines fall outside the plot.
     # If they do, reset the min/max cutoff to be 2 stddev away from the mean on that side.
     if (center + std) >= cutoffs[1] or hist_cutoff_num_stddevs is not None:
@@ -580,13 +558,6 @@ def plot_histogram_and_error_stats_4_panels(
         )
 
     # Add subplot label "a"
-    # Add it on the opposite (horizontal) side of wherever the other text has been placed, in this case.
-    # if text_left:
-    #     ax1_label_x = plot_label_margin[0] + 0.15
-    #     ax1_ha = "right"
-    # else:
-    #     ax1_label_x = plot_label_margin[0]
-    #     ax1_ha = "left"
     ax1.text(
         *plot_label_margin,
         "A" if labels_uppercase else "a",
@@ -596,7 +567,6 @@ def plot_histogram_and_error_stats_4_panels(
         fontweight=plot_label_weight,
         transform=ax1.transAxes,
     )
-    # lbltxt.set_bbox(dict(facecolor="white", alpha=0.7, edgecolor="white", boxstyle="square,pad=0"))
 
     # 2) Plot 1:1 line of DEM/ICESat-2 elevations.
     #############################################################################
@@ -607,7 +577,6 @@ def plot_histogram_and_error_stats_4_panels(
     ax2.set_title("DEM vs. ICESat-2")
     ax2.set_ylabel("DEM elevation (m)")
     ax2.set_xlabel("ICESat-2 elevation (m)")
-    # ax2.autoscale(False) # Keep the line-plotting from expanding the x,y-axes
     xlim = ax2.get_xlim()
     ylim = ax2.get_ylim()
 
@@ -615,7 +584,6 @@ def plot_histogram_and_error_stats_4_panels(
     ax2.set_xlim(plotlim)
     ax2.set_ylim(plotlim)
     ax2.plot(plotlim, plotlim, ls="--", c=".3", lw=0.5, alpha=0.6)
-    # ax2.plot(xlim, xlim, ls="--", c=".3", lw=1, alpha=0.6)
     # Set the y-ticks the same as the x-ticks.
     xticks = ax2.get_xticks()
     ax2.set_yticks(xticks)
@@ -630,7 +598,6 @@ def plot_histogram_and_error_stats_4_panels(
         fontweight=plot_label_weight,
         transform=ax2.transAxes,
     )
-    # lbltxt.set_bbox(dict(facecolor="white", alpha=0.7, edgecolor="white", boxstyle="square,pad=0"))
 
     # 3) Plot Histogram of # of ICESat-2 photons per cell.
     #############################################################################
@@ -675,7 +642,6 @@ def plot_histogram_and_error_stats_4_panels(
         fontweight=plot_label_weight,
         transform=ax3.transAxes,
     )
-    # lbltxt.set_bbox(dict(facecolor="white", alpha=0.7, edgecolor="white", boxstyle="square,pad=0"))
 
     # 4) Plot Histogram of canopy cover.
     #############################################################################
@@ -694,9 +660,6 @@ def plot_histogram_and_error_stats_4_panels(
     xmin = ax4.get_xlim()[0] - 0.025 * (cutoff - ax4.get_xlim()[0])
     ax4.set_xlim(xmin, cutoff)
 
-    # center = numpy.mean(canopy_fraction)
-    # # std = numpy.std(canopy_fraction)
-    # median = numpy.median(canopy_fraction)
     canopy_mask = (
         (canopy_fraction > 0.0)
         & np.isfinite(canopy_fraction)
@@ -723,7 +686,6 @@ def plot_histogram_and_error_stats_4_panels(
         fontweight=plot_label_weight,
         transform=ax4.transAxes,
     )
-    # lbltxt.set_bbox(dict(facecolor="white", alpha=0.7, edgecolor="white", boxstyle="square,pad=0"))
 
     # Figure title
     if place_name is None:
@@ -748,92 +710,6 @@ def plot_histogram_and_error_stats_4_panels(
     plt.close(fig)
 
     return
-
-
-# def plot_error_stats(results_h5_name_or_list, empty_val = ivert_config.dem_default_ndv):
-#     # print(fname)
-#     data = get_data_from_h5_or_list(results_h5_name_or_list, empty_val = empty_val)
-#
-#     meddiff         = data['diff_median']
-#     cellstd         = data['stddev'].astype(float)
-#     meandiff        = data['diff_mean']
-#     numphotons      = data['numphotons']
-#     numphotons_intd = data['numphotons_intd']
-#     canopy_fraction = data["canopy_fraction"]
-#     dem_elev        = data["dem_elev"]
-#     mean_elev       = data["mean"]
-#     # Plot some histograms
-#
-#     # Get rid of data with 3 or less ground photons in the inter-decile range, and all nans.
-#     good_data_mask = numphotons_intd > 3 & ~numpy.isnan(meandiff) & ~numpy.isnan(meddiff) & ~numpy.isnan(canopy_fraction)
-#     meandiff           =        meandiff[good_data_mask]
-#     meddiff            =         meddiff[good_data_mask]
-#     cellstd            =         cellstd[good_data_mask]
-#     canopy_fraction    = canopy_fraction[good_data_mask]
-#     numphotons         =      numphotons[good_data_mask]
-#     numphotons_intd    = numphotons_intd[good_data_mask]
-#     dem_elev           =        dem_elev[good_data_mask]
-#     mean_elev          =       mean_elev[good_data_mask]
-#
-#     fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2,2, dpi=600, tight_layout=True) #, sharey=True)
-#
-#     dotsize=1
-#
-#     #############################################################################
-#     # Subplot 1, elev-elev correlation line
-#     ax1.scatter(mean_elev, dem_elev, s=dotsize)
-#     ax1.set_ylabel("DEM elevation (m)")
-#     ax1.set_xlabel("ICESat-2 elevation (m)")
-#     xlim = ax1.get_xlim()
-#     ax1.autoscale(False) # Keep the line-plotting from expanding the x,y-axes
-#     ax1.plot(xlim, xlim, ls="--", c=".3", lw=1)
-#
-#     #############################################################################
-#     # Subplot 2, error vs icesat-2 elevation
-#     ax2.scatter(dem_elev, meandiff, s=dotsize, color="darkred")
-#     ax2.axhline(y=0, ls="--", c=".3", lw=1)
-#     ax2.set_xlabel("ICESat-2 elev (m)")
-#     ax2.set_ylabel("DEM error (m)")
-#
-#     ax3.scatter(canopy_fraction*100, meandiff, s=dotsize, color="darkgreen")
-#     ax3.axhline(y=0, ls="--", c=".3", lw=1)
-#     ax3.set_xlabel("Canopy Cover (%)")
-#     ax3.set_ylabel("DEM error (m)")
-#
-#     ax4.scatter(numphotons_intd, meandiff, s=dotsize, color="purple")
-#     ax4.axhline(y=0, ls="--", c=".3", lw=1)
-#     ax4.set_xlabel("# photons per cell")
-#     ax4.set_ylabel("DEM errors (m)")
-#
-#
-#     # fig.suptitle(figure_titles_dict[fname] + " Error Stats")
-#     fig.suptitle("NE DEM Error Stats\n(N = {0:,} cells)".format(len(data)))
-#     fig.tight_layout()
-#
-#
-#     # figname = os.path.splitext(fname)[0] + "_stats.png"
-#     figname = os.path.join(os.path.split(results_h5_name_or_list[0])[0], os.path.split(os.path.split(results_h5_name_or_list[0])[0])[1]) + "_stats.png"
-#     fig.savefig(figname)
-#     print(figname, "written.")
-#
-#     plt.clf()
-
-# if __name__ == '__main__':
-#
-#     for h5 in [os.path.join('/home/mmacferrin/Research/DATA/ETOPO/data/validation_results/15s/2022.09.29/plots/', fn) for fn in
-#                ["total_results_gt{0}.h5".format(i) for i in (list(range(40,48)) + [50])]]:
-#         #, "total_results_gt42.h5", "total_results_gt43.h5", "total_results_gt44.h5", "total_results_gt46.h5"]]:
-#         plotname = os.path.splitext(h5)[0] + "_plot.png"
-#
-#         plot_histogram_and_error_stats_4_panels(h5, plotname, place_name="ETOPO 2022")
-
-# plot_histograms(h5_names)
-# plot_error_stats(h5_names)
-# for fname in fnames:
-#     print("\n====", fname)
-#     plot_histograms(fname)
-#     plot_error_stats(fname)
-#     # input("<Press <Enter> to continue>")
 
 
 if __name__ == "__main__":

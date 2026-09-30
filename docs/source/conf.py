@@ -50,12 +50,6 @@ napoleon_google_docstring = True
 napoleon_numpy_docstring = False
 napoleon_include_init_with_doc = False
 
-# # MyST Parser configuration
-# source_suffix = {
-#     '.rst': 'restructuredtext',
-#     '.txt': 'markdown',
-#     '.md': 'markdown',
-# }
 
 templates_path = ["_templates"]
 exclude_patterns = []
@@ -64,7 +58,6 @@ exclude_patterns = []
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#options-for-html-output
 
 html_theme = "pydata_sphinx_theme"
-# html_static_path = ["_static"]
 
 html_sidebars = {
     "index": [],
@@ -75,7 +68,6 @@ html_theme_options = {
     "github_url": "https://github.com/continuous-dems/ivert",
     "show_prev_next": False,
     "navbar_end": ["theme-switcher", "navbar-icon-links"],
-    # "secondary_sidebar_items": ["page-toc", "edit-this-page", "sourcelink"],
     "icon_links": [
         {
             "name": "PyPI",
@@ -89,18 +81,8 @@ html_theme_options = {
     "secondary_sidebar_items": [],
 }
 
-# html_context = {
-#     "github_user": "continuous-dems",
-#     "github_repo": "fetchez",
-#     "github_version": "main",
-#     "doc_path": "docs/source",
-# }
 
-# Optional: Add a logo
-# html_logo = "_static/logo.png"
 html_title = "Ivert Documentation"
-# #html_logo = "_static/fetchez_logo_micro.svg"
-# html_logo = "_static/continuous_dems_logo_mini.svg"
 
 # -- Autodoc Options ---------------------------------------------------------
 # Ensure methods are documented

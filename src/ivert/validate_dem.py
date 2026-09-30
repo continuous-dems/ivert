@@ -409,15 +409,12 @@ def validate_dem_child_process(
                     "range": r_range[r_keep],
                     "10p": r_10p[r_keep],
                     "90p": r_90p[r_keep],
-                    # "canopy_fraction": r_canopy_fraction,
                     "dem_elev": r_dem_elev[r_keep],
                     "diff_mean": r_mean_diff[r_keep],
                 },
             ).set_index(["i", "j"])
 
             if measure_coverage:
-                # Add columns for centrality measurements here.
-                # results_df["min_dist_from_center"] = r_min_distance_to_center
                 results_df["coverage_frac"] = r_coverage_frac[r_keep]
 
             connection.send(results_df)
@@ -2411,9 +2408,6 @@ def write_summary_stats_file(
         ),
     )
 
-    # lines.append("Mean canopy cover (% cover): {0:0.02f}".format(results_df["canopy_fraction"].mean()*100))
-    # lines.append("% of cells with >0 measured canopy (%): {0}".format((numpy.count_nonzero(results_df.canopy_fraction > 0.0) / len(results_df))*100))
-    # lines.append("Mean canopy cover in 'wooded' cells containing >0 canopy (% cover): {0}".format(results_df[results_df["canopy_fraction"] > 0]["canopy_fraction"].mean()*100))
     lines.append(
         "Mean roughness (stddev. of photon elevations within each cell (m)): {}".format(
             _format_stat(results_df["stddev"].mean()),

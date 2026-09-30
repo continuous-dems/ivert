@@ -43,8 +43,6 @@ def write_summary_csv_file(
     rmses = np.empty((n,), dtype=float)
     n_cells = np.empty((n,), dtype=int)
     photons_per_cell = np.empty((n,), dtype=float)
-    # canopy_mean = numpy.empty((n,), dtype=float)
-    # canopy_mean_gt0 = numpy.empty((n,), dtype=float)
 
     # Fill in the values
     for i, fname in enumerate(all_filenames):
@@ -55,8 +53,6 @@ def write_summary_csv_file(
             rmses[i] = (sum(temp_df["diff_mean"] ** 2) / (len(temp_df) - 1)) ** 0.5
             n_cells[i] = len(temp_df)
             photons_per_cell[i] = temp_df["numphotons_intd"].mean()
-            # canopy_mean[i] = temp_df['canopy_fraction'].mean()
-            # canopy_mean_gt0[i] = temp_df[temp_df['canopy_fraction'] > 0]['canopy_fraction'].mean()
 
         else:
             # For files with no results, just list n/a for this.
@@ -66,8 +62,6 @@ def write_summary_csv_file(
             rmses[i] = np.nan
             n_cells[i] = 0
             photons_per_cell[i] = np.nan
-            # canopy_mean[i] = numpy.nan
-            # canopy_mean_gt0[i] = numpy.nan
 
     output_df = pd.DataFrame(
         data={
@@ -77,8 +71,6 @@ def write_summary_csv_file(
             "stddev_from_mean": stds,
             "n_cells_validated": n_cells,
             "mean_photons_per_cell": photons_per_cell,
-            # "canopy_mean": canopy_mean,
-            # "canopy_mean_gt0": canopy_mean_gt0
         },
     )
 
@@ -342,10 +334,8 @@ def validate_list_of_dems(
 
     dem_list = _resolve_dem_list(dem_list_or_dir, fname_filter, fname_omit)
 
-    # if use_icesat2_photon_database:
     # Generate a single photon database object and pass it repeatedly to all the objects.
     # This saves us a lot of re-reading the geodataframe repeatedly.
-    # photon_db_obj = icesat2_photon_database.ICESat2_Database()
     photon_db_obj = ivert.icesat2_database_v2.IS2Database()
     # Read the index now, so the loaded copy is pickled into each tile's validation
     # sub-process instead of every sub-process re-reading it from disk.
@@ -556,30 +546,6 @@ def validate_list_of_dems(
     "-photon_h5, if they do not already exist. Otherwise will raise errors if directories "
     "don't already exist. Default: True.",
 )
-# @click.option("-mob", "--mask_osm_buildings",
-#               type=yes_no.interpret_yes_no, default=True,
-#               help="Whether to mask out OSM-derived building footprints in the coastline mask. "
-#                    "Must be followed by 'True', 'False', 'Yes', 'No', or any abbreviation thereof "
-#                    "(case-insensitive). (Default: True)")
-#
-# @click.option("-mbb", "--mask_bing_buildings",
-#               type=yes_no.interpret_yes_no, default=True,
-#               help="Whether to mask out Bing-derived building footprints in the coastline mask. "
-#                    "Must be followed by 'True', 'False', 'Yes', 'No', or any abbreviation thereof "
-#                    "(case-insensitive). (Default: True)")
-#
-# @click.option("-mwsf", "--mask_wsf_urban",
-#               type=yes_no.interpret_yes_no, default=False,
-#               help="Whether to mask out World-Settlement-Footprint heavy urban areas in the "
-#                    "coastline mask. Typically used instead of building footprints for coarse DEMs "
-#                    "with grid cells larger than typical buildings (~20-ish m). Must be followed by "
-#                    "'True', 'False', 'Yes', 'No', or any abbreviation thereof (case-insensitive). "
-#                    "(Default: False)")
-#
-# @click.option("-ml", "--mask_lakes",
-#               type=yes_no.interpret_yes_no, default=True,
-#               help="Whether to make out lakes, using Hydrolakes and the National Hydrologic Dataset. "
-#                    "(Default: True)")
 @click.option(
     "-ind",
     "--individual_results",
@@ -712,11 +678,6 @@ def main(
         create_individual_results=individual_results,
         delete_datafiles=delete_datafiles,
         include_photon_validation=include_photon_validation,
-        # mask_osm_buildings=mask_osm_buildings,
-        # mask_bing_buildings=mask_bing_buildings,
-        # mask_wsf_urban=mask_wsf_urban,
-        # mask_out_lakes=mask_lakes,
-        # omit_bad_granules=True,
         measure_coverage=measure_coverage,
         min_coverage_pct=minimum_coverage_pct,
         write_summary_csv=write_summary_csv,
