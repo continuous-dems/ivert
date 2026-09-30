@@ -71,7 +71,7 @@ html_theme_options = {
     "icon_links": [
         {
             "name": "PyPI",
-            "url": "https://pypi.org/project/fetchez/",
+            "url": "https://pypi.org/project/ivert/",
             "icon": "fa-solid fa-box",
         },
     ],
