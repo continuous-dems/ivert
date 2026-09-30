@@ -15,8 +15,6 @@ ivert_default_configfile = str(
     importlib.resources.files("ivert").joinpath("config", "ivert_defaults.ini"),
 )
 
-ivert_config = None
-
 # Keys whose values are intentionally kept as relative paths rather than being
 # resolved to an absolute path against the configfile's location. These are
 # resolved later against a different base directory (e.g. the DEM being
@@ -208,6 +206,10 @@ class Config:
 
     The two sections in the .ini configfile should be [DEFAULT] and [AWS].
     No other sections are read by this object, for now.
+
+    A Config is read-only once built. Build one where it is first needed and
+    pass it down to the functions that use it; there is no shared module-level
+    instance, and modules do not read the config at import time.
     """
 
     def __init__(
@@ -245,10 +247,23 @@ class Config:
         ):
             self._apply_user_config()
 
-        # If we've generated the Config object for the most-commonly-used IVERT Config file, make it globally available.
-        if self._configfile == ivert_default_configfile:
-            global ivert_config
-            ivert_config = self
+        # Everything above sets attributes freely; from here on the object is
+        # read-only (see __setattr__).
+        object.__setattr__(self, "_frozen", True)
+
+    def __setattr__(self, name, value) -> None:
+        """Refuse to change a Config once it is built.
+
+        One Config is passed down to every function that needs it, so a
+        change made by one of them would silently reach all the others.
+        """
+        if getattr(self, "_frozen", False):
+            msg = (
+                f"Config is read-only; cannot set '{name}'. Change the setting in"
+                " a config file, or pass the value to the function directly."
+            )
+            raise AttributeError(msg)
+        object.__setattr__(self, name, value)
 
     def _abspath(self, path, only_if_actual_path_doesnt_exist=False):
         """Retreive the absolute path of a file path contained in the configfile.
