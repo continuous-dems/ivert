@@ -89,17 +89,28 @@ def get_dem_reference_frame_from_file(
     return get_dem_reference_frame_from_user_input(dem_crs_str, vert_horz_or_both)
 
 
-def get_dem_srs_string(horz_reference: pyproj.CRS, vert_reference: pyproj.CRS) -> str:
-    """Build a compound SRS string like 'EPSG:4326+3855' from separate H+V pyproj.CRS objects.
+def get_dem_srs_string(
+    horz_reference: pyproj.CRS,
+    vert_reference: pyproj.CRS | str,
+) -> str:
+    """Build a compound SRS string like 'EPSG:4326+3855' from a horizontal and a vertical reference.
+
+    Args:
+        horz_reference: The horizontal CRS.
+        vert_reference: The vertical CRS, or a transformez reference ID such as
+            'vdatum:mllw', which pyproj cannot represent.
 
     Raises:
         ValueError: if the two datums are based on different authorities.
 
     Returns:
-        String in the format 'AUTH:HORZ+VERT', or just the horz SRS if both axes are identical.
+        String in the format 'AUTH:HORZ+VERT' (or 'AUTH:HORZ+vdatum:mllw'), or just
+        the horz SRS if both axes are identical.
 
     """
     horz_auth = horz_reference.list_authority()[0].auth_name.upper()
+    if isinstance(vert_reference, str):
+        return f"{horz_auth}:{horz_reference.list_authority()[0].code}+{vert_reference}"
     vert_auth = vert_reference.list_authority()[0].auth_name.upper()
 
     if horz_auth != vert_auth:
@@ -109,6 +120,48 @@ def get_dem_srs_string(horz_reference: pyproj.CRS, vert_reference: pyproj.CRS) -
     if horz_reference.equals(vert_reference):
         return horz_reference.srs
     return f"{horz_auth}:{horz_reference.list_authority()[0].code}+{vert_reference.list_authority()[0].code}"
+
+
+def split_srs_string(
+    srs: str | int | pyproj.CRS,
+) -> tuple[pyproj.CRS | None, str | None]:
+    """Split an SRS into its horizontal CRS and its vertical reference.
+
+    Args:
+        srs: A CRS pyproj can read ('EPSG:4326+3855', 4979, a pyproj.CRS), or a
+            compound string whose vertical part is a transformez reference ID
+            ('EPSG:4326+vdatum:mllw'), or a vertical reference ID on its own.
+
+    Returns:
+        (horizontal, vertical). The horizontal part is a pyproj.CRS or None. The
+        vertical part is a bare EPSG code ('3855'), a transformez reference ID as
+        given ('vdatum:mllw'), or None. A 3D geographic CRS such as EPSG:4979 is
+        both: its own code is its vertical reference.
+    """
+    try:
+        crs = pyproj.CRS.from_user_input(srs)
+    except pyproj.exceptions.CRSError:
+        text = str(srs).strip()
+        if "+" not in text:
+            return None, text
+        horizontal, vertical = text.rsplit("+", 1)
+        return pyproj.CRS.from_user_input(horizontal), vertical
+
+    def code(c: pyproj.CRS | None) -> str | None:
+        epsg = None if c is None else c.to_epsg()
+        return None if epsg is None else str(epsg)
+
+    if crs.is_compound:
+        vert = next((s for s in crs.sub_crs_list if s.is_vertical), None)
+        horz = next((s for s in crs.sub_crs_list if not s.is_vertical), None)
+        return horz, code(vert)
+    if crs.is_vertical:
+        return None, code(crs)
+    # pyproj marks a 3D geographic CRS (e.g. EPSG:4979, WGS84 with ellipsoidal
+    # height) as neither compound nor vertical.
+    if crs.is_geographic and len(crs.axis_info) == 3:
+        return crs, code(crs)
+    return crs, None
 
 
 def get_wgs84_bounding_box(

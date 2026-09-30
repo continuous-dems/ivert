@@ -40,6 +40,7 @@ import ivert.utils.configfile
 import ivert.utils.loggerproc
 import ivert.utils.logging_config
 import ivert.utils.split_dem
+import ivert.vdatum_lookup
 from ivert.utils import dem_geom, parallel_funcs
 
 logger = logging.getLogger(__name__)
@@ -620,7 +621,9 @@ def validate_dem(
             used if we've already created one, such as in validate_dem_collection, for efficiency.
             Typically ignored for a single DEM validation.
         band_num: The raster band to use in the DEMs. 1-indexed. Defaults to 1 (first band).
-        dem_vertical_datum: The vertical datum of the DEM. Defaults to "egm2008".
+        dem_vertical_datum: The vertical datum of the DEM: a common name ("navd88",
+            "mllw"), an EPSG code, or a transformez reference ID ("vdatum:mllw"); see
+            ivert.vdatum_lookup. Defaults to "egm2008".
         dem_ndv: No-data value to exclude from the DEM pixels before validation.
             Overrides any no-data value in the DEM file header. Defaults to None, which uses the
             file header value, falling back to the config default (dem_default_ndv).
@@ -1255,10 +1258,19 @@ def _fetch_photons(
         dem_name,
     )
     if dem_vertical_datum is not None:
-        dem_vert_ref_frame = dem_geom.get_dem_reference_frame_from_user_input(
-            dem_vertical_datum,
-            "vert",
-        )
+        reference = ivert.vdatum_lookup.resolve_vdatum(dem_vertical_datum)
+        if reference is None:
+            msg = f"Unrecognised vertical datum {dem_vertical_datum!r}."
+            raise ValueError(msg)
+        ivert.vdatum_lookup.check_vdatum(reference)
+        try:
+            dem_vert_ref_frame = dem_geom.get_dem_reference_frame_from_user_input(
+                reference,
+                "vert",
+            )
+        except pyproj.exceptions.CRSError:
+            # A transformez reference ID such as 'vdatum:mllw', which pyproj can't read.
+            dem_vert_ref_frame = reference
     dem_epsg_str = dem_geom.get_dem_srs_string(dem_horz_ref_frame, dem_vert_ref_frame)
     dem_wgs84_bbox = dem_geom.get_wgs84_bounding_box(dem_name)
 
@@ -1304,7 +1316,7 @@ def _resolve_exclude_geometry(exclude_zones, dem_epsg_str):
 
     Returns a single (possibly multi-part) shapely geometry, or None if exclude_zones is empty.
     """
-    dem_horz_crs = dem_geom.get_dem_reference_frame_from_user_input(dem_epsg_str, "h")
+    dem_horz_crs, _ = dem_geom.split_srs_string(dem_epsg_str)
 
     geoms = []
     for zone in exclude_zones:

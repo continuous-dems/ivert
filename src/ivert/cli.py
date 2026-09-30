@@ -2397,7 +2397,8 @@ def _run_validate(
     from ivert import validate_dem_collection as vdc_module
     from ivert import vdatum_lookup
 
-    # Resolve common datum names (e.g. 'navd88') to 'EPSG:NNNN' strings.
+    # Resolve common datum names ('navd88', 'mllw') to references transformez takes
+    # ('EPSG:5703', 'vdatum:mllw'), and stop now if transformez can't use one.
     if vdatum != "NONE_PROVIDED":
         resolved = vdatum_lookup.resolve_vdatum(vdatum)
         if resolved is None:
@@ -2408,6 +2409,11 @@ def _run_validate(
                 "Run 'ivert validate --list-vdatums' to see all recognised names."
             )
             raise click.ClickException(msg)
+        try:
+            vdatum_lookup.check_vdatum(resolved)
+        except ValueError as exc:
+            msg = f"Vertical datum '{vdatum}' can't be used: {exc}"
+            raise click.ClickException(msg) from exc
         vdatum = resolved
 
     # Parse the --ndv value: "nan" → float('nan'), else convert to float.
@@ -2622,8 +2628,9 @@ def _run_validate(
     show_default=False,
     help=(
         "Vertical datum of the input DEM(s). Accepts an EPSG code "
-        "('EPSG:5703', '5703'), a bare integer, or a common short name "
-        "('navd88', 'egm2008', 'mllw', …). If omitted, IVERT reads the datum "
+        "('EPSG:5703', '5703'), a common short name ('navd88', 'egm2008', "
+        "'mllw', …), or a transformez reference ID ('vdatum:mllw'). Tidal names "
+        "are passed to transformez as its own IDs. If omitted, IVERT reads the datum "
         "from the DEM metadata header. Use --list-vdatums to see all "
         "recognised names."
     ),
@@ -2632,7 +2639,7 @@ def _run_validate(
     "--list-vdatums",
     is_flag=True,
     default=False,
-    help="Print all recognised vertical datum names and their EPSG codes, then exit.",
+    help="Print all recognised vertical datum names and what they resolve to, then exit.",
 )
 @click.option(
     "-n",
@@ -2987,19 +2994,14 @@ def validate(
     if list_vdatums:
         from ivert import vdatum_lookup
 
-        name_table, desc_table = vdatum_lookup._get_tables()
-        by_epsg: dict = {}
-        for name, epsg in name_table.items():
-            by_epsg.setdefault(epsg, []).append(name)
         click.echo(
-            "Recognised vertical datum names (EPSG code → common names, description):\n",
+            "Recognised vertical datum names (reference → common names, description):\n",
         )
-        for epsg in sorted(by_epsg):
-            aliases = sorted(by_epsg[epsg], key=len)
-            description = desc_table.get(epsg, "")
-            alias_str = ", ".join(f"'{a}'" for a in aliases)
+        for reference, names in vdatum_lookup.list_vdatums().items():
+            aliases = ", ".join(f"'{a}'" for a in sorted(names, key=len))
+            description = vdatum_lookup.describe_vdatum(reference)
             desc_str = f"  — {description}" if description else ""
-            click.echo(f"  EPSG:{epsg:<6d}  {alias_str}{desc_str}")
+            click.echo(f"  {reference:<12}  {aliases}{desc_str}")
         return
 
     if not files_or_directory:

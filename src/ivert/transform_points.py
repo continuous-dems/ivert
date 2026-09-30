@@ -12,6 +12,8 @@ import pyproj
 import rasterio
 import transformez
 
+from ivert.utils import dem_geom
+
 logger = logging.getLogger(__name__)
 
 _GRID_RESOLUTION = "3s"  # ~90 m — appropriate resolution for datum shift grids
@@ -39,7 +41,9 @@ def transform_points(
         y: Y-coordinates (latitude or northing).
         z: Z-coordinates (elevation).
         src_epsg: Source CRS as an EPSG code (int or str) or compound string
-            (e.g. "EPSG:4326+3855" for WGS84 horizontal + EGM2008 vertical).
+            (e.g. "EPSG:4326+3855" for WGS84 horizontal + EGM2008 vertical). The
+            vertical part may also be a transformez reference ID, as in
+            "EPSG:4326+vdatum:mllw".
         dst_epsg: Destination CRS in the same formats as src_epsg.
         src_region: Bounding box [xmin, xmax, ymin, ymax] in the source CRS.
             If None, derived from the extents of the input points.
@@ -58,18 +62,20 @@ def transform_points(
         A 3-tuple of (x, y, z) numpy arrays in the destination CRS.
 
     """
-    src_crs = pyproj.CRS.from_user_input(src_epsg)
-    dst_crs = pyproj.CRS.from_user_input(dst_epsg)
+    src_horz, src_vert = dem_geom.split_srs_string(src_epsg)
+    dst_horz, dst_vert = dem_geom.split_srs_string(dst_epsg)
 
-    if src_crs.is_exact_same(dst_crs):
+    same_horz = (src_horz is None and dst_horz is None) or (
+        src_horz is not None
+        and dst_horz is not None
+        and src_horz.is_exact_same(dst_horz)
+    )
+    if same_horz and src_vert == dst_vert:
         return x, y, z
 
     x = np.asarray(x, dtype=float)
     y = np.asarray(y, dtype=float)
     z = np.asarray(z, dtype=float)
-
-    src_horz, src_vert_epsg = _decompose_crs(src_crs)
-    dst_horz, dst_vert_epsg = _decompose_crs(dst_crs)
 
     # Horizontal reprojection
     if (
@@ -83,17 +89,13 @@ def transform_points(
         trans_x, trans_y = x.copy(), y.copy()
 
     # Vertical datum shift
-    if (
-        src_vert_epsg is not None
-        and dst_vert_epsg is not None
-        and src_vert_epsg != dst_vert_epsg
-    ):
+    if src_vert is not None and dst_vert is not None and src_vert != dst_vert:
         trans_z = _apply_vertical_transform(
             x,
             y,
             z,
-            src_vert_epsg=str(src_vert_epsg),
-            dst_vert_epsg=str(dst_vert_epsg),
+            src_vert=src_vert,
+            dst_vert=dst_vert,
             src_region=src_region,
             cache_dir=cache_dir,
         )
@@ -101,24 +103,6 @@ def transform_points(
         trans_z = z.copy()
 
     return trans_x, trans_y, trans_z
-
-
-def _decompose_crs(
-    crs: pyproj.CRS,
-) -> tuple[pyproj.CRS | None, int | None]:
-    """Return (horizontal_crs, vertical_epsg) from a possibly compound CRS."""
-    if crs.is_compound:
-        vert = next((s for s in crs.sub_crs_list if s.is_vertical), None)
-        horz = next((s for s in crs.sub_crs_list if not s.is_vertical), None)
-        return horz, (vert.to_epsg() if vert else None)
-    if crs.is_vertical:
-        return None, crs.to_epsg()
-    # 3D geographic CRS (e.g. EPSG:4979 = WGS84 3D with ellipsoidal height).
-    # pyproj does not mark these as compound or vertical, so extract the EPSG
-    # directly and treat it as the vertical datum identifier.
-    if crs.is_geographic and len(crs.axis_info) == 3:
-        return crs, crs.to_epsg()
-    return crs, None
 
 
 def _snap_region_outward(
@@ -170,12 +154,16 @@ def _apply_vertical_transform(
     x: np.ndarray,
     y: np.ndarray,
     z: np.ndarray,
-    src_vert_epsg: str,
-    dst_vert_epsg: str,
+    src_vert: str,
+    dst_vert: str,
     src_region: list | tuple | np.ndarray | None,
     cache_dir: str | None,
 ) -> np.ndarray:
-    """Compute and apply a vertical datum shift to z via a cached transformez grid."""
+    """Compute and apply a vertical datum shift to z via a cached transformez grid.
+
+    'src_vert' and 'dst_vert' are vertical references as split_srs_string() returns
+    them: a bare EPSG code ('5703') or a transformez reference ID ('vdatum:mllw').
+    """
     from scipy.interpolate import RegularGridInterpolator
 
     if src_region is None:
@@ -191,21 +179,16 @@ def _apply_vertical_transform(
     _cache = cache_dir or os.path.join(os.getcwd(), "transformez_cache")
     os.makedirs(_cache, exist_ok=True)
 
-    # Strip any "EPSG:" and/or any compound ("4326+4979") datum strings fed to this
-    # function. Done before the file name is built so the name never carries a ':'
-    # (which is not a legal path character on Windows) or a '+'.
-    src_vert_epsg = src_vert_epsg.rsplit(":", maxsplit=1)[-1].rsplit("+", maxsplit=1)[
-        -1
-    ]
-    dst_vert_epsg = dst_vert_epsg.rsplit(":", maxsplit=1)[-1].rsplit("+", maxsplit=1)[
-        -1
-    ]
+    # ':' is not a legal path character on Windows, so 'vdatum:mllw' becomes
+    # 'vdatum_mllw' in the file name. EPSG codes keep the names earlier grids had.
+    src_name = src_vert.replace(":", "_")
+    dst_name = dst_vert.replace(":", "_")
 
     grid_region = _snap_region_outward(region_bounds)
     w, e, s, n = grid_region
     grid_fn = os.path.join(
         _cache,
-        f"vshift_{src_vert_epsg}_{dst_vert_epsg}_{w:.1f}_{e:.1f}_{s:.1f}_{n:.1f}.tif",
+        f"vshift_{src_name}_{dst_name}_{w:.1f}_{e:.1f}_{s:.1f}_{n:.1f}.tif",
     )
 
     # Never reuse a cached grid that does not actually span the points being
@@ -226,15 +209,15 @@ def _apply_vertical_transform(
         shift_array = transformez.generate_grid(
             region=grid_region,
             increment=_GRID_RESOLUTION,
-            datum_in=src_vert_epsg,
-            datum_out=dst_vert_epsg,
+            datum_in=src_vert,
+            datum_out=dst_vert,
             cache_dir=_cache,
             out_fn=grid_fn,
             verbose=False,
         )
         if shift_array is None:
             msg = (
-                f"Vertical transform failed: EPSG:{src_vert_epsg} → EPSG:{dst_vert_epsg} "
+                f"Vertical transform failed: {src_vert} → {dst_vert} "
                 f"over region {grid_region}."
             )
             raise ValueError(msg)
