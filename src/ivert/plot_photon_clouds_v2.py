@@ -173,30 +173,26 @@ def load_nc(nc_path):
     return pd.DataFrame(data)
 
 
-def _get_vdatum_label(epsg_int):
-    """Return a short human-readable label for a vertical datum EPSG code."""
-    _known = {
-        3855: "EGM2008",
-        5703: "NAVD88",
-        5714: "MSL",
-        5773: "EGM96",
-        6360: "NAVD88",
-        5701: "ODN",
-    }
+def _get_vdatum_label(reference):
+    """Return a short human-readable label for a vertical reference ('EPSG:5703', 'vdatum:mllw')."""
     import ivert.vdatum_lookup
 
-    desc = ivert.vdatum_lookup.get_epsg_description(epsg_int)
+    desc = ivert.vdatum_lookup.describe_vdatum(reference)
     if desc:
         return desc.replace(" height", "").replace(" Height", "")
-    return _known.get(epsg_int, f"EPSG:{epsg_int}")
+    return reference
 
 
-def _apply_vdatum_to_df(df, target_vert_epsg_int, cache_dir=None):
-    """Return a copy of df with z transformed from EGM2008 to target vertical datum."""
+def _apply_vdatum_to_df(df, target_vert, cache_dir=None):
+    """Return a copy of df with z transformed from EGM2008 to target vertical datum.
+
+    'target_vert' is a bare EPSG code ('5703') or a transformez reference ID
+    ('vdatum:mllw').
+    """
     import ivert.transform_points as tp
 
     src = "EPSG:4326+3855"
-    dst = f"EPSG:4326+{target_vert_epsg_int}"
+    dst = f"EPSG:4326+{target_vert}"
     try:
         _, _, z_new = tp.transform_points(
             df["x"].values,
@@ -220,7 +216,7 @@ def _sample_dem_along_track(
     lons,
     lats,
     along_track_m,
-    target_vert_epsg_int=None,
+    target_vert=None,
     cache_dir=None,
 ):
     """Sample a DEM raster along a laser track at the DEM's native pixel resolution.
@@ -231,7 +227,7 @@ def _sample_dem_along_track(
     may be sampled more than once where the track runs at a shallow angle.
 
     Returns (along_track_km, z_dem, label) or None if the DEM has no overlap.
-    When target_vert_epsg_int is given and differs from the DEM's native vertical datum,
+    When target_vert is given and differs from the DEM's native vertical datum,
     the sampled elevations are transformed to that datum.
     """
     import pyproj
@@ -308,7 +304,7 @@ def _sample_dem_along_track(
         )
         return None
 
-    if target_vert_epsg_int is not None:
+    if target_vert is not None:
         import ivert.transform_points as tp
         from ivert.utils import dem_geom
 
@@ -324,14 +320,14 @@ def _sample_dem_along_track(
 
         if dem_vert is not None:
             dem_vert_epsg = dem_vert.to_epsg()
-            if dem_vert_epsg is not None and dem_vert_epsg != target_vert_epsg_int:
+            if dem_vert_epsg is not None and str(dem_vert_epsg) != target_vert:
                 try:
                     _, _, z_tx = tp.transform_points(
                         dense_lons[valid],
                         dense_lats[valid],
                         z_dem[valid],
                         src_epsg=f"EPSG:4326+{dem_vert_epsg}",
-                        dst_epsg=f"EPSG:4326+{target_vert_epsg_int}",
+                        dst_epsg=f"EPSG:4326+{target_vert}",
                         cache_dir=cache_dir,
                     )
                     z_out = np.full(len(z_dem), np.nan)
@@ -354,7 +350,7 @@ def _collect_dem_profiles(
     lons,
     lats,
     along_track_m,
-    target_vert_epsg_int,
+    target_vert,
     cache_dir,
 ):
     """Sample each DEM and return a list of (along_km, z, label) profiles."""
@@ -365,7 +361,7 @@ def _collect_dem_profiles(
             lons,
             lats,
             along_track_m,
-            target_vert_epsg_int,
+            target_vert,
             cache_dir,
         )
         if result is not None:
@@ -591,25 +587,24 @@ def main(
     dem = list(dem) if dem else None
 
     # Resolve vertical datum --------------------------------------------------
-    target_vert_epsg_int = None
+    target_vert = None
     ylabel = "Elevation / depth (m, EGM2008 geoid)"
     if vdatum:
         import ivert.vdatum_lookup
+        from ivert.utils import dem_geom
 
-        try:
-            vdatum_str = ivert.vdatum_lookup.resolve_vdatum(vdatum)
-        except ImportError:
-            vdatum_str = vdatum if ":" in vdatum else f"EPSG:{vdatum}"
+        vdatum_str = ivert.vdatum_lookup.resolve_vdatum(vdatum)
         if vdatum_str is None:
             sys.exit(
                 f"Unknown vertical datum: {vdatum!r}. "
-                "Use an EPSG code or common name (e.g. 'navd88', 'egm2008').",
+                "Use an EPSG code or common name (e.g. 'navd88', 'egm2008', 'mllw').",
             )
         try:
-            target_vert_epsg_int = int(str(vdatum_str).split(":")[-1])
-        except ValueError:
-            sys.exit(f"Could not parse vertical EPSG from {vdatum_str!r}.")
-        ylabel = f"Elevation / depth (m, {_get_vdatum_label(target_vert_epsg_int)})"
+            ivert.vdatum_lookup.check_vdatum(vdatum_str)
+        except ValueError as exc:
+            sys.exit(f"Vertical datum {vdatum!r} can't be used: {exc}")
+        _, target_vert = dem_geom.split_srs_string(vdatum_str)
+        ylabel = f"Elevation / depth (m, {_get_vdatum_label(vdatum_str)})"
 
     # Datum-shift grid cache (use ivert cache if available, else cwd)
     import configparser
@@ -677,15 +672,15 @@ def main(
                 logger.info("  Beam %s: no photons, skipping.", beam)
                 continue
             logger.info("  Beam %s: %s photons", beam, f"{len(df_plot):,}")
-            if target_vert_epsg_int:
-                df_plot = _apply_vdatum_to_df(df_plot, target_vert_epsg_int, cache_dir)
+            if target_vert:
+                df_plot = _apply_vdatum_to_df(df_plot, target_vert, cache_dir)
             _dlons, _dlats, _datm = _positions_for_dem_sampling(df_plot, dlim)
             dem_profiles = _collect_dem_profiles(
                 dem,
                 _dlons,
                 _dlats,
                 _datm,
-                target_vert_epsg_int,
+                target_vert,
                 cache_dir,
             )
             outpath = os.path.join(outdir, f"{h5_stem}_{beam}.png")
@@ -768,15 +763,15 @@ def main(
                 f"{len(df_bg):,}",
             )
             df_plot = pd.concat([df_bg, df_beam], ignore_index=True)
-            if target_vert_epsg_int:
-                df_plot = _apply_vdatum_to_df(df_plot, target_vert_epsg_int, cache_dir)
+            if target_vert:
+                df_plot = _apply_vdatum_to_df(df_plot, target_vert, cache_dir)
             _dlons, _dlats, _datm = _positions_for_dem_sampling(df_plot, dlim)
             dem_profiles = _collect_dem_profiles(
                 dem,
                 _dlons,
                 _dlats,
                 _datm,
-                target_vert_epsg_int,
+                target_vert,
                 cache_dir,
             )
             outpath = os.path.join(outdir, f"{nc_stem}_{beam}.png")
@@ -802,10 +797,10 @@ def main(
                 logger.info("  Beam %s: nc has no along_track_m, skipping.", beam)
                 continue
             logger.info("  Beam %s: %s photons (nc only)", beam, f"{len(df_beam):,}")
-            if target_vert_epsg_int:
+            if target_vert:
                 df_beam = _apply_vdatum_to_df(
                     df_beam,
-                    target_vert_epsg_int,
+                    target_vert,
                     cache_dir,
                 )
             _dlons, _dlats, _datm = _positions_for_dem_sampling(df_beam, dlim)
@@ -814,7 +809,7 @@ def main(
                 _dlons,
                 _dlats,
                 _datm,
-                target_vert_epsg_int,
+                target_vert,
                 cache_dir,
             )
             outpath = os.path.join(outdir, f"{nc_stem}_{beam}.png")

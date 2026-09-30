@@ -1,24 +1,18 @@
-"""Translate common vertical datum names to formal EPSG code strings.
+"""Translate common vertical datum names into references transformez can use.
 
-Builds its table from ``transformez.definitions.Datums`` when that package is
-importable, then merges in a curated fallback table of well-known aliases so
-the most common names always resolve even without transformez installed.
+IVERT hands vertical datum shifts to transformez, which accepts EPSG codes and its
+own reference IDs (such as ``vdatum:mllw``) but not the short names people type
+(``navd88``, ``egm2008``). This module maps those names to a reference, and checks
+that transformez can actually transform whatever reference it is given.
 """
 
-# ---------------------------------------------------------------------------
-# Built-in fallback: common name (lowercase) → EPSG integer
-# ---------------------------------------------------------------------------
-_BUILTIN_TABLE = {
+# Geoid and geodetic datums: common name (lowercase) -> EPSG code.
+_EPSG_NAMES: dict[str, int] = {
     # NAVD88
     "navd88": 5703,
     "navd88 height": 5703,
     "navd 88": 5703,
-    "navd88 height (usft)": 6360,
     "navd88 height (ft)": 8228,
-    # NGVD29
-    "ngvd29": 5702,
-    "ngvd 29": 5702,
-    "ngvd29 height": 5702,
     # Puerto Rico / Virgin Islands
     "prvd02": 6641,
     "prvd02 height": 6641,
@@ -35,199 +29,120 @@ _BUILTIN_TABLE = {
     "egm96": 5773,
     "egm96 height": 5773,
     "egm 96": 5773,
-    # Tidal / surface datums
-    "mllw": 5866,
-    "mlw": 1091,
-    "mhw": 5868,
-    "mhhw": 5869,
-    "msl": 5714,
-    "mtl": 5713,
-    # Great Lakes
-    "igld85": 5609,
-    "igld 85": 5609,
-    "lwd_igld85": 9000,
-    # Ellipsoidal reference (ITRF2014 / IGS14 / WGS84)
+    # Ellipsoidal heights
     "ellipsoid": 7912,
     "itrf2014": 7912,
     "igs14": 7912,
     "wgs84": 4979,
 }
 
-# Built-in fallback: EPSG integer → human-readable description
-_BUILTIN_DESCRIPTIONS: dict[int, str] = {
-    5703: "National Geodetic Vertical Datum 1988 (NAVD88)",
-    6360: "NAVD88 height in US survey feet",
-    8228: "NAVD88 height in international feet",
-    5702: "National Geodetic Vertical Datum 1929 (NGVD29)",
-    6641: "Puerto Rico Vertical Datum 2002 (PRVD02)",
-    6642: "Virgin Islands Vertical Datum 2009 (VIVD09)",
-    6647: "Canadian Geodetic Vertical Datum 2013 (CGVD2013, CGG2013 geoid)",
-    3855: "Earth Gravitational Model 2008 (EGM2008)",
-    5773: "Earth Gravitational Model 1996 (EGM96)",
-    5866: "Mean Lower Low Water (MLLW) — USA tidal",
-    1091: "Mean Low Water (MLW) — USA tidal",
-    5868: "Mean High Water (MHW) — USA tidal",
-    5869: "Mean Higher High Water (MHHW) — USA tidal",
-    5714: "Mean Sea Level (MSL) — USA tidal",
-    5713: "Mean Tide Level (MTL) — USA tidal",
-    5609: "International Great Lakes Datum 1985 (IGLD85)",
-    9000: "IGLD85 Low Water Datum (chart datum for Great Lakes)",
-    7912: "Ellipsoidal height — ITRF2014 / IGS14 / WGS84",
-    4979: "WGS84 ellipsoidal height",
+# Tidal datums go to transformez as its own IDs rather than EPSG codes: it builds
+# them from NOAA VDatum grids, and it is the authority on whether each surface is a
+# height or a depth.
+#
+# transformez's VDatum support also lists the mean tide level (mtl) and diurnal
+# tide level (dtl) surfaces, but it has no vdatum:mtl or vdatum:dtl reference to
+# reach them through yet. Once it does, add "mtl" and "dtl" here.
+_TIDAL_NAMES: dict[str, str] = {
+    "mllw": "vdatum:mllw",
+    "mlw": "vdatum:mlw",
+    "msl": "vdatum:msl",
+    "mhw": "vdatum:mhw",
+    "mhhw": "vdatum:mhhw",
 }
 
 
-# ---------------------------------------------------------------------------
-# Optional: populate from transformez.definitions.Datums
-# ---------------------------------------------------------------------------
-
-
-def _build_tables_from_transformez():
-    """Return (name_table, desc_table) built from transformez.Datums, or (None, None)."""
-    try:
-        from transformez.definitions import Datums  # type: ignore[import]
-    except ImportError:
-        return None, None
-
-    name_table: dict[str, int] = {}
-    desc_table: dict[int, str] = {}
-
-    for epsg, info in {**Datums.CDN, **Datums.SURFACES}.items():
-        if epsg == 0:
-            continue
-
-        raw_name = info.get("name", "")
-        description = info.get("description", "")
-
-        # Description: prefer the explicit "description" field; fall back to "name"
-        desc_table[epsg] = description or raw_name
-
-        if not raw_name:
-            continue
-
-        normalized = raw_name.lower().strip()
-        name_table[normalized] = epsg
-
-        # "navd88 height" → also map "navd88"
-        without_height = normalized.removesuffix(" height").strip()
-        if without_height and without_height != normalized:
-            name_table.setdefault(without_height, epsg)
-
-        # "cgvd2013(cgg2013)" → also map "cgvd2013"
-        paren = normalized.find("(")
-        if paren > 0:
-            name_table.setdefault(normalized[:paren].strip(), epsg)
-
-        # vdatum_id like "navd88:m:height" → map prefix "navd88"
-        vdatum_id = info.get("vdatum_id", "")
-        if vdatum_id:
-            prefix = vdatum_id.split(":")[0].lower().strip()
-            if prefix:
-                name_table.setdefault(prefix, epsg)
-
-    return name_table, desc_table
-
-
-# ---------------------------------------------------------------------------
-# Module-level cached tables (built once on first use)
-# ---------------------------------------------------------------------------
-
-_LOOKUP_TABLE: dict[str, int] | None = None
-_DESC_TABLE: dict[int, str] | None = None
-
-
-def _get_tables() -> tuple[dict[str, int], dict[int, str]]:
-    global _LOOKUP_TABLE, _DESC_TABLE
-    if _LOOKUP_TABLE is None:
-        tz_names, tz_descs = _build_tables_from_transformez()
-
-        name_table = tz_names or {}
-        desc_table = tz_descs or {}
-
-        # Merge builtin name table (setdefault keeps transformez values for names it provides)
-        for key, epsg in _BUILTIN_TABLE.items():
-            name_table.setdefault(key, epsg)
-
-        # Merge builtin descriptions (builtin wins for EPSGs not described by transformez)
-        for epsg, desc in _BUILTIN_DESCRIPTIONS.items():
-            desc_table.setdefault(epsg, desc)
-
-        _LOOKUP_TABLE = name_table
-        _DESC_TABLE = desc_table
-
-    return _LOOKUP_TABLE, _DESC_TABLE
-
-
-def _get_lookup_table() -> dict[str, int]:
-    return _get_tables()[0]
-
-
-def _get_desc_table() -> dict[int, str]:
-    return _get_tables()[1]
-
-
-# ---------------------------------------------------------------------------
-# Public API
-# ---------------------------------------------------------------------------
-
-
 def resolve_vdatum(name: str | int | None) -> str | None:
-    """Translate a common vertical datum name to a formal ``'EPSG:NNNN'`` string.
+    """Translate a vertical datum name or code into a reference transformez accepts.
 
     Args:
-        name: Common name (e.g. ``'navd88'``, ``'egm2008'``, ``'mllw'``),
-              EPSG integer (e.g. ``5703``), bare integer string (``'5703'``),
-              or authority-prefixed string (``'EPSG:5703'``).
+        name: A common name (``'navd88'``, ``'egm2008'``, ``'mllw'``), an EPSG code
+            (``5703``, ``'5703'``, ``'EPSG:5703'``), or a transformez reference ID
+            (``'vdatum:mllw'``). Names are case-insensitive.
 
     Returns:
-        ``'EPSG:NNNN'`` on success, or ``None`` if the name is not recognised.
-        Already-qualified authority strings (``'EPSG:4326+3855'``) are returned
-        unchanged.
+        ``'EPSG:NNNN'`` for a geoid or geodetic datum, a transformez ID such as
+        ``'vdatum:mllw'`` for a tidal datum, any other authority-qualified string
+        unchanged, or None if the name is not recognised. The result is not checked
+        against transformez; see check_vdatum().
 
     Examples::
 
-        >>> resolve_vdatum('navd88')
+        >>> resolve_vdatum("navd88")
         'EPSG:5703'
-        >>> resolve_vdatum('EGM2008 height')
-        'EPSG:3855'
         >>> resolve_vdatum(5703)
         'EPSG:5703'
-        >>> resolve_vdatum('EPSG:5703')
-        'EPSG:5703'
+        >>> resolve_vdatum("MLLW")
+        'vdatum:mllw'
 
     """
     if name is None:
         return None
 
-    # Integer → EPSG:N
-    if isinstance(name, int):
-        return f"EPSG:{name}"
+    text = str(name).strip()
+    if ":" in text:
+        return text
+    if text.isdecimal():
+        return f"EPSG:{text}"
 
-    name = str(name).strip()
+    key = text.lower()
+    if key in _TIDAL_NAMES:
+        return _TIDAL_NAMES[key]
+    epsg = _EPSG_NAMES.get(key)
+    return None if epsg is None else f"EPSG:{epsg}"
 
-    # Already authority-qualified (e.g. "EPSG:5703" or "EPSG:4326+3855")
-    if ":" in name:
-        return name
 
-    # Bare integer string → EPSG:N
+def _reference_errors() -> tuple[type[Exception], ...]:
+    """Return the exceptions transformez raises for a reference it cannot use."""
+    # transformez derives these from the built-in ReferenceError, not ValueError.
+    from transformez.reference.parser import (
+        InvalidReferenceError,
+        ReferenceInputError,
+        UnsupportedReferenceError,
+    )
+
+    return InvalidReferenceError, ReferenceInputError, UnsupportedReferenceError
+
+
+def check_vdatum(reference: str) -> None:
+    """Check that transformez can transform heights to or from a vertical reference.
+
+    Args:
+        reference: A reference as returned by resolve_vdatum().
+
+    Raises:
+        ValueError: If transformez cannot parse the reference, it has no vertical
+            component, or transformez has no operation registered to transform it.
+    """
+    from transformez.reference.parser import parse_reference
+    from transformez.reference.resolver import resolve_reference
+
     try:
-        return f"EPSG:{int(name)}"
-    except ValueError:
-        pass
-
-    # Name lookup (case-insensitive)
-    epsg = _get_lookup_table().get(name.lower())
-    if epsg is not None:
-        return f"EPSG:{epsg}"
-
-    return None
+        parsed = parse_reference(reference)
+        if parsed.vertical is None:
+            msg = f"{reference!r} has no vertical component."
+            raise ValueError(msg)
+        resolve_reference(parsed)
+    except _reference_errors() as exc:
+        raise ValueError(str(exc)) from exc
 
 
-def get_epsg_description(epsg: int) -> str:
-    """Return a human-readable description for an EPSG code, or an empty string."""
-    return _get_desc_table().get(epsg, "")
+def describe_vdatum(reference: str) -> str:
+    """Return transformez's name for a vertical reference, or an empty string."""
+    from transformez.reference.parser import parse_reference
+
+    try:
+        vertical = parse_reference(reference).vertical
+    except (*_reference_errors(), ValueError):
+        return ""
+    return vertical.name if vertical is not None else ""
 
 
-def list_vdatums() -> list[str]:
-    """Return a sorted list of all recognised common datum names."""
-    return sorted(_get_lookup_table().keys())
+def list_vdatums() -> dict[str, list[str]]:
+    """Return each supported reference mapped to the common names that resolve to it."""
+    by_reference: dict[str, list[str]] = {}
+    for name in _EPSG_NAMES:
+        by_reference.setdefault(resolve_vdatum(name), []).append(name)
+    for name, reference in _TIDAL_NAMES.items():
+        by_reference.setdefault(reference, []).append(name)
+    return by_reference
