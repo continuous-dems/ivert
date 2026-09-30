@@ -29,11 +29,15 @@ _EPSG_NAMES: dict[str, int] = {
     "egm96": 5773,
     "egm96 height": 5773,
     "egm 96": 5773,
-    # Ellipsoidal heights
-    "ellipsoid": 7912,
-    "itrf2014": 7912,
-    "igs14": 7912,
+    # Ellipsoidal heights. These are 3D geographic CRSs, since EPSG has no
+    # vertical-only CRS for ellipsoidal heights. "ellipsoid" means WGS84, to match
+    # the photon databases (EPSG:4979).
+    "ellipsoid": 4979,
     "wgs84": 4979,
+    "itrf2014": 7912,
+    # IGS14 is IGS's realization of ITRF2014 and agrees with it to within
+    # millimetres. Its own code, EPSG:9018, has no transformez frame binding.
+    "igs14": 7912,
 }
 
 # Tidal datums go to transformez as its own IDs rather than EPSG codes: it builds
