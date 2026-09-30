@@ -68,9 +68,8 @@ def read_dataframe_file(df_filename: str) -> pd.DataFrame:
     elif ext == ".feather":
         dataframe = pd.read_feather(df_filename)
     else:
-        raise NotImplementedError(
-            f"ERROR: Unknown dataframe file extension '{ext}'. (Currently supporting .pickle, .h5, .hdf, .csv, .txt, or .feather)",
-        )
+        msg = f"ERROR: Unknown dataframe file extension '{ext}'. (Currently supporting .pickle, .h5, .hdf, .csv, .txt, or .feather)"
+        raise NotImplementedError(msg)
 
     return dataframe
 
@@ -107,25 +106,28 @@ def _check_cell_validation_params(photon_limit, min_photons, num_subdivisions):
     through, whose chunk the parent counts as finished and silently drops.
     """
     if num_subdivisions < 1:
-        raise ValueError(
+        msg = (
             f"num_subdivisions must be a positive integer, not {num_subdivisions}. "
-            "It sets the sub-grid used to measure each cell's photon coverage.",
+            "It sets the sub-grid used to measure each cell's photon coverage."
         )
+        raise ValueError(msg)
 
     if photon_limit is None:
         return
 
     if photon_limit < 2:
-        raise ValueError(
+        msg = (
             f"photon_limit must be at least 2, not {photon_limit}. A cell needs "
-            "two or more photons for its elevation statistics to be meaningful.",
+            "two or more photons for its elevation statistics to be meaningful."
         )
+        raise ValueError(msg)
     if photon_limit < min_photons:
-        raise ValueError(
+        msg = (
             f"photon_limit ({photon_limit}) is below min_photons ({min_photons}), "
             "so every cell sampled down to the limit would then be discarded for "
-            "having too few photons, and no cells would be validated.",
+            "having too few photons, and no cells would be validated."
         )
+        raise ValueError(msg)
 
 
 def _check_chunk_payload(dem_i_list, dem_j_list, dem_elev_list, bbox_lists):
@@ -507,7 +509,8 @@ def subdivide_dem(
 ) -> list[str]:
     """Split a DEM into 4 smaller parts."""
     if not os.path.exists(dem_name):
-        raise FileNotFoundError(f"DEM {dem_name} does not exist.")
+        msg = f"DEM {dem_name} does not exist."
+        raise FileNotFoundError(msg)
 
     return ivert.utils.split_dem.split(
         dem_name,
@@ -525,9 +528,8 @@ def reset_results_indexes_after_merge(
     if (
         "i" not in sub_results_df.columns and "i" not in sub_results_df.index.names
     ) or ("j" not in sub_results_df.columns and "j" not in sub_results_df.index.names):
-        raise ValueError(
-            "sub_results_df must have columns 'i' and 'j' in columns or index.",
-        )
+        msg = "sub_results_df must have columns 'i' and 'j' in columns or index."
+        raise ValueError(msg)
 
     with rasterio.open(sub_dem_fname) as sub_ds:
         sub_geotransform = sub_ds.transform.to_gdal()
@@ -539,10 +541,11 @@ def reset_results_indexes_after_merge(
 
     # The two DEMs should have the exact same x- and y-steps (resolutions).
     if x_step != parent_geotransform[1] or y_step != parent_geotransform[5]:
-        raise ValueError(
+        msg = (
             f"DEMs {os.path.basename(sub_dem_fname)} and {os.path.basename(parent_dem_fname)}"
-            " have different x- or y-resolutions. Cannot combine results.",
+            " have different x- or y-resolutions. Cannot combine results."
         )
+        raise ValueError(msg)
 
     x_offset = int((sub_geotransform[0] - parent_geotransform[0]) / x_step)
     y_offset = int((sub_geotransform[3] - parent_geotransform[3]) / y_step)
@@ -756,16 +759,16 @@ def validate_dem(
 
         # Unless we've already hit max recursion. In that case, error-out.
         if subdivision_number == max_subdivides:
-            raise MemoryError(
+            msg = (
                 f"validate_dem.validate_dem('{orig_dem_name}', ...) was terminated, "
-                f"likely due to a memory error.",
+                f"likely due to a memory error."
             )
+            raise MemoryError(msg)
 
         # Make sure the DEM exists that we're trying to sub-divide
         if not os.path.exists(dem_name):
-            raise FileNotFoundError(
-                f"validate_dem.validate_dem_parallell({orig_dem_name},...) could not find {dem_name}.",
-            )
+            msg = f"validate_dem.validate_dem_parallell({orig_dem_name},...) could not find {dem_name}."
+            raise FileNotFoundError(msg)
 
         # Split up the DEM into 4 parts.
         sub_dem_names = subdivide_dem(
@@ -998,9 +1001,8 @@ def validate_dem(
         log_written_files(written_files)
         return list(shared_ret_values.values())
 
-    raise RuntimeError(
-        f"validate_dem.validate_dem({orig_dem_name},...) exited with exitcode {exitcode}.",
-    )
+    msg = f"validate_dem.validate_dem({orig_dem_name},...) exited with exitcode {exitcode}."
+    raise RuntimeError(msg)
 
 
 def get_dem_dataset_and_vars(dem_fn) -> tuple:
@@ -2046,7 +2048,8 @@ def validate_dem_parallel(
         ivert.utils.logging_config.configure_worker_logging(log_level)
 
     if not os.path.exists(dem_name):
-        raise FileNotFoundError(f"Could not find file {dem_name}.")
+        msg = f"Could not find file {dem_name}."
+        raise FileNotFoundError(msg)
 
     config = _resolve_config(config, icesat2_photon_database_obj)
     if export_error_formats is None:
@@ -2796,10 +2799,11 @@ def main(
     results; defaults to the same directory as the input filename.
     """
     if minimum_coverage_pct is not None and not measure_coverage:
-        raise click.UsageError(
+        msg = (
             "--minimum_coverage_pct requires the -mc/--measure_coverage flag "
-            "(coverage must be measured before it can be filtered on).",
+            "(coverage must be measured before it can be filtered on)."
         )
+        raise click.UsageError(msg)
 
     # The output directory defaults to the input directory.
     if not output_dir:

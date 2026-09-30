@@ -21,7 +21,8 @@ def query_yes_no(question: str, default: str = "yes") -> bool:
     elif default.strip().lower() in ("no", "n"):
         prompt = " [y/N] "
     else:
-        raise ValueError(f"invalid default answer: '{default}'")
+        msg = f"invalid default answer: '{default}'"
+        raise ValueError(msg)
 
     while True:
         sys.stdout.write(question + prompt)
@@ -47,4 +48,5 @@ def interpret_yes_no(input_str: str) -> bool:
     if instr[0] in ("n", "f"):
         return False
     # Anything else is invalid
-    raise ValueError(f"invalid boolean input: '{input_str}'")
+    msg = f"invalid boolean input: '{input_str}'"
+    raise ValueError(msg)

@@ -56,10 +56,11 @@ def get_dem_reference_frame_from_user_input(
         return horz
     if choice_letter == "v":
         return vert
-    raise ValueError(
+    msg = (
         f"Unknown choice '{vert_horz_or_both}' for vert_horz_or_both. "
-        "Must begin with 'h', 'v', or 'b'.",
+        "Must begin with 'h', 'v', or 'b'."
     )
+    raise ValueError(msg)
 
 
 def get_dem_reference_frame_from_file(
@@ -80,7 +81,8 @@ def get_dem_reference_frame_from_file(
 
     """
     if not os.path.exists(dem_fname):
-        raise FileNotFoundError(f"DEM file {dem_fname} does not exist.")
+        msg = f"DEM file {dem_fname} does not exist."
+        raise FileNotFoundError(msg)
 
     dem_ds = rasterio.open(dem_fname)
     dem_crs_str = "" if dem_ds.crs is None else dem_ds.crs
@@ -101,9 +103,8 @@ def get_dem_srs_string(horz_reference: pyproj.CRS, vert_reference: pyproj.CRS) -
     vert_auth = vert_reference.list_authority()[0].auth_name.upper()
 
     if horz_auth != vert_auth:
-        raise ValueError(
-            "Reference authorities for the horizontal and vertical datums must match.",
-        )
+        msg = "Reference authorities for the horizontal and vertical datums must match."
+        raise ValueError(msg)
 
     if horz_reference.equals(vert_reference):
         return horz_reference.srs
@@ -150,10 +151,11 @@ def get_wgs84_bounding_box(
         elif len(bbox) > 4 and len(bbox) % 2 == 0:
             polygon = shapely.geometry.Polygon(bbox)
         else:
-            raise TypeError(
+            msg = (
                 "polygon_bbox_or_dem_fname as a list/tuple must be a 4-value "
-                "(xmin, xmax, ymin, ymax) bbox or an even-length coordinate sequence.",
+                "(xmin, xmax, ymin, ymax) bbox or an even-length coordinate sequence."
             )
+            raise TypeError(msg)
         dem_horz_reference_frame = get_dem_reference_frame_from_user_input(
             dem_horz_reference_frame,
             "horz",
@@ -161,7 +163,8 @@ def get_wgs84_bounding_box(
 
     elif isinstance(polygon_bbox_or_dem_fname, str):
         if not os.path.exists(polygon_bbox_or_dem_fname):
-            raise FileNotFoundError(f"File not found: {polygon_bbox_or_dem_fname}")
+            msg = f"File not found: {polygon_bbox_or_dem_fname}"
+            raise FileNotFoundError(msg)
         if dem_horz_reference_frame is None:
             dem_horz_reference_frame = get_dem_reference_frame_from_file(
                 polygon_bbox_or_dem_fname,
@@ -177,13 +180,15 @@ def get_wgs84_bounding_box(
         polygon = shapely.geometry.box(*bbox)
 
     else:
-        raise TypeError(
+        msg = (
             "polygon_bbox_or_dem_fname must be a filename string, a 4-item bbox, "
-            "or a shapely Polygon.",
+            "or a shapely Polygon."
         )
+        raise TypeError(msg)
 
     if dem_horz_reference_frame is None:
-        raise ValueError("dem_horz_reference_frame could not be resolved.")
+        msg = "dem_horz_reference_frame could not be resolved."
+        raise ValueError(msg)
 
     assert isinstance(polygon, shapely.geometry.Polygon)
     assert isinstance(dem_horz_reference_frame, pyproj.CRS)

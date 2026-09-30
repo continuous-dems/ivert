@@ -273,15 +273,17 @@ def normalize_format_keys(output_format: str, allowed=None) -> list:
         if not key:
             continue
         if key not in allowed:
-            raise ValueError(
+            msg = (
                 f"Unsupported output format '{token.strip()}'. "
-                f"Choose from: {', '.join(allowed)}.",
+                f"Choose from: {', '.join(allowed)}."
             )
+            raise ValueError(msg)
         if key not in keys:
             keys.append(key)
 
     if not keys:
-        raise ValueError("No output format specified.")
+        msg = "No output format specified."
+        raise ValueError(msg)
     return keys
 
 

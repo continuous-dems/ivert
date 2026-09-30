@@ -149,9 +149,8 @@ class ICESat2RequestsCSV:
         if matching is None:
             if fail_quietly:
                 return None
-            raise ValueError(
-                f"No matching record for '{atl_dataset}' bbox={query_bbox}",
-            )
+            msg = f"No matching record for '{atl_dataset}' bbox={query_bbox}"
+            raise ValueError(msg)
 
         if isinstance(json_dict, str):
             json_dict = ast.literal_eval(json_dict)
@@ -161,7 +160,8 @@ class ICESat2RequestsCSV:
         if len(matching) == 0:
             if fail_quietly:
                 return None
-            raise ValueError(f"No record with jobID '{job_id}'")
+            msg = f"No record with jobID '{job_id}'"
+            raise ValueError(msg)
 
         self.df.loc[matching.index, "json"] = str(json_dict)
 
@@ -189,7 +189,8 @@ class ICESat2RequestsCSV:
         elif create_if_nonexistent:
             self._create_empty()
         else:
-            raise FileNotFoundError(f"{self.csv_file} not found.")
+            msg = f"{self.csv_file} not found."
+            raise FileNotFoundError(msg)
 
         return self.df
 

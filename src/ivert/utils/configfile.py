@@ -233,7 +233,8 @@ class Config:
         self._path_keys: dict = {}
 
         if not os.path.exists(configfile):
-            raise FileNotFoundError(f"Configfile {configfile} not found.")
+            msg = f"Configfile {configfile} not found."
+            raise FileNotFoundError(msg)
 
         self._config.read(configfile)
 

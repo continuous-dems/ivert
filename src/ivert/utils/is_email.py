@@ -35,4 +35,5 @@ def return_email(email: str) -> str:
     email = email.strip()
     if is_email(email):
         return email
-    raise ValueError(f"{email} is not a valid email address.")
+    msg = f"{email} is not a valid email address."
+    raise ValueError(msg)

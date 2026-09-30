@@ -141,7 +141,8 @@ def dummy_test():
             print(i, barfoo)  # noqa: T201
             time.sleep(1.25)
         print(foobar, "again")  # noqa: T201
-        raise ValueError("Testing stderr too.")
+        msg = "Testing stderr too."
+        raise ValueError(msg)
 
     var1 = "hello"
     kwvar2 = "world"

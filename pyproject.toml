@@ -84,8 +84,6 @@ ignore = [
     "CPY001",   # missing-copyright-notice
     "D103",     # undocumented-public-function
     "E501",     # line-too-long
-    "EM101",    # raw-string-in-exception
-    "EM102",    # f-string-in-exception
     "ERA001",   # commented-out-code
     "FBT001",   # boolean-type-hint-positional-argument
     "FBT002",   # boolean-default-value-positional-argument
@@ -121,6 +119,9 @@ ignore = [
     "SLF001",   # private-member-access
     "TD002",    # missing-todo-author
     "TD003",    # missing-todo-link
+    # Permanent: TRY003 wants a custom exception class for every multi-word message.
+    # Most of ours are one-off argument checks or click exceptions, whose message
+    # is what the user sees, so a class per message would add nothing.
     "TRY003",   # raise-vanilla-args
 ]
 

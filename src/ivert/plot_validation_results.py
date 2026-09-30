@@ -66,8 +66,9 @@ def get_data_from_h5_or_list(
 
         data = pd.concat(data_list)
     else:
+        msg = "Non-iterable value for parameter 'results_h5_name_or_list':"
         raise TypeError(
-            "Non-iterable value for parameter 'results_h5_name_or_list':",
+            msg,
             h5_name_or_list,
         )
     # print(data)

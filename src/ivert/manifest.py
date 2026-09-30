@@ -151,16 +151,15 @@ def read_manifest(path):
         with open(path) as f:
             parser.read_file(f)
     except (OSError, configparser.Error) as exc:
-        raise click.ClickException(f"Could not read manifest '{path}': {exc}") from exc
+        msg = f"Could not read manifest '{path}': {exc}"
+        raise click.ClickException(msg) from exc
 
     if not parser.has_option("ivert", "version"):
-        raise click.ClickException(
-            f"'{path}' is not an IVERT manifest: it has no 'version' in an [ivert] section.",
-        )
+        msg = f"'{path}' is not an IVERT manifest: it has no 'version' in an [ivert] section."
+        raise click.ClickException(msg)
     if not parser.has_section("options"):
-        raise click.ClickException(
-            f"'{path}' is not an IVERT manifest: it has no [options] section.",
-        )
+        msg = f"'{path}' is not an IVERT manifest: it has no [options] section."
+        raise click.ClickException(msg)
     return parser.get("ivert", "version"), dict(parser.items("options"))
 
 
@@ -239,15 +238,15 @@ def reconcile_options(
 
     question = "Ignore the unrecognized manifest options, and use the current defaults for the missing ones?"
     if not interactive:
-        raise click.ClickException(
+        msg = (
             "The manifest doesn't match this version of IVERT, and there is no terminal to "
             "ask whether to go ahead. Edit the manifest so its [options] match "
-            "'ivert validate', or run interactively.",
+            "'ivert validate', or run interactively."
         )
+        raise click.ClickException(msg)
     if not click.confirm(question, default=False):
-        raise click.ClickException(
-            "Stopped: the manifest is incompatible with this version of IVERT.",
-        )
+        msg = "Stopped: the manifest is incompatible with this version of IVERT."
+        raise click.ClickException(msg)
 
     return {k: v for k, v in manifest_options.items() if k not in extra}
 
@@ -268,6 +267,5 @@ def parse_option(ctx, param, raw, path):
     try:
         return param.type_cast_value(ctx, value)
     except click.BadParameter as exc:
-        raise click.ClickException(
-            f"Invalid value for '{param.name}' in manifest '{path}': {exc.message}",
-        ) from exc
+        msg = f"Invalid value for '{param.name}' in manifest '{path}': {exc.message}"
+        raise click.ClickException(msg) from exc
