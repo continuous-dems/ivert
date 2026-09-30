@@ -31,7 +31,8 @@ def write_summary_csv_file(
         total_df = total_results_df_or_file
 
     if "filename" not in total_df.columns:
-        raise ValueError("total_df must have a 'filename' column.")
+        msg = "total_df must have a 'filename' column."
+        raise ValueError(msg)
 
     unique_files = total_df["filename"].unique().tolist()
     all_filenames = list(unique_files) + list(list_of_empty_files)
@@ -656,10 +657,11 @@ def main(
     DIRECTORY_OR_FILES is a directory path, or a list of individual DEM tiles.
     """
     if minimum_coverage_pct is not None and not measure_coverage:
-        raise click.UsageError(
+        msg = (
             "--minimum_coverage_pct requires the -mc/--measure_coverage flag "
-            "(coverage must be measured before it can be filtered on).",
+            "(coverage must be measured before it can be filtered on)."
         )
+        raise click.UsageError(msg)
 
     directory_or_files = list(directory_or_files)
 
@@ -683,10 +685,11 @@ def main(
         if create_folders:
             os.makedirs(output_dir_abs)
         else:
-            raise FileNotFoundError(
+            msg = (
                 f"Output directory '{output_dir}' does not exist. "
-                "Create directory or use the --create_folders flag upon execution.",
+                "Create directory or use the --create_folders flag upon execution."
             )
+            raise FileNotFoundError(msg)
 
     # NOTE: This code assumes that if we create the directory here, it will
     # not be erased before the code gets to putting files there later. Seems

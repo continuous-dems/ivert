@@ -233,10 +233,11 @@ def _apply_vertical_transform(
             verbose=False,
         )
         if shift_array is None:
-            raise ValueError(
+            msg = (
                 f"Vertical transform failed: EPSG:{src_vert_epsg} → EPSG:{dst_vert_epsg} "
-                f"over region {grid_region}.",
+                f"over region {grid_region}."
             )
+            raise ValueError(msg)
 
     with rasterio.open(grid_fn) as src:
         shift_data = src.read(1).astype(float)
@@ -261,14 +262,15 @@ def _apply_vertical_transform(
     )
     if outside.any():
         n_outside = int(np.count_nonzero(outside))
-        raise ValueError(
+        msg = (
             f"Vertical transform failed: {n_outside:,} of {outside.size:,} points fall "
             f"outside the shift grid {grid_fn} "
             f"(grid covers {tuple(round(b, 6) for b in grid_bounds)}, points span "
             f"x [{float(x.min()):.6f}, {float(x.max()):.6f}], "
             f"y [{float(y.min()):.6f}, {float(y.max()):.6f}]). "
-            "Delete that file and retry.",
+            "Delete that file and retry."
         )
+        raise ValueError(msg)
 
     # rasterio stores rows top-to-bottom; flip to ascending-lat order for interpolator
     interp = RegularGridInterpolator(

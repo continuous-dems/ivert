@@ -106,30 +106,26 @@ def process_parallel(
     elif type(kwargs_list) is dict:
         kwargs_list = [kwargs_list] * len(args_lists)
     elif len(kwargs_list) != len(args_lists):
-        raise ValueError(
-            f"Length of kwargs_list ({len(kwargs_list)}) != length of args_lists ({len(args_lists)}). Exiting",
-        )
+        msg = f"Length of kwargs_list ({len(kwargs_list)}) != length of args_lists ({len(args_lists)}). Exiting"
+        raise ValueError(msg)
 
     if outfiles is None:
         outfiles = range(len(args_lists))
     elif len(outfiles) != len(args_lists):
-        raise ValueError(
-            f"Length of outfiles ({len(outfiles)}) != length of args_lists ({len(args_lists)}). Exiting",
-        )
+        msg = f"Length of outfiles ({len(outfiles)}) != length of args_lists ({len(args_lists)}). Exiting"
+        raise ValueError(msg)
 
     if temp_working_dirs is None:
         temp_working_dirs = range(len(args_lists))
     elif len(temp_working_dirs) != len(args_lists):
-        raise ValueError(
-            f"Length of temp_working_dirs ({len(temp_working_dirs)}) != length of args_lists ({len(args_lists)}). Exiting",
-        )
+        msg = f"Length of temp_working_dirs ({len(temp_working_dirs)}) != length of args_lists ({len(args_lists)}). Exiting"
+        raise ValueError(msg)
 
     if proc_names is None:
         proc_names = range(len(args_lists))
     elif len(proc_names) != len(args_lists):
-        raise ValueError(
-            f"Length of proc_names ({len(proc_names)}) != length of args_lists ({len(args_lists)}). Exiting",
-        )
+        msg = f"Length of proc_names ({len(proc_names)}) != length of args_lists ({len(args_lists)}). Exiting"
+        raise ValueError(msg)
 
     running_outfiles = []
     running_procs = []

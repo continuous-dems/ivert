@@ -164,23 +164,24 @@ def subtract_cuboids(a, b, tol=1e-10, bbox_order="point"):
         ax1, ax2, ay1, ay2, az1, az2 = tuple(a)
         bx1, bx2, by1, by2, bz1, bz2 = tuple(b)
     else:
-        raise ValueError(
-            f"Invalid bbox_order parameter: {bbox_order}. Only 'axis' or 'point' are allowed.",
-        )
+        msg = f"Invalid bbox_order parameter: {bbox_order}. Only 'axis' or 'point' are allowed."
+        raise ValueError(msg)
 
     # Make sure in each case that the points are in the correct order (that x2 is not less than x1, etc)
     if (ax1 > ax2) or (ay1 > ay2) or (az1 > az2):
-        raise ValueError(
+        msg = (
             f"Invalid bounding box: {a}. "
             "The first point must be less than or equal to the second point in each dimension. "
-            "Double-check your 'bbox_order' parameter to make sure you choose the correct 'point' or 'axis' order.",
+            "Double-check your 'bbox_order' parameter to make sure you choose the correct 'point' or 'axis' order."
         )
+        raise ValueError(msg)
     if (bx1 > bx2) or (by1 > by2) or (bz1 > bz2):
-        raise ValueError(
+        msg = (
             f"Invalid bounding box: {b}. "
             "The first point must be less than or equal to the second point in each dimension. "
-            "Double-check your 'bbox_order' parameter to make sure you choose the correct 'point' or 'axis' order.",
+            "Double-check your 'bbox_order' parameter to make sure you choose the correct 'point' or 'axis' order."
         )
+        raise ValueError(msg)
 
     # --- Find intersection ---
     ix1 = max(ax1, bx1)
@@ -238,9 +239,8 @@ def _normalize_merge_preference(prefer):
         return "row"
     if key in ("column", "columns", "col", "c"):
         return "column"
-    raise ValueError(
-        f"Invalid prefer: {prefer!r}. Must be None, 'row'/'r' or 'column'/'c'.",
-    )
+    msg = f"Invalid prefer: {prefer!r}. Must be None, 'row'/'r' or 'column'/'c'."
+    raise ValueError(msg)
 
 
 def merge_cuboids(cuboids, tol=1e-10, bbox_order="point", prefer=None):
@@ -291,9 +291,8 @@ def merge_cuboids(cuboids, tol=1e-10, bbox_order="point", prefer=None):
         # Switch all the cuboids from axis order to point order for processing
         cuboids = [(x1, y1, z1, x2, y2, z2) for (x1, x2, y1, y2, z1, z2) in cuboids]
     elif bbox_order != "point":
-        raise ValueError(
-            f"Invalid bbox_order: {bbox_order}. Must be 'point', 'axis', 'xyzxyz', or 'xxyyzz'.",
-        )
+        msg = f"Invalid bbox_order: {bbox_order}. Must be 'point', 'axis', 'xyzxyz', or 'xxyyzz'."
+        raise ValueError(msg)
 
     def can_merge(a, b, along=None):
         """Return merged cuboid if a and b are mergeable, else None.
@@ -461,9 +460,8 @@ def cuboids_intersect(c1, c2, tol=1e-10, bbox_order="point"):
         x1_min, x1_max, y1_min, y1_max, z1_min, z1_max = tuple(c1)
         x2_min, x2_max, y2_min, y2_max, z2_min, z2_max = tuple(c2)
     else:
-        raise ValueError(
-            f"Invalid bbox_order: {bbox_order}. Must be 'point' or 'axis'.",
-        )
+        msg = f"Invalid bbox_order: {bbox_order}. Must be 'point' or 'axis'."
+        raise ValueError(msg)
 
     # Overlap along each axis (strict inequalities for positive volume)
     overlap_x = (x1_min < x2_max - tol) and (x1_max > x2_min + tol)
@@ -519,9 +517,8 @@ def cuboids_intersect_vectorized(
     elif bbox_order == "axis":
         qxmin, qxmax, qymin, qymax, qzmin, qzmax = tuple(query)
     else:
-        raise ValueError(
-            f"Invalid bbox_order: {bbox_order}. Must be 'point' or 'axis'.",
-        )
+        msg = f"Invalid bbox_order: {bbox_order}. Must be 'point' or 'axis'."
+        raise ValueError(msg)
 
     xmin = np.asarray(xmin)
     xmax = np.asarray(xmax)

@@ -418,9 +418,8 @@ class IS2Database:
                 os.remove(self.db_fname)
 
         elif os.path.exists(self.db_fname):
-            raise OSError(
-                "Database file already exists. Use overwrite=True to overwrite it.",
-            )
+            msg = "Database file already exists. Use overwrite=True to overwrite it."
+            raise OSError(msg)
 
         if populate:
             nc_files = self.granule_files()
@@ -460,7 +459,8 @@ class IS2Database:
                 len(gdf),
             )
         else:
-            raise OSError("Failed to create", os.path.basename(self.db_fname))
+            msg = "Failed to create"
+            raise OSError(msg, os.path.basename(self.db_fname))
 
         # This becomes the new database for this object.
         self.gdf = gdf
@@ -507,15 +507,16 @@ class IS2Database:
         granule_fnames = self.granule_files()
 
         if not granule_fnames:
-            raise DatabaseNotFoundError(
+            msg = (
                 "No IVERT ICESat-2 photon database exists where IVERT is looking "
                 "for it. Neither the index file nor any .nc granule files were found.\n"
                 f"  index file:         {self.db_fname}\n"
                 f"  granules directory: {self.granules_dir}\n"
                 "Run 'ivert database download <bbox or DEM>' to begin creating an IVERT "
                 "database, or point IVERT at an existing one with "
-                "'ivert options ivert_database_directory=<path>'.",
+                "'ivert options ivert_database_directory=<path>'."
             )
+            raise DatabaseNotFoundError(msg)
 
         logger.warning(
             "The database index '%s' is missing, but %d granule file(s) are present "
@@ -783,10 +784,11 @@ class IS2Database:
         """Validate and normalize icesat2_vertical_datum to 'ellipsoid' or 'geoid'."""
         normalized = str(raw_value).strip().lower()
         if normalized not in ("ellipsoid", "geoid"):
-            raise ValueError(
+            msg = (
                 f"Invalid icesat2_vertical_datum value: {raw_value!r}. "
-                "Must be 'ellipsoid' or 'geoid' (case-insensitive).",
+                "Must be 'ellipsoid' or 'geoid' (case-insensitive)."
             )
+            raise ValueError(msg)
         return normalized
 
     @staticmethod
@@ -821,21 +823,23 @@ class IS2Database:
         try:
             globato_datum = cls._EPSG_TO_GLOBATO_VERTICAL_DATUM[vertical_epsg]
         except KeyError:
-            raise ValueError(
+            msg = (
                 f"No globato vertical_datum mapping for {vertical_epsg!r}. "
                 "Known mappings: "
-                f"{cls._EPSG_TO_GLOBATO_VERTICAL_DATUM}.",
-            ) from None
+                f"{cls._EPSG_TO_GLOBATO_VERTICAL_DATUM}."
+            )
+            raise ValueError(msg) from None
 
         if globato_datum not in cls._GLOBATO_ACCEPTED_VERTICAL_DATUMS:
-            raise ValueError(
+            msg = (
                 f"Mapped globato vertical_datum {globato_datum!r} (from "
                 f"{vertical_epsg!r}) is not one of globato's accepted values "
                 f"{sorted(cls._GLOBATO_ACCEPTED_VERTICAL_DATUMS)}. globato's "
                 "ICESat2Reader may have changed its accepted vertical_datum "
                 "vocabulary; update _EPSG_TO_GLOBATO_VERTICAL_DATUM / "
-                "_GLOBATO_ACCEPTED_VERTICAL_DATUMS to match.",
+                "_GLOBATO_ACCEPTED_VERTICAL_DATUMS to match."
             )
+            raise ValueError(msg)
         return globato_datum
 
     def _classify_h5(
@@ -981,9 +985,8 @@ class IS2Database:
         if "class_code" in df.columns:
             cc = df["class_code"]
             if len(cc) and (cc.min() < -128 or cc.max() > 127):
-                raise ValueError(
-                    f"class_code values {cc.min()}..{cc.max()} don't fit in int8.",
-                )
+                msg = f"class_code values {cc.min()}..{cc.max()} don't fit in int8."
+                raise ValueError(msg)
             df = df.assign(class_code=cc.astype(np.int8))
 
         xr_ds = xarray.Dataset.from_dataframe(df).drop_vars("index")
@@ -1592,9 +1595,8 @@ class IS2Database:
             ]
 
         else:
-            raise ValueError(
-                "Bounding boxes must be either 4 values or 6 values, in format (xmin, xmax, ymin, ymax, [tmin, tmax]).",
-            )
+            msg = "Bounding boxes must be either 4 values or 6 values, in format (xmin, xmax, ymin, ymax, [tmin, tmax])."
+            raise ValueError(msg)
 
         return df_sub
 
@@ -1769,7 +1771,8 @@ class IS2Database:
             return self.convert_date_to_yyyymmdd(
                 date_range[0],
             ), self.convert_date_to_yyyymmdd(date_range[1])
-        raise ValueError("Date range must be a list or tuple of length 2.")
+        msg = "Date range must be a list or tuple of length 2."
+        raise ValueError(msg)
 
     def convert_date_to_yyyymmdd(
         self,
@@ -1784,7 +1787,8 @@ class IS2Database:
         if isinstance(date, int):
             # If it's an integer, make sure it's 8 digits and then return as-is.
             if len(str(date)) != 8:
-                raise ValueError("Date must be an 8 digit integer in YYYYMMDD.")
+                msg = "Date must be an 8 digit integer in YYYYMMDD."
+                raise ValueError(msg)
             return date
         if isinstance(date, str):
             try:
@@ -1795,14 +1799,14 @@ class IS2Database:
                 # If it isn't a YYYYMMDD string, parse it with dateparser.
                 parsed = dateparser.parse(date)
                 if parsed is None:
-                    raise ValueError(f"{date!r} is not a recognizable date.") from None
+                    msg = f"{date!r} is not a recognizable date."
+                    raise ValueError(msg) from None
                 return int(parsed.strftime("%Y%m%d"))
         elif isinstance(date, (datetime.datetime, datetime.date)):
             return int(date.strftime("%Y%m%d"))
         else:
-            raise TypeError(
-                "Date must be an int, str, datetime.datetime, or datetime.date.",
-            )
+            msg = "Date must be an int, str, datetime.datetime, or datetime.date."
+            raise TypeError(msg)
 
     def query_granules(self, bbox: list | tuple) -> pd.DataFrame | None:
         """Return a sub-dataframe of granules in the database that possibly intersect the bounding box, using data bounding boxes."""
@@ -2256,7 +2260,8 @@ class IS2Database:
                     len(self.gdf),
                 )
             else:
-                raise OSError(f"Failed to write {os.path.basename(self.db_fname)}")
+                msg = f"Failed to write {os.path.basename(self.db_fname)}"
+                raise OSError(msg)
 
         return DownloadSummary(
             parts_downloaded=parts_downloaded,
@@ -2292,9 +2297,8 @@ class IS2Database:
         elif data_or_query == "query":
             base = "query_bbox"
         else:
-            raise ValueError(
-                "Invalid data_or_query parameter. Must be one of 'data' or 'query'.",
-            )
+            msg = "Invalid data_or_query parameter. Must be one of 'data' or 'query'."
+            raise ValueError(msg)
 
         axis = axis.lower().strip()
         if axis == "x":
@@ -2307,7 +2311,8 @@ class IS2Database:
             mins = gdf[f"{base}_tmin"].astype(int)
             maxs = gdf[f"{base}_tmax"].astype(int)
         else:
-            raise ValueError("Invalid axis parameter. Must be one of 'x', 'y', or 't'.")
+            msg = "Invalid axis parameter. Must be one of 'x', 'y', or 't'."
+            raise ValueError(msg)
 
         return mins, maxs
 
@@ -2347,9 +2352,8 @@ class IS2Database:
         elif data_or_query == "query":
             base = "query_bbox"
         else:
-            raise ValueError(
-                "Invalid data_or_query parameter. Must be one of 'data' or 'query'.",
-            )
+            msg = "Invalid data_or_query parameter. Must be one of 'data' or 'query'."
+            raise ValueError(msg)
 
         # Build a (xmin, xmax, ymin, ymax, tmin, tmax) tuple per row from the
         # scalar bbox columns, keep the unique ones, and cast the dates to int.
@@ -2463,9 +2467,8 @@ class IS2Database:
         """
         for query_bbox in query_bboxes:
             if not self.bbox_valid(query_bbox):
-                raise ValueError(
-                    "query_bbox must be a non-zero-volume valid 6-tuple or 6-value bbox, with values in the correct order.",
-                )
+                msg = "query_bbox must be a non-zero-volume valid 6-tuple or 6-value bbox, with values in the correct order."
+                raise ValueError(msg)
 
         # First, get a list of the active unique query cuboids within the current database
         existing_bboxes = self.unique_bboxes(data_or_query="query")

@@ -75,9 +75,12 @@ def ivert_cli(ctx, user_config, verbosity):
     try:
         logging_config.configure_logging(verbosity)
     except KeyError:
-        raise click.BadParameter(
+        msg = (
             f"'{verbosity}' is not a valid verbosity level. "
-            "Choose from: debug, info, warning, error.",
+            "Choose from: debug, info, warning, error."
+        )
+        raise click.BadParameter(
+            msg,
             param_hint="--verbosity",
         ) from None
 
@@ -279,10 +282,11 @@ def classes():
     try:
         classes_list = photon_classes()
     except ImportError as e:
-        raise click.ClickException(
+        msg = (
             "Could not import globato to read photon class definitions. "
-            "Ensure the globato package is installed.",
-        ) from e
+            "Ensure the globato package is installed."
+        )
+        raise click.ClickException(msg) from e
 
     if not classes_list:
         click.echo("No photon class definitions found.")
@@ -530,24 +534,22 @@ def _options_set_values(assignments, assume_yes=False):
     parsed = []
     for assignment in assignments:
         if "=" not in assignment:
-            raise click.UsageError(
-                f"Invalid format '{assignment}'. Use option_name=value.",
-            )
+            msg = f"Invalid format '{assignment}'. Use option_name=value."
+            raise click.UsageError(msg)
         key, _, value = assignment.partition("=")
         key = key.strip().lower()
         if key in _OPTIONS_EXCLUDED_KEYS:
-            raise click.UsageError(
-                f"'{key}' is a read-only setting and cannot be changed.",
-            )
+            msg = f"'{key}' is a read-only setting and cannot be changed."
+            raise click.UsageError(msg)
         if key in _OPTIONS_READONLY_KEYS:
-            raise click.UsageError(
+            msg = (
                 f"'{key}' is a read-only setting and cannot be changed.\n"
-                f"  {_OPTIONS_READONLY_KEYS[key]}",
+                f"  {_OPTIONS_READONLY_KEYS[key]}"
             )
+            raise click.UsageError(msg)
         if key not in config._config["DEFAULT"]:
-            raise click.UsageError(
-                f"Unknown setting '{key}'. Run 'ivert options list' to see valid settings.",
-            )
+            msg = f"Unknown setting '{key}'. Run 'ivert options list' to see valid settings."
+            raise click.UsageError(msg)
         parsed.append((key, value))
 
     user_path = config.user_config_path
@@ -657,10 +659,11 @@ def options_info(option_name):
     key = option_name.strip().lower()
 
     if key in _OPTIONS_EXCLUDED_KEYS or key not in config._config["DEFAULT"]:
-        raise click.UsageError(
+        msg = (
             f"Unknown setting '{option_name}'. "
-            "Run 'ivert options list' to see valid settings.",
+            "Run 'ivert options list' to see valid settings."
         )
+        raise click.UsageError(msg)
 
     value = _option_display_value(config, key)
     default_value = config._config["DEFAULT"].get(key, "")
@@ -1151,12 +1154,12 @@ def database_download(
         tmin = db.convert_date_to_yyyymmdd(date_start)
         tmax = db.convert_date_to_yyyymmdd(date_end)
     except Exception as exc:
-        raise click.ClickException(f"Could not parse date: {exc}") from exc
+        msg = f"Could not parse date: {exc}"
+        raise click.ClickException(msg) from exc
 
     if tmin >= tmax:
-        raise click.ClickException(
-            f"--date-start ({tmin}) must be before --date-end ({tmax}).",
-        )
+        msg = f"--date-start ({tmin}) must be before --date-end ({tmax})."
+        raise click.ClickException(msg)
 
     # Check ATL24 date cutoff.
     atl24_cutoff = int(db.config.atl24_date_cutoff)
@@ -1186,9 +1189,8 @@ def database_download(
     full_bbox = (wgs84_bbox[0], wgs84_bbox[1], wgs84_bbox[2], wgs84_bbox[3], tmin, tmax)
 
     if not is2db_mod.IS2Database.bbox_valid(full_bbox):
-        raise click.ClickException(
-            f"Invalid bounding box: xmin < xmax, ymin < ymax required. Got {full_bbox[:4]}.",
-        )
+        msg = f"Invalid bounding box: xmin < xmax, ymin < ymax required. Got {full_bbox[:4]}."
+        raise click.ClickException(msg)
 
     # Offer to save credentials before the download asks for them. Declining is
     # fine -- the download prompts for them itself, just once per run.
@@ -1214,16 +1216,18 @@ def database_download(
     # Anything already downloaded is saved and is not re-fetched on a re-run.
     if summary.parts_failed:
         if summary.parts_failed == summary.parts_attempted:
-            raise click.ClickException(
+            msg = (
                 "The download failed. No ICESat-2 data was retrieved. See the errors "
-                "above; re-running the same command will retry.",
+                "above; re-running the same command will retry."
             )
-        raise click.ClickException(
+            raise click.ClickException(msg)
+        msg = (
             f"{summary.parts_failed} of {summary.parts_attempted} parts of the "
             f"requested region failed to download. The {summary.granules_added} "
             "granule(s) that did download are saved; re-running the same command "
-            "will retry only the parts that are still missing.",
+            "will retry only the parts that are still missing."
         )
+        raise click.ClickException(msg)
 
 
 # Formats offered by 'ivert database convert' (a subset of export_vector's
@@ -1282,7 +1286,8 @@ def _region_from_vector_file(path):
 
     gdf = geopandas.read_file(path)
     if len(gdf) == 0:
-        raise ValueError("the file holds no features")
+        msg = "the file holds no features"
+        raise ValueError(msg)
     if gdf.crs is None:
         logger.warning(
             "'%s' has no coordinate reference system; assuming WGS84 (EPSG:4326).",
@@ -1341,9 +1346,8 @@ def _dissolve_region_files(paths):
         try:
             bbox, geom = _region_from_file(path)
         except Exception as exc:
-            raise click.ClickException(
-                f"Could not read a region from '{path}': {exc}",
-            ) from exc
+            msg = f"Could not read a region from '{path}': {exc}"
+            raise click.ClickException(msg) from exc
         if geom is None:
             xmin, xmax, ymin, ymax = bbox
             geom = shapely.box(xmin, ymin, xmax, ymax)
@@ -1399,15 +1403,13 @@ def _resolve_export_target(tokens, projection, wsen):
 
     # Otherwise the argument must be a single file.
     if len(tokens) != 1:
-        raise click.ClickException(
-            "Region must be a 4-value bounding box or a single file.",
-        )
+        msg = "Region must be a 4-value bounding box or a single file."
+        raise click.ClickException(msg)
 
     path = tokens[0]
     if not os.path.exists(path):
-        raise click.ClickException(
-            f"'{path}' is neither a valid 4-value bounding box nor an existing file.",
-        )
+        msg = f"'{path}' is neither a valid 4-value bounding box nor an existing file."
+        raise click.ClickException(msg)
 
     # An IVERT .nc file is exported directly; which kind it is comes from its contents.
     if os.path.splitext(path)[1].lower() == ".nc":
@@ -1418,16 +1420,14 @@ def _resolve_export_target(tokens, projection, wsen):
             return _ExportTarget("index", None, None, path)
         if kind == ev.KIND_PHOTONS:
             return _ExportTarget("granule", None, None, path)
-        raise click.ClickException(
-            f"'{path}' is not an IVERT photon granule or database index file.",
-        )
+        msg = f"'{path}' is not an IVERT photon granule or database index file."
+        raise click.ClickException(msg)
 
     try:
         bbox, geometry = _region_from_file(path)
     except Exception as exc:
-        raise click.ClickException(
-            f"Could not read an export region from '{path}': {exc}",
-        ) from exc
+        msg = f"Could not read an export region from '{path}': {exc}"
+        raise click.ClickException(msg) from exc
 
     return _ExportTarget("region", bbox, geometry, None)
 
@@ -1451,11 +1451,12 @@ def _export_database_index(index_path, fmt_keys, output, overwrite, filters_give
 
     point_formats = [key for key in fmt_keys if key in ("xyz", "csv")]
     if point_formats:
-        raise click.ClickException(
+        msg = (
             "The database index holds bounding-box polygons rather than points, so it "
             f"cannot be exported as '{', '.join(point_formats)}'. Use 'gpkg' and/or "
-            "'shp' instead.",
+            "'shp' instead."
         )
+        raise click.ClickException(msg)
 
     if filters_given:
         click.echo(
@@ -1466,7 +1467,8 @@ def _export_database_index(index_path, fmt_keys, output, overwrite, filters_give
 
     gdf = ev.index_to_geodataframe(index_path)
     if len(gdf) == 0:
-        raise click.ClickException(f"The database index is empty: {index_path}")
+        msg = f"The database index is empty: {index_path}"
+        raise click.ClickException(msg)
 
     out_base = output or os.path.join(os.getcwd(), "ivert_database_index")
     written = ev.write_vector_multi(
@@ -1495,9 +1497,8 @@ def _export_single_granule(
         gdf = ev.subset_gdf_to_date_range(gdf, *delta_time_range)
 
     if len(gdf) == 0:
-        raise click.ClickException(
-            f"No photons left to export from {os.path.basename(nc_path)} after filtering.",
-        )
+        msg = f"No photons left to export from {os.path.basename(nc_path)} after filtering."
+        raise click.ClickException(msg)
 
     out_base = output or os.path.join(
         os.getcwd(),
@@ -1668,9 +1669,8 @@ def database_convert(
                 int(c) for c in classes.replace(",", "/").split("/") if c != ""
             ]
         except ValueError as exc:
-            raise click.ClickException(
-                f"Invalid --classes value '{classes}': {exc}",
-            ) from exc
+            msg = f"Invalid --classes value '{classes}': {exc}"
+            raise click.ClickException(msg) from exc
 
     # --- Work out what was asked for. ---
     target = _resolve_export_target(list(bbox_or_file), projection, wsen)
@@ -1688,11 +1688,11 @@ def database_convert(
             if date_end is not None:
                 tmax = db.convert_date_to_yyyymmdd(date_end)
         except Exception as exc:
-            raise click.ClickException(f"Could not parse date: {exc}") from exc
+            msg = f"Could not parse date: {exc}"
+            raise click.ClickException(msg) from exc
         if tmin >= tmax:
-            raise click.ClickException(
-                f"--start-date ({tmin}) must be before --end-date ({tmax}).",
-            )
+            msg = f"--start-date ({tmin}) must be before --end-date ({tmax})."
+            raise click.ClickException(msg)
 
     # --- A single .nc file is read straight off disk, with no database lookup. ---
     if target.kind == "index":
@@ -1723,10 +1723,11 @@ def database_convert(
     # --- Open the database index. ---
     gdf_index = db.open_gdf()
     if gdf_index is None or len(gdf_index) == 0:
-        raise click.ClickException(
+        msg = (
             f"No IVERT database found (or it is empty) at: {db.db_fname}\n"
-            "Run 'ivert database download <bbox>' to create one.",
+            "Run 'ivert database download <bbox>' to create one."
         )
+        raise click.ClickException(msg)
 
     # --- Select the granules to read. ---
     if bbox is None and not date_filtering:
@@ -1739,9 +1740,8 @@ def database_convert(
             granule_rows = gdf_index.iloc[0:0]
 
     if len(granule_rows) == 0:
-        raise click.ClickException(
-            "No granules found matching the requested region and/or date range.",
-        )
+        msg = "No granules found matching the requested region and/or date range."
+        raise click.ClickException(msg)
 
     # --- Warn on large exports. ---
     est_photons = (
@@ -1797,7 +1797,8 @@ def database_convert(
         )
 
     if not gdfs:
-        raise click.ClickException("No photons found to convert after filtering.")
+        msg = "No photons found to convert after filtering."
+        raise click.ClickException(msg)
 
     merged = geopandas.GeoDataFrame(
         pd.concat(gdfs, ignore_index=True),
@@ -1950,10 +1951,11 @@ def database_dump(
 
     target = _resolve_export_target(list(bbox_or_file), projection, wsen)
     if target.kind in ("granule", "index"):
-        raise click.UsageError(
+        msg = (
             "'ivert database dump' takes a region (a bounding box, raster or polygon "
-            "file), not a single .nc file.",
+            "file), not a single .nc file."
         )
+        raise click.UsageError(msg)
 
     db = is2db_mod.IS2Database()
 
@@ -1977,11 +1979,11 @@ def database_dump(
                 else _EXPORT_DATE_MAX
             )
         except Exception as exc:
-            raise click.ClickException(f"Could not parse date: {exc}") from exc
+            msg = f"Could not parse date: {exc}"
+            raise click.ClickException(msg) from exc
         if tmin >= tmax:
-            raise click.ClickException(
-                f"--start-date ({tmin}) must be before --end-date ({tmax}).",
-            )
+            msg = f"--start-date ({tmin}) must be before --end-date ({tmax})."
+            raise click.ClickException(msg)
         date_range = (tmin, tmax)
 
     default_name = (
@@ -1995,9 +1997,8 @@ def database_dump(
         output += ".zip"
     output = os.path.abspath(output)
     if os.path.exists(output) and not overwrite:
-        raise click.ClickException(
-            f"{output} already exists. Use -ow/--overwrite to replace it.",
-        )
+        msg = f"{output} already exists. Use -ow/--overwrite to replace it."
+        raise click.ClickException(msg)
 
     # Warn before a very large dump, from the index's photon counts.
     gdf = db.open_gdf()
@@ -2094,10 +2095,11 @@ def database_restore(archive, on_overlap, dry_run):
 
     if mode is None:
         if not sys.stdin.isatty():
-            raise click.UsageError(
+            msg = (
                 "The archive overlaps data already in the database. Rerun with "
-                "-oo/--on-overlap all|keep|replace|cancel to say what to do.",
+                "-oo/--on-overlap all|keep|replace|cancel to say what to do."
             )
+            raise click.UsageError(msg)
         click.echo("\nWhat should be done where they overlap?")
         for number, (name, text) in _OVERLAP_CHOICES.items():
             click.echo(f"  {number}) {name}: {text}")
@@ -2280,16 +2282,18 @@ def _parse_exclude_spec(value, wsen=False):
             return (minx, miny, maxx, maxy)
 
     if not os.path.exists(value):
-        raise click.ClickException(
+        msg = (
             f"Invalid --exclude value '{value}': not a 4-value bounding box "
-            "and not an existing file path.",
+            "and not an existing file path."
         )
+        raise click.ClickException(msg)
     ext = os.path.splitext(value)[1].lower()
     if ext not in _EXCLUDE_VECTOR_EXTENSIONS:
-        raise click.ClickException(
+        msg = (
             f"Invalid --exclude file '{value}': expected one of "
-            f"{', '.join(_EXCLUDE_VECTOR_EXTENSIONS)}.",
+            f"{', '.join(_EXCLUDE_VECTOR_EXTENSIONS)}."
         )
+        raise click.ClickException(msg)
     return value
 
 
@@ -2397,12 +2401,13 @@ def _run_validate(
     if vdatum != "NONE_PROVIDED":
         resolved = vdatum_lookup.resolve_vdatum(vdatum)
         if resolved is None:
-            raise click.ClickException(
+            msg = (
                 f"Unrecognised vertical datum '{vdatum}'. "
                 "Provide an EPSG code (e.g. 'EPSG:5703', '5703') or a known short name "
                 "(e.g. 'navd88', 'egm2008', 'mllw'). "
-                "Run 'ivert validate --list-vdatums' to see all recognised names.",
+                "Run 'ivert validate --list-vdatums' to see all recognised names."
             )
+            raise click.ClickException(msg)
         vdatum = resolved
 
     # Parse the --ndv value: "nan" → float('nan'), else convert to float.
@@ -2414,9 +2419,8 @@ def _run_validate(
             try:
                 ndv_float = float(ndv)
             except ValueError:
-                raise click.ClickException(
-                    f"Invalid --ndv value '{ndv}'. Provide a number or 'nan'.",
-                ) from None
+                msg = f"Invalid --ndv value '{ndv}'. Provide a number or 'nan'."
+                raise click.ClickException(msg) from None
 
     # Resolve the export-formats override. None means "use the config default"; an
     # explicit 'none'/empty value means "skip error exports for this run".
@@ -2441,21 +2445,22 @@ def _run_validate(
         expanded.extend(matches or [f])
 
     if not expanded:
-        raise click.ClickException("No input files or directory found.")
+        msg = "No input files or directory found."
+        raise click.ClickException(msg)
 
     try:
         class_list = [
             int(c) for c in str(classes).replace(",", "/").split("/") if c != ""
         ]
     except ValueError as exc:
-        raise click.ClickException(
-            f"Invalid --classes value '{classes}': {exc}",
-        ) from exc
+        msg = f"Invalid --classes value '{classes}': {exc}"
+        raise click.ClickException(msg) from exc
     if not class_list:
-        raise click.ClickException(
+        msg = (
             "--classes must name at least one photon class code. "
-            "Run 'ivert classes' for the full list of codes.",
+            "Run 'ivert classes' for the full list of codes."
         )
+        raise click.ClickException(msg)
     if buildings and 7 not in class_list:
         class_list.append(7)
     class_list = sorted(set(class_list))
@@ -2998,7 +3003,8 @@ def validate(
         return
 
     if not files_or_directory:
-        raise click.UsageError("Missing argument 'FILES_OR_DIRECTORY'.")
+        msg = "Missing argument 'FILES_OR_DIRECTORY'."
+        raise click.UsageError(msg)
 
     if manifest is not None:
         # Re-run with the manifest's values filled in under the command-line ones.
@@ -3049,9 +3055,10 @@ def validate(
     if bathy_filter_settings.ref_raster and not os.path.isfile(
         bathy_filter_settings.ref_raster,
     ):
-        raise click.UsageError(
-            f"Bathymetry reference raster not found: {bathy_filter_settings.ref_raster}",
+        msg = (
+            f"Bathymetry reference raster not found: {bathy_filter_settings.ref_raster}"
         )
+        raise click.UsageError(msg)
 
     # Record the settings actually in effect, config fallbacks included, so the
     # manifest doesn't depend on the config of whoever re-runs it. 'none' (rather than
