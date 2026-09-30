@@ -11,11 +11,7 @@ import six
 import tqdm
 from matplotlib import ticker
 
-import ivert.utils.configfile
-
 logger = logging.getLogger(__name__)
-
-ivert_config = ivert.utils.configfile.Config()
 
 
 def is_iterable(obj):
@@ -29,7 +25,7 @@ def is_iterable(obj):
 def get_data_from_h5_or_list(
     h5_name_or_list: str | list[str],
     orig_filenames: str | list[str] | None = None,
-    empty_val: float = ivert_config.dem_default_ndv,
+    empty_val: float | None = None,
     include_filenames: bool = False,
 ) -> pd.DataFrame:
     """Return the data either from a single hdf5 results file, or a list of them. Filter out empty (bad data) values."""
@@ -96,7 +92,7 @@ def get_data_from_h5_or_list(
 def plot_histograms_and_line(
     results_h5_or_list_or_df,
     output_figure_name,
-    empty_val=ivert_config.dem_default_ndv,
+    empty_val=None,
     place_name=None,
     figsize=(10.0, 4.0),  # Width/height, in inches
     labels_uppercase=True,
@@ -452,7 +448,7 @@ def plot_histograms_and_line(
 def plot_histogram_and_error_stats_4_panels(
     results_h5_or_list_or_df,
     output_figure_name,
-    empty_val=ivert_config.dem_default_ndv,
+    empty_val=None,
     place_name=None,
     figsize=None,
     labels_uppercase=True,

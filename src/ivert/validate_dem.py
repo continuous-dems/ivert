@@ -44,10 +44,6 @@ from ivert.utils import dem_geom, parallel_funcs
 
 logger = logging.getLogger(__name__)
 
-ivert_config = ivert.utils.configfile.Config()
-EMPTY_VAL = ivert_config.dem_default_ndv
-TRANSFORMEZ_CACHE_DIR = ivert_config.cache_directory
-
 # Grid cells with at least this many photons have their outlier photons trimmed to
 # the interdecile (10th-90th percentile) range before their elevation statistics are
 # computed. Below this count there are too few photons to distinguish an outlier from
@@ -175,6 +171,7 @@ def validate_dem_child_process(
     y_array_name=None,
     y_dtype=None,
     num_subdivisions=15,
+    empty_val=None,
 ):
     """A child process for running the DEM validation in parallel.
 
@@ -383,9 +380,9 @@ def validate_dem_child_process(
                     # Too few photons for an interdecile range to mean anything, so
                     # use all of them: a lone photon's height becomes the cell mean,
                     # and 2-4 photons are simply averaged.
-                    r_10p[counter] = EMPTY_VAL
-                    r_90p[counter] = EMPTY_VAL
-                    r_interdecile[counter] = EMPTY_VAL
+                    r_10p[counter] = empty_val
+                    r_90p[counter] = empty_val
+                    r_interdecile[counter] = empty_val
                     heights_used = subset_df.height
 
                 r_numphotons_intd[counter] = len(heights_used)
@@ -469,6 +466,7 @@ def kick_off_new_child_process(
     y_array_name=None,
     y_dtype=None,
     num_subdivisions=15,
+    empty_val=None,
 ):
     """Start a new subprocess to handle and process data."""
     pipe_parent, pipe_child = mp.Pipe(duplex=True)
@@ -495,6 +493,7 @@ def kick_off_new_child_process(
             "photon_limit": photon_limit,
             "min_photons": min_photons,
             "num_subdivisions": num_subdivisions,
+            "empty_val": empty_val,
         },
     )
     proc.start()
@@ -556,6 +555,15 @@ def reset_results_indexes_after_merge(
     return sub_results_df.set_index(["i", "j"], drop=True)
 
 
+def _resolve_config(config, icesat2_photon_database_obj=None):
+    """Return the Config to use: the one given, else the photon database's, else a fresh one."""
+    if config is not None:
+        return config
+    if icesat2_photon_database_obj is not None:
+        return icesat2_photon_database_obj.config
+    return ivert.utils.configfile.Config()
+
+
 def validate_dem(
     dem_name: str,
     output_dir: str | None = None,
@@ -590,6 +598,7 @@ def validate_dem(
     bathy_filter_settings: ivert.bathy_filters.BathyFilterSettings | None = None,
     export_error_formats: str | list | None = None,
     exclude_zones: list | None = None,
+    config: ivert.utils.configfile.Config | None = None,
 ):
     """Validate a DEM and produce output results.
 
@@ -661,8 +670,13 @@ def validate_dem(
             horizontal CRS, or a path to a vector file (.shp, .geojson, .gpkg) containing exclusion
             polygon(s) in any CRS. Photons falling within any zone are dropped. Defaults to None
             (no exclusions).
+        config: The IVERT settings to use. Defaults to None, which uses the photon
+            database's settings if icesat2_photon_database_obj is given, and otherwise
+            reads them from the config files.
 
     """
+    config = _resolve_config(config, icesat2_photon_database_obj)
+
     if shared_ret_values is None:
         shared_ret_values = {}
 
@@ -700,6 +714,7 @@ def validate_dem(
         "bathy_filter_settings": bathy_filter_settings,
         "export_error_formats": export_error_formats,
         "exclude_zones": exclude_zones,
+        "config": config,
         # The work below runs in a *spawned* sub-process, which starts with logging
         # unconfigured and would otherwise drop everything below WARNING. Pass the
         # level we are running at so the child can reinstate it.
@@ -764,7 +779,9 @@ def validate_dem(
 
         # Pre-read the photon database. This is easier than reading it in 4 separate times.
         if icesat2_photon_database_obj is None:
-            icesat2_photon_database_obj = ivert.icesat2_database_v2.IS2Database()
+            icesat2_photon_database_obj = ivert.icesat2_database_v2.IS2Database(
+                ivert_config=config,
+            )
             icesat2_photon_database_obj.open_gdf()
 
         for sub_dem_name, sub_shared_ret_dict in zip(
@@ -803,6 +820,7 @@ def validate_dem(
                 min_bathy_confidence=min_bathy_confidence,
                 bathy_filter_settings=bathy_filter_settings,
                 exclude_zones=exclude_zones,
+                config=config,
                 max_subdivides=max_subdivides,
                 orig_dem_name=orig_dem_name,
                 subdivision_number=subdivision_number + 1,
@@ -883,7 +901,7 @@ def validate_dem(
 
         # Second, export the per-cell errors from the merged dataframe.
         if export_error_formats is None:
-            export_error_formats = ivert_config.export_error_formats
+            export_error_formats = config.export_error_formats
         if (
             export_error_formats
             and (shared_results_df is not None)
@@ -1109,9 +1127,6 @@ def _check_existing_outputs(
     Returns a files_to_export list if work is already done (caller should return it),
     or None to continue processing.
     """
-    if export_error_formats is None:
-        export_error_formats = ivert_config.export_error_formats
-
     if overwrite:
         for fn in (
             results_dataframe_file,
@@ -1319,6 +1334,7 @@ def _compute_photon_overlap(
     cache_dir=None,
     user_ndv=None,
     exclude_zones=None,
+    default_ndv=None,
 ):
     """Transform photon coordinates into DEM space and compute cell-level overlap.
 
@@ -1400,7 +1416,7 @@ def _compute_photon_overlap(
     else:
         dem_ndv = dem_ds.nodata
         if dem_ndv is None:
-            dem_ndv = EMPTY_VAL
+            dem_ndv = default_ndv
 
     if np.isnan(dem_ndv):
         dem_goodpixel_mask = ~np.isnan(dem_array)
@@ -1521,6 +1537,7 @@ def _run_parallel_cell_validation(
     measure_coverage,
     coverage_coords,
     numprocs,
+    empty_val,
 ):
     """Run the parallel ICESat-2/DEM cell validation using child processes.
 
@@ -1680,6 +1697,7 @@ def _run_parallel_cell_validation(
                     x_dtype=x_dtype,
                     y_array_name=y_array_name,
                     y_dtype=y_dtype,
+                    empty_val=empty_val,
                 )
             )
 
@@ -1741,6 +1759,7 @@ def _run_parallel_cell_validation(
                         x_dtype=x_dtype,
                         y_array_name=y_array_name,
                         y_dtype=y_dtype,
+                        empty_val=empty_val,
                     )
                     running_procs[i] = proc
                     open_pipes_parent[i] = pipe
@@ -1948,8 +1967,6 @@ def _write_validation_outputs(
         written_files.append(summary_stats_filename)
         shared_ret_values["summary_stats_filename"] = summary_stats_filename
 
-    if export_error_formats is None:
-        export_error_formats = ivert_config.export_error_formats
     if export_error_formats:
         if dem_ds is None:
             dem_ds = rasterio.open(dem_name)
@@ -2014,6 +2031,7 @@ def validate_dem_parallel(
     export_error_formats: str | list | None = None,
     exclude_zones: list | None = None,
     log_level: int | None = None,
+    config: ivert.utils.configfile.Config | None = None,
 ):
     """Validate a single DEM.
 
@@ -2029,6 +2047,10 @@ def validate_dem_parallel(
 
     if not os.path.exists(dem_name):
         raise FileNotFoundError(f"Could not find file {dem_name}.")
+
+    config = _resolve_config(config, icesat2_photon_database_obj)
+    if export_error_formats is None:
+        export_error_formats = config.export_error_formats
 
     if shared_ret_values is None:
         shared_ret_values = {}
@@ -2070,7 +2092,9 @@ def validate_dem_parallel(
     files_to_export = []
 
     if icesat2_photon_database_obj is None:
-        icesat2_photon_database_obj = ivert.icesat2_database_v2.IS2Database()
+        icesat2_photon_database_obj = ivert.icesat2_database_v2.IS2Database(
+            ivert_config=config,
+        )
 
     fetch_result = _fetch_photons(
         dem_name,
@@ -2090,6 +2114,7 @@ def validate_dem_parallel(
             fetch_result,
             bathy_filter_settings,
             icesat2_photon_database_obj,
+            config,
         )
 
     if fetch_result is None:
@@ -2113,9 +2138,10 @@ def validate_dem_parallel(
         dem_epsg_str,
         measure_coverage,
         photon_src_epsg=photon_src_epsg,
-        cache_dir=TRANSFORMEZ_CACHE_DIR,
+        cache_dir=config.cache_directory,
         user_ndv=dem_ndv,
         exclude_zones=exclude_zones,
+        default_ndv=config.dem_default_ndv,
     )
     if overlap_result is None:
         if mark_empty_results:
@@ -2161,6 +2187,7 @@ def validate_dem_parallel(
         measure_coverage,
         coverage_coords,
         numprocs,
+        config.dem_default_ndv,
     )
 
     return _write_validation_outputs(
@@ -2186,22 +2213,22 @@ def validate_dem_parallel(
     )
 
 
-def _filter_bathy_photons(fetch_result, settings, icesat2_photon_database_obj):
+def _filter_bathy_photons(fetch_result, settings, icesat2_photon_database_obj, config):
     """Run the bathymetry filters on the photons _fetch_photons returned.
 
     Returns (fetch_result, report). fetch_result becomes None if no photons are left.
     """
     dem_ds, dem_array, photon_df, dem_epsg_str, photon_src_epsg = fetch_result
     if settings is None:
-        settings = ivert.bathy_filters.BathyFilterSettings.from_config(ivert_config)
+        settings = ivert.bathy_filters.BathyFilterSettings.from_config(config)
 
     photon_df, report = ivert.bathy_filters.apply_bathy_filters(
         photon_df,
         settings,
         photon_src_epsg=photon_src_epsg,
-        cache_dir=TRANSFORMEZ_CACHE_DIR,
-        landmask_store_dir=ivert_config.ivert_landmask_directory,
-        osm_cache_dir=ivert_config.icesat2_download_directory,
+        cache_dir=config.cache_directory,
+        landmask_store_dir=config.ivert_landmask_directory,
+        osm_cache_dir=config.icesat2_download_directory,
         database_tiles=icesat2_photon_database_obj.storage_tiles(),
     )
     if len(photon_df) == 0:
@@ -2438,6 +2465,7 @@ def generate_result_geotiff(
     results_dataframe,
     dem_ds,
     result_tif_filename,
+    empty_val=None,
 ):
     """Given the results in the dataframe, output geotiffs to visualize these.
 
@@ -2446,8 +2474,11 @@ def generate_result_geotiff(
     Geotiff tags will include:
         - mean_diff
     """
+    if empty_val is None:
+        empty_val = ivert.utils.configfile.Config().dem_default_ndv
+
     xsize, ysize = dem_ds.width, dem_ds.height
-    emptyval = float(EMPTY_VAL)
+    emptyval = float(empty_val)
     result_array = np.zeros([ysize, xsize], dtype=np.float32) + emptyval
 
     indices = results_dataframe.index.to_numpy()
