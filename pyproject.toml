@@ -119,6 +119,9 @@ ignore = [
     "SLF001",   # private-member-access
     "TD002",    # missing-todo-author
     "TD003",    # missing-todo-link
+    # Permanent: TRY003 wants a custom exception class for every multi-word message.
+    # Most of ours are one-off argument checks or click exceptions, whose message
+    # is what the user sees, so a class per message would add nothing.
     "TRY003",   # raise-vanilla-args
 ]
 
