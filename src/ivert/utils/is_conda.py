@@ -1,3 +1,5 @@
+"""Detect whether IVERT is running in a conda Python environment."""
+
 import os
 
 

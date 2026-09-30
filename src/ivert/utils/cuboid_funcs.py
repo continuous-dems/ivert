@@ -1,3 +1,5 @@
+"""Subtract, merge and intersect axis-aligned cuboids (3D boxes)."""
+
 import numpy as np
 
 # from itertools import product

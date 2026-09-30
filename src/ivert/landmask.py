@@ -57,13 +57,13 @@ _FILL_CELL_DEG = 1.0
 
 
 def _box(bbox):
-    """A shapely box from an (xmin, xmax, ymin, ymax) rectangle."""
+    """Return a shapely box from an (xmin, xmax, ymin, ymax) rectangle."""
     xmin, xmax, ymin, ymax = bbox
     return shapely.box(xmin, ymin, xmax, ymax)
 
 
 def store_filename(store_dir: str, bbox) -> str:
-    """The stored landmask file for an (xmin, xmax, ymin, ymax) rectangle."""
+    """Return the stored landmask file for an (xmin, xmax, ymin, ymax) rectangle."""
     xmin, xmax, ymin, ymax = (float(v) for v in bbox)
     return os.path.join(store_dir, f"landmask_{xmin}_{xmax}_{ymin}_{ymax}.geojson")
 
@@ -92,7 +92,7 @@ def _cached_osm_landmasks(cache_dir: str) -> dict:
 
 
 def _read_polygons(path: str, bbox) -> list:
-    """The polygons of a landmask file that reach into an (xmin, xmax, ymin, ymax) box."""
+    """Return the polygons of a landmask file that reach into an (xmin, xmax, ymin, ymax) box."""
     xmin, xmax, ymin, ymax = bbox
     _, _, wkb, _ = pyogrio.raw.read(
         path,
@@ -106,7 +106,7 @@ def _read_polygons(path: str, bbox) -> list:
 
 
 def land_from_files(paths, bbox):
-    """The land of several landmask files, merged and clipped to bbox."""
+    """Return the land of several landmask files, merged and clipped to bbox."""
     polygons = []
     for path in paths:
         polygons.extend(_read_polygons(path, bbox))
@@ -251,7 +251,7 @@ def _fill_cells(area) -> list:
 
 
 def load_landmask(bbox, store_dir: str, cache_dir: str, database_tiles=()):
-    """The landmask over an (xmin, xmax, ymin, ymax) box, from the store.
+    """Return the landmask over an (xmin, xmax, ymin, ymax) box, from the store.
 
     Parts of bbox the store does not cover are added to it first: the database
     storage tiles that reach them (from the cache if possible, else from OSM), then

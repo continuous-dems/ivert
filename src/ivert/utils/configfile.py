@@ -1,3 +1,8 @@
+"""Read IVERT's layered configuration: packaged defaults, then the user config, then per-job settings.
+
+The Config class exposes every option as a read-only attribute.
+"""
+
 import ast
 import configparser
 import datetime
@@ -217,7 +222,7 @@ class Config:
         configfile: str = ivert_default_configfile,
         ignore_errors: bool = False,
     ) -> None:
-        """Initializes a new instance of the Config class."""
+        """Initialize a new instance of the Config class."""
         self._configfile = os.path.abspath(os.path.realpath(configfile))
         self._config = configparser.ConfigParser()
         self.is_aws = is_aws.is_aws()
@@ -323,7 +328,7 @@ class Config:
         return list(self._path_keys)
 
     def raw_default(self, key):
-        """The un-interpolated default of an option, as written in the configfile.
+        """Return the un-interpolated default of an option, as written in the configfile.
 
         Unlike the parsed attribute, this keeps any "%(other_option)s" embedding
         intact, so the value can be copied into a user config file and continue

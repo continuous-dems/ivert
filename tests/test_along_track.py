@@ -100,7 +100,7 @@ def test_beam_names_may_be_str(tmp_path):
 
 
 def _records(h5_fn, delta_time):
-    """What globato yields for a granule: 3 kept photons on two beams."""
+    """Return what globato yields for a granule: 3 kept photons on two beams."""
     return np.rec.fromarrays(
         [
             np.array([-80.0, -80.1, -80.2]),

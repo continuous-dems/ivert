@@ -83,13 +83,7 @@ ignore = [
     "BLE001",   # blind-except
     "C901",     # complex-structure
     "CPY001",   # missing-copyright-notice
-    "D100",     # undocumented-public-module
-    "D101",     # undocumented-public-class
-    "D102",     # undocumented-public-method
     "D103",     # undocumented-public-function
-    "D104",     # undocumented-public-package
-    "D107",     # undocumented-public-init
-    "D401",     # non-imperative-mood
     "E501",     # line-too-long
     "EM101",    # raw-string-in-exception
     "EM102",    # f-string-in-exception

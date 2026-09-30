@@ -1,3 +1,5 @@
+"""Check strings for email-address syntax."""
+
 import re
 
 

@@ -282,7 +282,7 @@ class BathyFilterReport:
 
     @classmethod
     def from_json(cls, text: str) -> Self:
-        """The inverse of to_json()."""
+        """Rebuild a report from the JSON text that to_json() wrote."""
         d = json.loads(text)
         d["settings"] = BathyFilterSettings(**d["settings"])
         return cls(**d)
@@ -346,7 +346,7 @@ class BathyFilterReport:
         return lines
 
     def log_line(self) -> str:
-        """A one-line account of the counts, for the log."""
+        """Return a one-line account of the counts, for the log."""
         per_rule = ", ".join(
             f"{rule}: {self.removed.get(rule, 0):,}" for rule in self.settings.rules
         )
@@ -373,7 +373,7 @@ def write_report_to_h5(h5_file: str, report) -> None:
 
 
 def read_report_from_h5(h5_file: str):
-    """The BathyFilterReport stored on a results .h5 file, or None if it has none."""
+    """Return the BathyFilterReport stored on a results .h5 file, or None if it has none."""
     if not h5_file or not os.path.exists(h5_file):
         return None
     try:

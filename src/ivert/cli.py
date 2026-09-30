@@ -433,7 +433,7 @@ def options(ctx, yes):
 
 
 def _option_display_value(config, key):
-    """The current value of a setting, as the user should see it."""
+    """Return the current value of a setting, as the user should see it."""
     if key == "user_configfile":
         # --config / IVERT_USER_CONFIG can point IVERT at a different file than
         # the one ivert_defaults.ini names, so report the file actually in use.
@@ -451,7 +451,7 @@ def _option_source_label(config, key):
 
 
 def _inherited_options(config, user_config, changed_keys):
-    """Settings that would keep their default value after 'changed_keys' change.
+    """Return the settings that would keep their default value after 'changed_keys' change.
 
     A setting like "cache_directory = %(user_data_directory)s/cache" lives only
     in ivert_defaults.ini, so it keeps resolving against the *default*

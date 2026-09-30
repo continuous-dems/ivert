@@ -33,6 +33,11 @@ class ICESat2RequestsCSV:
     """
 
     def __init__(self, config=None) -> None:
+        """Point at the request CSV named in the configuration; it is read on first use.
+
+        Args:
+            config: The IVERT configuration. If None, read the default one.
+        """
         if config is None:
             self.config = ivert.utils.configfile.Config()
         else:
@@ -225,7 +230,7 @@ class ICESat2RequestsCSV:
 
     @staticmethod
     def _bbox_match(b0, b1, tolerance: float = 1e-9) -> bool:
-        """True if two 6-tuple bboxes are equal within tolerance."""
+        """Return True if two 6-tuple bboxes are equal within tolerance."""
         return (
             abs(b0[0] - b1[0]) <= tolerance
             and abs(b0[1] - b1[1]) <= tolerance
@@ -237,7 +242,7 @@ class ICESat2RequestsCSV:
 
     @staticmethod
     def _is_expired(dt_string: str) -> bool:
-        """True if the expiration date has passed."""
+        """Return True if the expiration date has passed."""
         try:
             ex = dateparser.parse(dt_string)
             return datetime.datetime.now(datetime.UTC) >= ex

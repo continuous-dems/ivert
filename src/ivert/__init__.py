@@ -1,3 +1,5 @@
+"""ICESat-2 Validation of Elevations Reporting Tool (IVERT): validate DEMs against ICESat-2 photons."""
+
 try:
     from ivert._version import __version__
 except ImportError:
