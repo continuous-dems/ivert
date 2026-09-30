@@ -1,5 +1,4 @@
-# Quick utility to creatwe an empty .tif file to use for the IVERT test utility.
-
+"""Create the empty one-cell GeoTIFF that the IVERT test utility uses."""
 
 import logging
 import os

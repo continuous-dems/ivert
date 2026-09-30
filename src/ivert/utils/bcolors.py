@@ -29,6 +29,11 @@ except (ImportError, AttributeError):
 
 
 class Bcolors:
+    """ANSI escape codes for coloring terminal text.
+
+    Call disable() to turn every code into an empty string.
+    """
+
     HEADER = "\033[95m"
     OKBLUE = "\033[94m"
     OKGREEN = "\033[92m"

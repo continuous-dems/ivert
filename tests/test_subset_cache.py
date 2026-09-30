@@ -129,7 +129,7 @@ def _fake_run_fetchez(mods):
 
 
 def _photons(xs, y=32.5):
-    """A classified-photon table like _classify_h5 returns, one photon per x."""
+    """Return a classified-photon table like _classify_h5 returns, one photon per x."""
     t0 = is2db._yyyymmdd_to_delta_time(20230101) + 1.0
     return pd.DataFrame(
         {

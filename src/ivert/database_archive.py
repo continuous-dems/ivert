@@ -84,7 +84,7 @@ def _move(src, dst) -> None:
 
 
 def _intersection(a, b):
-    """The overlap of two same-length axis-order boxes, or None if it has no volume."""
+    """Return the overlap of two same-length axis-order boxes, or None if it has no volume."""
     out = []
     for i in range(0, len(a), 2):
         lo, hi = max(a[i], b[i]), min(a[i + 1], b[i + 1])
@@ -103,7 +103,7 @@ def _contains(outer, inner) -> bool:
 
 
 def _subtract_all(box, others) -> list:
-    """What is left of an axis-order (x, y, t) cuboid after removing all of others."""
+    """Return what is left of an axis-order (x, y, t) cuboid after removing all of others."""
     pieces = [tuple(box)]
     for other in others:
         remaining = []
@@ -120,20 +120,20 @@ def _subtract_all(box, others) -> list:
 
 
 def _subtract_all_2d(rect, others) -> list:
-    """What is left of an (xmin, xmax, ymin, ymax) rectangle after removing others."""
+    """Return what is left of an (xmin, xmax, ymin, ymax) rectangle after removing others."""
     pieces = _subtract_all((*rect, 0, 1), [(*o, 0, 1) for o in others])
     return [p[:4] for p in pieces]
 
 
 def _query_cuboid(record) -> tuple:
-    """The (xmin, xmax, ymin, ymax, tmin, tmax) query box of a granule record."""
+    """Return the (xmin, xmax, ymin, ymax, tmin, tmax) query box of a granule record."""
     return tuple(float(record[c]) for c in _QUERY_COLS[:4]) + tuple(
         int(record[c]) for c in _QUERY_COLS[4:]
     )
 
 
 def _data_cuboid(data_bbox) -> tuple:
-    """A granule's data box as a half-open (x, y, t) cuboid that holds all its photons.
+    """Return a granule's data box as a half-open (x, y, t) cuboid that holds all its photons.
 
     The stored data box runs from the first photon to the last, both included, so
     it is widened by a hair in x and y and by a day in t.
@@ -158,7 +158,7 @@ def _touches_any(cuboid, others) -> bool:
 
 
 def _merged(cuboids) -> list:
-    """Unique cuboids, merged where they combine exactly into larger ones."""
+    """Return the unique cuboids, merged where they combine exactly into larger ones."""
     unique = sorted({tuple(c) for c in cuboids})
     if not unique:
         return []
@@ -175,7 +175,7 @@ _COPY_CHUNK = 4 * 1024 * 1024
 
 @contextlib.contextmanager
 def _progress_bar(**kwargs: object):
-    """A tqdm progress bar, drawn only at 'info' verbosity or above."""
+    """Yield a tqdm progress bar, drawn only at 'info' verbosity or above."""
     # 'disable=None' tells tqdm to draw the bar only when attached to a terminal,
     # and stay silent when output is redirected to a file or a pipe. Log records
     # are routed through tqdm.write() meanwhile, so a warning doesn't break the bar.
@@ -201,7 +201,7 @@ def _progress(iterable, **kwargs: object):
 
 
 def _byte_bar(total, desc):
-    """A progress bar counting bytes."""
+    """Return a progress bar counting bytes."""
     return _progress_bar(
         total=total,
         desc=desc,
@@ -249,7 +249,7 @@ def _extract_all(zf, dest) -> None:
 
 
 def _jsonable(value):
-    """A record value as a plain JSON type."""
+    """Convert a record value to a plain JSON type."""
     if isinstance(value, np.integer):
         return int(value)
     if isinstance(value, np.floating):
@@ -278,7 +278,7 @@ def _extent(rects):
 
 
 def summarize(manifest: dict) -> str:
-    """A human-readable summary of what an archive holds."""
+    """Return a human-readable summary of what an archive holds."""
     granules = manifest["granules"]
     landmasks = manifest["landmasks"]
     region = manifest["region"]
@@ -339,7 +339,7 @@ def summarize(manifest: dict) -> str:
 
 
 def read_manifest(archive: str) -> dict:
-    """The manifest of an archive, checked for a format this IVERT can restore."""
+    """Return the manifest of an archive, checked for a format this IVERT can restore."""
     try:
         with zipfile.ZipFile(archive) as zf:
             manifest = json.loads(zf.read(MANIFEST_NAME))

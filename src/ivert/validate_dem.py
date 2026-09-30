@@ -173,7 +173,7 @@ def validate_dem_child_process(
     num_subdivisions=15,
     empty_val=None,
 ):
-    """A child process for running the DEM validation in parallel.
+    """Run DEM validation as a child process, one of several in parallel.
 
     It takes the input_height (m) and the dem_indices (flattened), as well
     as a duplexed multiprocessing.connection.Connection object (i.e. an open pipe)

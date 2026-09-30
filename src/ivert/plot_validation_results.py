@@ -1,3 +1,5 @@
+"""Plot histograms and error statistics from IVERT validation results."""
+
 import collections
 import logging
 import math

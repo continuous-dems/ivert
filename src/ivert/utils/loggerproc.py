@@ -1,3 +1,5 @@
+"""Run a function in a subprocess while logging its stdout and stderr to a file."""
+
 import io
 import multiprocessing as mp
 import sys
@@ -21,7 +23,15 @@ class LoggerProc(mp.Process):
         kwargs: dict | None = None,
         output_to_terminal: bool = False,
     ) -> None:
+        """Set up the subprocess; call start() to run it.
 
+        Args:
+            target: The function to run in the subprocess.
+            filename_out: The file to append the subprocess's stdout and stderr to.
+            args: Positional arguments for target.
+            kwargs: Keyword arguments for target.
+            output_to_terminal: If True, also echo the output to the terminal.
+        """
         self.filename = filename_out
         self.target = target
 
@@ -70,7 +80,12 @@ class Logger(io.TextIOWrapper):
     """
 
     def __init__(self, filename: str, output_to_terminal: bool = True) -> None:
+        """Open the logfile for appending.
 
+        Args:
+            filename: The logfile to append output to.
+            output_to_terminal: If True, also echo the output to the terminal's stdout.
+        """
         self.output_to_terminal = output_to_terminal
         if self.output_to_terminal:
             self.terminal_stdout = sys.stdout
@@ -114,7 +129,7 @@ def dummy_test():
     import time
 
     def do_stuff(foobar, barfoo=None):
-        """A dummy function that prints random crap to the screen, both to stdout and stderr (raising expection).
+        """Print dummy output to both stdout and stderr, then raise an exception.
 
         These stay as print() deliberately: they are the fixture under test. The point
         of LoggerProc is to capture whatever a child process writes to stdout/stderr,

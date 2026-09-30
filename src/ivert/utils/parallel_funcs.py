@@ -1,3 +1,5 @@
+"""Run a function over many inputs in parallel processes, and count physical CPU cores."""
+
 import logging
 import multiprocessing as mp
 import os

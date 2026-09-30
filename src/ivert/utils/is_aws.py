@@ -1,3 +1,5 @@
+"""Detect whether IVERT is running on an Amazon Web Services EC2 instance."""
+
 import os
 
 

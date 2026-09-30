@@ -1,3 +1,5 @@
+"""Strip ANSI escape codes and overwritten carriage-return lines from captured text."""
+
 import re
 
 # 7-bit C1 ANSI sequences

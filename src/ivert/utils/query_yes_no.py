@@ -1,3 +1,5 @@
+"""Ask the user a yes/no question at the terminal and interpret the answer."""
+
 import sys
 
 

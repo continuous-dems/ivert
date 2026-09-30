@@ -1,3 +1,8 @@
+"""Convert IVERT error-map GeoTIFFs into vector files for viewing in GIS programs.
+
+Run as a script, it converts each error_map.tif path given on the command line.
+"""
+
 import logging
 import os
 import sys

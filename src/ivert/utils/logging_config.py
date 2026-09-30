@@ -48,6 +48,11 @@ class LevelPrefixFormatter(logging.Formatter):
     """
 
     def __init__(self, *, always_prefix: bool = False) -> None:
+        """Build the formatter.
+
+        Args:
+            always_prefix: If True, label every record with its level name, INFO included.
+        """
         super().__init__("%(message)s")
         self.always_prefix = always_prefix
 

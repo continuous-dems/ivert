@@ -1,4 +1,4 @@
-# Functionality for reading ICESat-2 data and saving it in a tiled database.
+"""Read ICESat-2 photon data and save it in a tiled database."""
 
 # Import netCDF4 first to force C-library symbol resolution before h5py/xarray loads.
 # Bypasses HDF5 dimscale corruption in pip/venv environments.
@@ -261,6 +261,8 @@ class DatabaseNotFoundError(Exception):
 
 
 class IS2Database:
+    """A tiled database of classified ICESat-2 photons, and the index that locates them."""
+
     # Column groups describing how the index is serialized to the NetCDF file.
     # Every column becomes a plain 1-D numeric or string variable over the
     # "record" dimension, so the index reads back as an ordinary DataFrame with
@@ -367,6 +369,11 @@ class IS2Database:
         self,
         ivert_config: ivert.utils.configfile.Config | None = None,
     ) -> None:
+        """Open the photon database that the configuration points to.
+
+        Args:
+            ivert_config: The IVERT configuration. If None, read the default one.
+        """
         # Define the structure of the object.
         if ivert_config is None:
             self.config = ivert.utils.configfile.Config()
@@ -647,7 +654,7 @@ class IS2Database:
         return cls._granule_stem(h5_fn) + cls._query_bbox_suffix(query_bbox) + ".h5"
 
     def storage_tiles(self) -> list[tuple[float, float, float, float]]:
-        """The distinct (xmin, xmax, ymin, ymax) storage tiles the database holds."""
+        """Return the distinct (xmin, xmax, ymin, ymax) storage tiles the database holds."""
         gdf = self.open_gdf()
         if gdf is None or len(gdf) == 0:
             return []
@@ -921,7 +928,7 @@ class IS2Database:
         query_bbox: tuple,
         base_attrs: dict,
     ) -> dict:
-        """The global attributes of a granule file holding the photons in df.
+        """Return the global attributes of a granule file holding the photons in df.
 
         Everything that describes the photons themselves (data_bbox, zbounds, the
         per-class counts) is computed from df. base_attrs supplies the rest:
@@ -1637,6 +1644,7 @@ class IS2Database:
 
     @staticmethod
     def is_iterable(obj) -> bool:
+        """Return True if obj can be iterated over, False otherwise."""
         try:
             iter(obj)
         except TypeError:
@@ -2653,7 +2661,7 @@ def split_bbox_into_parts(
 
 
 def _cmd_list():
-    """Implementation of the 'list' subcommand."""
+    """Implement the 'list' subcommand."""
     import tabulate as tabulate_mod
 
     db = IS2Database()
@@ -2685,7 +2693,7 @@ def _cmd_list():
 
 
 def _cmd_delete(delete_all):
-    """Implementation of the 'delete' subcommand."""
+    """Implement the 'delete' subcommand."""
     db = IS2Database()
 
     if os.path.exists(db.db_fname):
@@ -2717,7 +2725,7 @@ def _cmd_delete(delete_all):
 
 
 def _cmd_rebuild():
-    """Implementation of the 'rebuild' subcommand."""
+    """Implement the 'rebuild' subcommand."""
     db = IS2Database()
     gdf = db.create_new_database(populate=True, overwrite=True)
     n = len(gdf)
