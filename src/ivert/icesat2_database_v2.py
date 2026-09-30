@@ -601,7 +601,7 @@ class IS2Database:
             with xarray.open_dataset(nc_fn) as ds:
                 attrs = dict(ds.attrs)
             return cls._index_record_from_attrs(attrs, os.path.basename(nc_fn))
-        except Exception as e:
+        except (OSError, ValueError, KeyError) as e:
             logger.warning(
                 "Could not read metadata from %s: %s",
                 os.path.basename(nc_fn),
@@ -1775,7 +1775,12 @@ class IS2Database:
         self,
         date: int | str | datetime.datetime | datetime.date,
     ) -> int:
-        """Convert date to the YYYYMMDD integer format required by the database."""
+        """Convert date to the YYYYMMDD integer format required by the database.
+
+        Raises:
+            TypeError: If date is not an int, str, datetime.datetime or datetime.date.
+            ValueError: If an int date is not 8 digits, or a string date can't be parsed.
+        """
         if isinstance(date, int):
             # If it's an integer, make sure it's 8 digits and then return as-is.
             if len(str(date)) != 8:
@@ -1788,11 +1793,14 @@ class IS2Database:
                 return self.convert_date_to_yyyymmdd(date_int)
             except ValueError:
                 # If it isn't a YYYYMMDD string, parse it with dateparser.
-                return int(dateparser.parse(date).strftime("%Y%m%d"))
+                parsed = dateparser.parse(date)
+                if parsed is None:
+                    raise ValueError(f"{date!r} is not a recognizable date.") from None
+                return int(parsed.strftime("%Y%m%d"))
         elif isinstance(date, (datetime.datetime, datetime.date)):
             return int(date.strftime("%Y%m%d"))
         else:
-            raise ValueError(
+            raise TypeError(
                 "Date must be an int, str, datetime.datetime, or datetime.date.",
             )
 

@@ -80,7 +80,6 @@ ignore = [
     "ANN202",   # missing-return-type-private-function
     "ARG001",   # unused-function-argument
     "ARG002",   # unused-method-argument
-    "BLE001",   # blind-except
     "C901",     # complex-structure
     "CPY001",   # missing-copyright-notice
     "D103",     # undocumented-public-function
@@ -117,14 +116,12 @@ ignore = [
     "PTH207",   # glob
     "PTH208",   # os-listdir
     "S101",     # assert
-    "S110",     # try-except-pass
     "S301",     # suspicious-pickle-usage
     "SIM115",   # open-file-with-context-handler
     "SLF001",   # private-member-access
     "TD002",    # missing-todo-author
     "TD003",    # missing-todo-link
     "TRY003",   # raise-vanilla-args
-    "TRY004",   # type-check-without-type-error
 ]
 
 [tool.ruff.lint.pydocstyle]

@@ -246,7 +246,7 @@ class ICESat2RequestsCSV:
         try:
             ex = dateparser.parse(dt_string)
             return datetime.datetime.now(datetime.UTC) >= ex
-        except Exception:
+        except TypeError:
             return False
 
     @staticmethod

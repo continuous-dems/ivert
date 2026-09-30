@@ -183,14 +183,11 @@ def _get_vdatum_label(epsg_int):
         6360: "NAVD88",
         5701: "ODN",
     }
-    try:
-        import ivert.vdatum_lookup
+    import ivert.vdatum_lookup
 
-        desc = ivert.vdatum_lookup.get_epsg_description(epsg_int)
-        if desc:
-            return desc.replace(" height", "").replace(" Height", "")
-    except Exception:
-        pass
+    desc = ivert.vdatum_lookup.get_epsg_description(epsg_int)
+    if desc:
+        return desc.replace(" height", "").replace(" Height", "")
     return _known.get(epsg_int, f"EPSG:{epsg_int}")
 
 
@@ -211,7 +208,9 @@ def _apply_vdatum_to_df(df, target_vert_epsg_int, cache_dir=None):
         )
         df = df.copy()
         df["z"] = z_new
-    except Exception as e:
+    # transform_points can fetch datum grids over the network, so failures are
+    # open-ended; whatever goes wrong, plotting in EGM2008 is still useful.
+    except Exception as e:  # noqa: BLE001
         logger.warning("vdatum transform failed (%s). Plotting in EGM2008.", e)
     return df
 
@@ -288,7 +287,12 @@ def _sample_dem_along_track(
                 px, py = dense_lons.copy(), dense_lats.copy()
 
             samples = list(src.sample(zip(px.tolist(), py.tolist(), strict=True)))
-    except Exception as e:
+    except (
+        OSError,
+        ValueError,
+        rasterio.errors.RasterioError,
+        pyproj.exceptions.ProjError,
+    ) as e:
         logger.warning("Could not sample DEM %s: %s", os.path.basename(dem_path), e)
         return None
 
@@ -310,7 +314,12 @@ def _sample_dem_along_track(
 
         try:
             _, dem_vert = dem_geom.get_dem_reference_frame_from_file(dem_path)
-        except Exception:
+        except (
+            OSError,
+            ValueError,
+            rasterio.errors.RasterioError,
+            pyproj.exceptions.ProjError,
+        ):
             dem_vert = None
 
         if dem_vert is not None:
@@ -329,7 +338,9 @@ def _sample_dem_along_track(
                     z_out[valid] = z_tx
                     z_dem = z_out
                     valid = np.isfinite(z_dem)
-                except Exception as e:
+                # As in _apply_vdatum_to_df: failures are open-ended, and the
+                # untransformed profile is still worth plotting.
+                except Exception as e:  # noqa: BLE001
                     logger.warning("DEM vertical transform failed: %s", e)
 
     sort_idx = np.argsort(dense_atm[valid])
@@ -601,11 +612,13 @@ def main(
         ylabel = f"Elevation / depth (m, {_get_vdatum_label(target_vert_epsg_int)})"
 
     # Datum-shift grid cache (use ivert cache if available, else cwd)
+    import configparser
+
     import ivert.utils.configfile
 
     try:
         cache_dir = ivert.utils.configfile.Config().cache_directory
-    except Exception:
+    except (configparser.Error, OSError):
         cache_dir = None
 
     input_path = os.path.abspath(input_file)
