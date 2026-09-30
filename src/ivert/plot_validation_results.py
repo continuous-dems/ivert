@@ -455,7 +455,6 @@ def plot_histogram_and_error_stats_4_panels(
     place_name=None,
     figsize=None,
     labels_uppercase=True,
-    # error_max_cutoff = None,
     dpi=600,
     hist_cutoff_num_stddevs=2,
     also_add_rmse_to_hist=False,
@@ -487,24 +486,6 @@ def plot_histogram_and_error_stats_4_panels(
     canopy_fraction = data["canopy_fraction"]
     dem_elev = data["dem_elev"]
     mean_elev = data["mean"]
-
-    # TODO: Get rid of these comments after testing. We already filtered data out after validation, don't need to do it
-    #   again here.
-    # Get rid of data with 3 or less ground photons in the inter-decile range, and all nans.
-    # good_data_mask = numphotons_intd > 3 & ~numpy.isnan(meandiff) & ~numpy.isnan(canopy_fraction)
-
-    # Filter out errors that are above a certain threshold, if provided (presumed to be ICESat-2 anomalies, such as in the CUDEM tiles.)
-    # if error_max_cutoff is not None:
-    #     good_data_mask = good_data_mask & (numpy.abs(meandiff) <= error_max_cutoff)
-
-    # meandiff           =        meandiff[good_data_mask]
-    # # meddiff            =         meddiff[good_data_mask]
-    # # cellstd            =         cellstd[good_data_mask]
-    # canopy_fraction    = canopy_fraction[good_data_mask]
-    # # numphotons         =      numphotons[good_data_mask]
-    # numphotons_intd    = numphotons_intd[good_data_mask]
-    # dem_elev           =        dem_elev[good_data_mask]
-    # mean_elev          =       mean_elev[good_data_mask]
 
     if len(meandiff) < 3:
         logger.info("Not enough cells to plot statistics. Aborting.")

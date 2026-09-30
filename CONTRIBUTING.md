@@ -49,6 +49,9 @@ tracked in [#40](https://github.com/continuous-dems/ivert/issues/40). Please
 don't add a new entry to that list to get a change through — fix the code, or
 raise the rule on #40 if it needs discussion.
 
+`TODO` comments fail the lint (`FIX002`). Open a GitHub issue for unfinished
+work instead; if a note really belongs in the code, mark it `# noqa: FIX002`.
+
 ### Output and logging
 
 Library code reports through the standard `logging` module, never `print()`.
