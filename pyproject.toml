@@ -84,7 +84,6 @@ ignore = [
     "CPY001",   # missing-copyright-notice
     "D103",     # undocumented-public-function
     "E501",     # line-too-long
-    "ERA001",   # commented-out-code
     "FBT001",   # boolean-type-hint-positional-argument
     "FBT002",   # boolean-default-value-positional-argument
     "PLC0415",  # import-outside-top-level

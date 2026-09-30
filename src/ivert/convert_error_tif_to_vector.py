@@ -46,7 +46,6 @@ def convert_ivert_error_map_to_vector(
             offset="center",
         )
         good_data = array[good_rows, good_cols]
-        # print(min(good_data), max(good_data))
         crs = src.crs
 
         data_dict = {

@@ -13,7 +13,6 @@ def query_yes_no(question: str, default: str = "yes") -> bool:
 
     The "answer" return value is True for "yes" or False for "no".
     """
-    # valid = {"yes": True, "y": True, "ye": True, "no": False, "n": False}
     if default is None:
         prompt = " [y/n] "
     elif default.strip().lower() in ("yes", "y", "si", "s"):

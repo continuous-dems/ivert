@@ -1661,7 +1661,6 @@ class IS2Database:
         min_bathy_confidence=0.75,
         min_confidence_level: int = 1,
         omit_bboxes=None,
-        # download_new_data: bool = False,
     ) -> pd.DataFrame | None:
         """Query the database for photons in a given bounding box and date range.
 
@@ -1691,7 +1690,6 @@ class IS2Database:
 
         logger.debug("Reading %d granules overlapping %r.", len(gdf_subset), bbox)
 
-        # print(gdf_subset)
         fnames = gdf_subset["filename"].apply(
             lambda x: os.path.join(self.granules_dir, x),
         )
@@ -1705,7 +1703,6 @@ class IS2Database:
         granule_dfs = []
         for _idx, granule_line in gdf_subset.iterrows():
             fpath = os.path.join(self.granules_dir, granule_line["filename"])
-            # print(os.path.basename(fpath))
             granule_dfs.append(
                 self.read_granule(
                     fpath,
@@ -1713,7 +1710,6 @@ class IS2Database:
                     photon_classes=photon_classes,
                 ),
             )
-            # print()
 
         if len(granule_dfs) == 0:
             return None
@@ -1813,10 +1809,6 @@ class IS2Database:
         gdf = self.open_gdf()
         if gdf is None or len(gdf) == 0:
             return None
-
-        # To assess intersection, we must first increment the tmin of both the incoming bboxes and the query bbox by 1
-        # to make it a non-inclusive limit.
-        # query_bbox = tuple(bbox[0:5]) + (self.increment_yyyymmdd_by_n(bbox[5], 1),)
 
         bbox = (
             float(bbox[0]),
@@ -2475,18 +2467,11 @@ class IS2Database:
         if existing_bboxes is None or len(existing_bboxes) == 0:
             return list(query_bboxes)
 
-        # For the purpose of merging, increase the tmaxes by 1 day to make all boxes non-inclusive
-        # (This makes adjoining bounding-boxes actually border each other in coordinate space rather than be 1 day apart)
-        # e_bboxes = [tuple(bb[:5]) + (self.increment_yyyymmdd_by_n(bb[5], 1),) for bb in existing_bboxes]
-
         # Simplify by merging these bboxes together (could have been gathered on a number of queries).
         e_bboxes = ivert.utils.cuboid_funcs.merge_cuboids(
             existing_bboxes,
             bbox_order="axis",
         )
-
-        # Now, increment the query_box tmax by 1 to make it non-inclusive as well (for cuboid subtraction)
-        # query_bbox = tuple(query_bbox[:5]) + (self.increment_yyyymmdd_by_n(query_bbox[5], 1),)
 
         # Now do a cuboid subtraction of the query bboxes by all the e_bboxes:
         query_bboxes = list(query_bboxes)
@@ -2502,9 +2487,6 @@ class IS2Database:
                 )
 
             query_bboxes = new_bboxes
-
-        # Now, decrement the tmax day by 1 to make the ranges inclusive again.
-        # query_bboxes = [tuple(bb[:5]) + (self.increment_yyyymmdd_by_n(bb[5], -1),) for bb in query_bboxes]
 
         # Do a quick merger on all the remaining bboxes to make sure they're simplified
         return ivert.utils.cuboid_funcs.merge_cuboids(
