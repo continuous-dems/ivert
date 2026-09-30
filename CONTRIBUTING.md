@@ -150,10 +150,9 @@ CI and lint changes don't.
 [autouse fixture](https://docs.pytest.org/en/stable/how-to/fixtures.html#autouse-fixtures-fixtures-you-don-t-have-to-request),
 one that pytest applies to every test without the test asking for it. It
 isolates the process-global state IVERT carries: it points `IVERT_USER_CONFIG`
-at a temporary file, pins `is_aws()` off, resets the `configfile.ivert_config`
-singleton, and clears the `photon_classes()` cache. Tests should never read or
-write a real `~/.ivert`. `tests/test_isolation.py` asserts that the fixture is
-still doing its job.
+at a temporary file, pins `is_aws()` off, and clears the `photon_classes()`
+cache. Tests should never read or write a real `~/.ivert`.
+`tests/test_isolation.py` asserts that the fixture is still doing its job.
 
 ## Branches and pull requests
 

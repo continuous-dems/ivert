@@ -7,7 +7,6 @@ out of state earlier tests leave behind.
 import pytest
 
 from ivert import photon_classes
-from ivert.utils import configfile
 
 
 @pytest.fixture(autouse=True)
@@ -24,10 +23,6 @@ def isolate_ivert_state(tmp_path, monkeypatch):
     # Config.__init__ switches to the [AWS] section based on this, so pin it
     # rather than letting the answer differ between a laptop and a CI runner.
     monkeypatch.setattr("ivert.utils.is_aws.is_aws", lambda: False)
-
-    # Config.__init__ assigns to this module global when it loads the defaults
-    # file, so the first test to build one would otherwise leak it into the rest.
-    monkeypatch.setattr(configfile, "ivert_config", None)
 
     # photon_classes() caches its result; clear it so no test sees another's.
     photon_classes.photon_classes.cache_clear()
