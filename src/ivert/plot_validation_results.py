@@ -710,18 +710,3 @@ def plot_histogram_and_error_stats_4_panels(
     plt.close(fig)
 
     return
-
-
-if __name__ == "__main__":
-    results_df = pd.read_hdf(
-        "/home/mmacferrin/Research/DEMs/CUDEMs_1_9_Oregon_2025/dems/2025.10.10_w_metadata/icesat2/ncei19_n45x50_w124x00_2025v1_results.h5",
-    )
-    plot_histograms_and_line(
-        results_df,
-        output_figure_name="/home/mmacferrin/Research/DEMs/CUDEMs_1_9_Oregon_2025/dems/2025.10.10_w_metadata/icesat2/ncei19_n45x50_w124x00_2025v1_plot.png",
-        figsize=(10.0, 3.3),
-        dpi=600,
-        place_name="ncei19_n45x50_w124x00_2025v1",
-        hist_cutoff_num_stddevs=2.5,
-        also_add_rmse_to_hist=True,
-    )
