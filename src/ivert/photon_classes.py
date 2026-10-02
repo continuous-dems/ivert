@@ -28,18 +28,18 @@ def class_descriptions():
 def _short(description):
     """Strip parenthetical qualifiers and any '/'-separated alternates.
 
-    e.g. ``"Coastline / Nearshore Water (ATL24 / Dynamic Algo)"`` -> ``"Coastline"``.
+    e.g. ``"Seafloor (ATL24 / Dynamic Algo)"`` -> ``"Seafloor"``.
     """
     return re.sub(r"\(.*?\)", "", description).split("/")[0].strip()
 
 
 def class_labels():
-    """Return ``{code: short human label}``, e.g. ``41 -> "Coastline"``."""
+    """Return ``{code: short human label}``, e.g. ``41 -> "Nearshore Water Surface"``."""
     return {code: _short(desc) for code, desc in photon_classes()}
 
 
 def class_names():
-    """Return ``{code: short snake_case name}``, e.g. ``41 -> "coastline"``."""
+    """Return ``{code: short snake_case name}``, e.g. ``41 -> "nearshore_water_surface"``."""
     return {
         code: "_".join(_short(desc).split()).lower() for code, desc in photon_classes()
     }
