@@ -86,6 +86,77 @@ sub-process has to pass that level across and call
 `logging_config.configure_worker_logging()` on the other side — a spawned
 process inherits no logging configuration from its parent.
 
+## Tests
+
+The test suite lives in `tests/` at the repository root and runs under
+[pytest](https://docs.pytest.org/). Install it alongside an editable IVERT with
+the `test` dependency group:
+
+```bash
+pip install --group test -e .   # --group needs pip 25.1 or newer
+```
+
+Then, from anywhere in the repository:
+
+```bash
+pytest                          # the fast, offline tests
+pytest tests/test_cli.py        # one file
+pytest -k cuboid                # anything matching a name
+pytest --cov=ivert              # with a coverage report
+```
+
+Configuration lives in `pyproject.toml` under `[tool.pytest.ini_options]`, and
+is the single source of truth for both a local run and CI — `test.yml` invokes
+the same `pytest` you do. There is no separate `pytest.ini` or `tox.ini`.
+
+### Markers
+
+Two markers describe tests that a bare `pytest` deliberately skips:
+
+- `network` — hits a third-party network dependency, and needs Earthdata
+  credentials in `~/.netrc`.
+- `slow` — takes too long to run every time (tens of seconds or more).
+
+The `addopts` setting in `pyproject.toml` excludes both, so `pytest` with no
+arguments stays fast and offline and is safe on a machine with no credentials.
+Run them deliberately with `pytest -m network`, or clear the filter entirely
+with `pytest -m ""`. Markers are declared in `pyproject.toml` and
+`--strict-markers` is on, so a mistyped marker is an error rather than a
+decorator that silently does nothing.
+
+### Writing a test
+
+`tests/` mirrors the layout of `src/ivert/`. Name a test file after the module
+it covers, and put it in the folder matching that module's subpackage:
+
+- `src/ivert/cli.py` → `tests/test_cli.py`
+- `src/ivert/utils/cuboid_funcs.py` → `tests/utils/test_cuboid_funcs.py`
+
+A module with several test files keeps them side by side, named for what each
+covers (the `tests/test_*.py` files for `icesat2_database_v2.py`, for example).
+Create a subpackage's folder when its first test arrives. It needs no
+`__init__.py`: pytest runs with `--import-mode=importlib`, which loads each
+test file by its path, so files in different folders may share a name. One
+test file can't import another; put shared fixtures in `conftest.py`.
+
+Fixture data is generated in a fixture, never committed. `data/` is gitignored
+and holds tens of gigabytes of granules, and the `check-added-large-files` hook
+caps additions at 500 kB.
+
+New logic is expected to arrive with a test where one can reasonably be
+written. A test-only change needs no `CHANGELOG.md` entry, for the same reason
+CI and lint changes don't.
+
+### Test isolation
+
+`tests/conftest.py` has an
+[autouse fixture](https://docs.pytest.org/en/stable/how-to/fixtures.html#autouse-fixtures-fixtures-you-don-t-have-to-request),
+one that pytest applies to every test without the test asking for it. It
+isolates the process-global state IVERT carries: it points `IVERT_USER_CONFIG`
+at a temporary file, pins `is_aws()` off, and clears the `photon_classes()`
+cache. Tests should never read or write a real `~/.ivert`.
+`tests/test_isolation.py` asserts that the fixture is still doing its job.
+
 ## Branches and pull requests
 
 `main` is the default branch and is not committed to directly. Work happens on
