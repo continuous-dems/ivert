@@ -133,6 +133,7 @@ def test_classified_photons_carry_along_track_m(tmp_path, monkeypatch):
         ivert_landmask_directory=str(tmp_path / "landmasks"),
         icesat2_download_directory=str(tmp_path),
         icesat2_vertical_datum="ellipsoid",
+        nsidc_atl_version="007",
     )
     db = is2db.IS2Database(ivert_config=config)
 
@@ -168,6 +169,7 @@ def test_no_along_track_without_the_segment_columns(tmp_path, monkeypatch):
         ivert_landmask_directory=str(tmp_path / "landmasks"),
         icesat2_download_directory=str(tmp_path),
         icesat2_vertical_datum="ellipsoid",
+        nsidc_atl_version="007",
     )
 
     df, _ = is2db.IS2Database(ivert_config=config)._classify_h5(h5, query_bbox)
