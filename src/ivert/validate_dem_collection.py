@@ -124,6 +124,27 @@ def _summary_results_base(place_name):
     return stats_and_plots_base
 
 
+# File extensions treated as DEM rasters in a collection. Anything else in a directory
+# or list of files (.aux.xml, .ovr, .hdr, .prj sidecars, results files, ...) is skipped.
+DEM_RASTER_EXTENSIONS = (
+    ".tif",
+    ".tiff",
+    ".vrt",
+    ".nc",
+    ".nc4",
+    ".img",
+    ".asc",
+    ".bag",
+    ".grd",
+    ".flt",
+)
+
+
+def _is_dem_raster(fname):
+    """Return True if the file name has one of the DEM_RASTER_EXTENSIONS (any case)."""
+    return os.path.splitext(fname)[1].lower() in DEM_RASTER_EXTENSIONS
+
+
 def _resolve_dem_list(dem_list_or_dir, fname_filter, fname_omit):
     """Return the list of DEM paths a collection validation will run over."""
     path = dem_list_or_dir
@@ -132,14 +153,26 @@ def _resolve_dem_list(dem_list_or_dir, fname_filter, fname_omit):
         path = path[0]
 
     if (type(path) in (list, tuple)) and (len(path) > 1):
-        dem_list = path
+        dem_list = [fn for fn in path if _is_dem_raster(fn)]
+        skipped = [fn for fn in path if not _is_dem_raster(fn)]
+        if skipped:
+            logger.warning(
+                "Skipping %d file(s) that are not a recognized DEM raster type (%s): %s",
+                len(skipped),
+                ", ".join(DEM_RASTER_EXTENSIONS),
+                ", ".join(skipped),
+            )
     elif os.path.isdir(path):
-        dem_list = sorted([os.path.join(path, fname) for fname in os.listdir(path)])
+        dem_list = sorted(
+            os.path.join(path, fname)
+            for fname in os.listdir(path)
+            if _is_dem_raster(fname) and os.path.isfile(os.path.join(path, fname))
+        )
     else:
         assert os.path.exists(path)
         dem_list = [path]
 
-    # Filter for needed strings in filenames, such as "_wgs84.tif"
+    # Filter for needed strings in filenames, such as "_wgs84"
     if fname_filter is not None:
         # Include only filenames that MATCH the match string.
         dem_list = [fn for fn in dem_list if (re.search(fname_filter, fn) is not None)]
@@ -158,7 +191,7 @@ def dems_needing_validation(
     place_name=None,
     include_photons=False,
     overwrite=False,
-    fname_filter=r"\.tif\Z",
+    fname_filter=None,
     fname_omit=None,
 ):
     """Split a collection's DEMs into those validate_list_of_dems() would validate and those it would reuse.
@@ -194,7 +227,7 @@ def validate_list_of_dems(
     dem_list_or_dir: str | list[str],
     classes: list[int] | tuple[int, ...] = (1, 6, 40),
     output_dir: str | None = None,
-    fname_filter: str | None = r"\.tif\Z",
+    fname_filter: str | None = None,
     fname_omit: str | None = None,
     band_num: int = 1,
     input_vdatum: str | int | None = None,
@@ -494,10 +527,10 @@ def validate_list_of_dems(
     "--fname_filter",
     "-ff",
     type=str,
-    default=r"\.tif\Z",
-    help=r"A regex string to search for in all DEM file names, to use as a filter. Defaults to "
-    "r'\\.tif\\Z', indicating .tif at the end of the file name. Helps elimiate files that "
-    "shouldn't be considered.",
+    default=None,
+    help="A regex string to search for in all DEM file names, to use as a filter. Only files "
+    "with a recognized raster extension (.tif, .tiff, .vrt, .nc, .nc4, .img, .asc, .bag, .grd, "
+    ".flt) are considered in any case.",
 )
 @click.option(
     "--fname_omit",

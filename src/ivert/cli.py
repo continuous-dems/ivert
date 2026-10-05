@@ -2980,8 +2980,10 @@ def validate(
 ):
     """Validate one or more DEMs against ICESat-2 photon data.
 
-    FILES_OR_DIRECTORY can be one or more GeoTIFF paths, a directory
-    (all `*.tif` files are used), or a glob pattern (e.g., `data/ncei*.tif`).
+    FILES_OR_DIRECTORY can be one or more DEM raster paths, a directory, or a
+    glob pattern (e.g., `data/ncei*.tif`). With a directory or several files,
+    only rasters ending in .tif, .tiff, .vrt, .nc, .nc4, .img, .asc, .bag, .grd
+    or .flt are used (any case), so sidecar files are skipped.
 
     Example: ivert validate mydem.tif -V navd88 -n "Oregon Coast"
 

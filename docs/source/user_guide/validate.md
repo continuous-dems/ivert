@@ -33,7 +33,7 @@ ivert validate /data/dems/
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `FILES_OR_DIRECTORY` | *(required)* | One or more GeoTIFF paths, a directory, or a glob pattern |
+| `FILES_OR_DIRECTORY` | *(required)* | One or more DEM raster paths, a directory, or a glob pattern. With a directory or several files, only `.tif`, `.tiff`, `.vrt`, `.nc`, `.nc4`, `.img`, `.asc`, `.bag`, `.grd` and `.flt` files are used |
 | `-o, --outdir DIR` | DEM's own directory | Output directory for results files |
 | `-bn, --band-num N` | `1` | Raster band to validate (1-indexed) |
 | `--ndv VALUE` | *(from file)* | No-data value to exclude; use `nan` for NaN |
