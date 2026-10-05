@@ -64,8 +64,8 @@ don't format one by hand.
 Pass values as arguments rather than interpolating them into the message:
 
 ```python
-logger.info("Wrote %s photon tiles to %s.", len(fnames), outfile)   # yes
-logger.info(f"Wrote {len(fnames)} photon tiles to {outfile}.")       # no (G004)
+logger.info("Wrote %s photon tiles to %s.", len(fnames), outfile)  # yes
+logger.info(f"Wrote {len(fnames)} photon tiles to {outfile}.")  # no (G004)
 ```
 
 Ruff enforces this (`G002`, `G003`, `G004`) because the formatting is then
