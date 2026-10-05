@@ -14,6 +14,7 @@ import ivert.bathy_filters
 import ivert.icesat2_database_v2
 import ivert.utils.query_yes_no as yes_no
 from ivert import plot_validation_results, validate_dem
+from ivert.utils import dem_source
 
 logger = logging.getLogger(__name__)
 
@@ -145,8 +146,27 @@ def _is_dem_raster(fname):
     return os.path.splitext(fname)[1].lower() in DEM_RASTER_EXTENSIONS
 
 
+def _log_failed_dems(failed_dems, num_dems):
+    """Log, as the run's last word, which DEMs were skipped because of errors.
+
+    Each skip was already logged when it happened. This repeats it at the end, where
+    someone who didn't watch a long run will see it.
+    """
+    if failed_dems:
+        logger.error(
+            "%d of %d DEMs did not run because of errors (see the errors above): %s",
+            len(failed_dems),
+            num_dems,
+            ", ".join(failed_dems),
+        )
+
+
 def _resolve_dem_list(dem_list_or_dir, fname_filter, fname_omit):
-    """Return the list of DEM paths a collection validation will run over."""
+    """Return the list of DEM paths a collection validation will run over.
+
+    No file is opened here. Each NetCDF file's variable is picked just before that DEM
+    is validated, so a long run doesn't spend its start opening every file.
+    """
     path = dem_list_or_dir
     # If we have a one-item list here, get the item in that list.
     if type(path) in (list, tuple) and len(path) == 1:
@@ -169,7 +189,7 @@ def _resolve_dem_list(dem_list_or_dir, fname_filter, fname_omit):
             if _is_dem_raster(fname) and os.path.isfile(os.path.join(path, fname))
         )
     else:
-        assert os.path.exists(path)
+        assert os.path.exists(dem_source.dem_file_path(path))
         dem_list = [path]
 
     # Filter for needed strings in filenames, such as "_wgs84"
@@ -193,6 +213,7 @@ def dems_needing_validation(
     overwrite=False,
     fname_filter=None,
     fname_omit=None,
+    variable=None,
 ):
     """Split a collection's DEMs into those validate_list_of_dems() would validate and those it would reuse.
 
@@ -216,6 +237,7 @@ def dems_needing_validation(
             dem,
             output_dir,
             include_photons=include_photons,
+            variable=variable,
         ):
             to_validate.append(dem)
         else:
@@ -230,6 +252,7 @@ def validate_list_of_dems(
     fname_filter: str | None = None,
     fname_omit: str | None = None,
     band_num: int = 1,
+    variable: str | None = None,
     input_vdatum: str | int | None = None,
     dem_ndv: float | None = None,
     overwrite: bool = False,
@@ -254,13 +277,17 @@ def validate_list_of_dems(
 
     DEMs should encompass a contiguous area so as to use the same set of ICESat-2 granules for
     validation. 'bathy_filter_settings' is passed to validate_dem.validate_dem(); None uses
-    the 'bathy_*' config values.
+    the 'bathy_*' config values. 'variable' picks the variable to validate in NetCDF
+    files, as in validate_dem.validate_dem(). A NetCDF file without that variable (or,
+    with no variable given, without a default elevation variable) is logged and skipped.
     """
     if output_dir is None:
         if isinstance(dem_list_or_dir, str) and os.path.isdir(dem_list_or_dir):
             stats_and_plots_dir = dem_list_or_dir
         elif type(dem_list_or_dir) is str:
-            stats_and_plots_dir = os.path.dirname(dem_list_or_dir)
+            stats_and_plots_dir = os.path.dirname(
+                dem_source.dem_file_path(dem_list_or_dir),
+            )
         else:
             dem_list_fitting_filter = [
                 fn
@@ -276,13 +303,15 @@ def validate_list_of_dems(
                     )
                 )
             ]
-            stats_and_plots_dir = os.path.dirname(dem_list_fitting_filter[0])
+            stats_and_plots_dir = os.path.dirname(
+                dem_source.dem_file_path(dem_list_fitting_filter[0]),
+            )
     elif os.path.isdir(output_dir):
         stats_and_plots_dir = output_dir
     # If the output dir appears to be a relative path, then join it with the input dir.
     elif type(dem_list_or_dir) is str:
         stats_and_plots_dir = os.path.join(
-            os.path.dirname(dem_list_or_dir),
+            os.path.dirname(dem_source.dem_file_path(dem_list_or_dir)),
             output_dir,
         )
     else:
@@ -301,7 +330,7 @@ def validate_list_of_dems(
             )
         ]
         stats_and_plots_dir = os.path.join(
-            os.path.dirname(dem_list_fitting_filter[0]),
+            os.path.dirname(dem_source.dem_file_path(dem_list_fitting_filter[0])),
             output_dir,
         )
 
@@ -380,15 +409,27 @@ def validate_list_of_dems(
     # come back empty or fail are skipped, so this can't be indexed from dem_list.
     list_of_results_dems = []
     list_of_empty_files = []
+    # DEMs skipped because of an error, reported again once the run is over.
+    failed_dems = []
 
     # For each DEM, validate it.
-    for i, dem_path in enumerate(dem_list):
+    for i, listed_dem in enumerate(dem_list):
         logger.info(
             "\n======= %s %s of %s =======",
-            os.path.split(dem_path)[1],
+            os.path.split(listed_dem)[1],
             "(" + str(i + 1),
             str(len(dem_list)) + ")",
         )
+
+        # Pick the NetCDF variable to validate now, one file at a time.
+        try:
+            dem_path = dem_source.resolve_dem_source(listed_dem, variable)
+        except dem_source.DEMVariableError as exc:
+            # Not logger.exception: the message names the file and its variables.
+            logger.error("Skipping: %s", exc)  # noqa: TRY400
+            failed_dems.append(os.path.basename(dem_source.dem_file_path(listed_dem)))
+            continue
+        dem_file = os.path.basename(dem_source.dem_file_path(dem_path))
 
         if output_dir is None:
             this_output_dir = os.path.split(dem_path)[0]
@@ -396,13 +437,16 @@ def validate_list_of_dems(
             this_output_dir = output_dir
         else:
             # If it's a relative dir, append it to where the dems are.
-            this_output_dir = os.path.join(os.path.dirname(dem_list[0]), output_dir)
+            this_output_dir = os.path.join(
+                os.path.dirname(dem_source.dem_file_path(dem_list[0])),
+                output_dir,
+            )
             if not os.path.exists(this_output_dir):
                 os.mkdir(this_output_dir)
 
         results_h5_file = os.path.join(
             this_output_dir,
-            os.path.splitext(os.path.split(dem_path)[1])[0] + "_results.h5",
+            dem_source.dem_base_name(dem_path) + "_results.h5",
         )
         empty_fname = results_h5_file.removesuffix("_results.h5") + "_results_EMPTY.txt"
 
@@ -444,15 +488,17 @@ def validate_list_of_dems(
             # and the traceback is the same every time.
             logger.error(  # noqa: TRY400
                 "Skipping %s due to memory error.",
-                os.path.basename(dem_path),
+                dem_file,
             )
+            failed_dems.append(dem_file)
             continue
 
         except KeyboardInterrupt:
             raise
 
         except Exception:
-            logger.exception("Skipping %s.", os.path.basename(dem_path))
+            logger.exception("Skipping %s.", dem_file)
+            failed_dems.append(dem_file)
             continue
 
         files_to_export.extend(list(shared_ret_values.values()))
@@ -469,6 +515,7 @@ def validate_list_of_dems(
 
     if len(list_of_results_dfs) == 0:
         logger.info("No results dataframes generated. Aborting.")
+        _log_failed_dems(failed_dems, len(dem_list))
         return None
 
     # Generate the overall summary stats file.
@@ -516,6 +563,7 @@ def validate_list_of_dems(
         files_to_export.append(results_h5)
 
     validate_dem.log_written_files(files_to_export[num_tile_files:])
+    _log_failed_dems(failed_dems, len(dem_list))
     return files_to_export
 
 
@@ -632,6 +680,13 @@ def validate_list_of_dems(
     default=True,
     help="Write a CSV with summary results of each individual DEM.",
 )
+@click.option(
+    "--variable",
+    type=str,
+    default=None,
+    help="The variable to validate in NetCDF DEM files. Defaults to each "
+    "file's only variable, or else the first of 'elev', 'elevation' or 'z' found.",
+)
 @click.option("--quiet", "-q", is_flag=True, default=False, help="Suppress output.")
 def main(
     directory_or_files,
@@ -649,6 +704,7 @@ def main(
     measure_coverage,
     minimum_coverage_pct,
     write_summary_csv,
+    variable,
     quiet,
 ):
     """Validate a list or directory of DEMs against ICESat-2 photon data.
@@ -705,6 +761,7 @@ def main(
         fname_filter=fname_filter,
         fname_omit=fname_omit,
         output_dir=output_dir,
+        variable=variable,
         input_vdatum=input_vdatum,
         overwrite=overwrite,
         place_name=place_name,

@@ -9,6 +9,8 @@ import click
 import rasterio
 import rasterio.windows
 
+from ivert.utils import dem_source
+
 logger = logging.getLogger(__name__)
 
 
@@ -39,7 +41,7 @@ def split(
         ]
 
     if output_dir is None:
-        output_dir = os.path.dirname(dem_name[0])
+        output_dir = os.path.dirname(dem_source.dem_file_path(dem_name[0]))
 
     outfiles = []
     infiles = []
@@ -65,7 +67,7 @@ def split(
                     assert len(yb) == 2
                     fn_out = os.path.join(
                         output_dir,
-                        f"{os.path.splitext(os.path.basename(fname))[0]}_{yj}.{xi}.tif",
+                        f"{dem_source.dem_base_name(fname)}_{yj}.{xi}.tif",
                     )
 
                     if os.path.exists(fn_out):

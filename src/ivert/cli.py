@@ -2385,6 +2385,7 @@ def _run_validate(
     minimum_coverage_pct_bathy=None,
     bathy_filter_settings=None,
     manifest_options=None,
+    variable=None,
 ):
     """Branch to validate_dem or validate_list_of_dems based on the number of input files.
 
@@ -2497,18 +2498,23 @@ def _run_validate(
     except is2db_mod.DatabaseNotFoundError as exc:
         raise click.ClickException(str(exc)) from exc
 
-    if len(expanded) == 1 and os.path.isfile(expanded[0]):
+    from ivert.utils import dem_source
+
+    if len(expanded) == 1 and os.path.isfile(dem_source.dem_file_path(expanded[0])):
+        # A multi-variable file (e.g. NetCDF) becomes the subdataset string of the
+        # variable to validate. Raises DEMVariableError if there isn't one.
+        dem_name = dem_source.resolve_dem_source(expanded[0], variable)
         # validate_dem uses output_dir as-is, so resolve any relative path against
         # the DEM's own directory rather than the current working directory.
         if not os.path.isabs(outdir):
             single_outdir = os.path.join(
-                os.path.dirname(os.path.abspath(expanded[0])),
+                os.path.dirname(os.path.abspath(dem_source.dem_file_path(dem_name))),
                 outdir,
             )
         else:
             single_outdir = outdir
         kwargs = {
-            "dem_name": expanded[0],
+            "dem_name": dem_name,
             "output_dir": single_outdir,
             "classes": class_list,
             "band_num": band_num,
@@ -2534,13 +2540,13 @@ def _run_validate(
         if exclude_zones:
             kwargs["exclude_zones"] = exclude_zones
         if manifest_options is not None and vd_module.dem_needs_validation(
-            expanded[0],
+            dem_name,
             single_outdir,
             include_photons=include_photons,
             overwrite=overwrite,
         ):
             _write_run_manifest(
-                manifest_module.manifest_path(single_outdir, dem_name=expanded[0]),
+                manifest_module.manifest_path(single_outdir, dem_name=dem_name),
                 manifest_options,
                 expanded,
                 single_outdir,
@@ -2550,11 +2556,15 @@ def _run_validate(
         dem_input = expanded[0] if len(expanded) == 1 else expanded
         if not os.path.isabs(outdir):
             if isinstance(dem_input, list):
-                dem_dir = os.path.dirname(os.path.abspath(dem_input[0]))
+                dem_dir = os.path.dirname(
+                    os.path.abspath(dem_source.dem_file_path(dem_input[0])),
+                )
             elif os.path.isdir(dem_input):
                 dem_dir = os.path.abspath(dem_input)
             else:
-                dem_dir = os.path.dirname(os.path.abspath(dem_input))
+                dem_dir = os.path.dirname(
+                    os.path.abspath(dem_source.dem_file_path(dem_input)),
+                )
             multi_outdir = os.path.join(dem_dir, outdir)
         else:
             multi_outdir = outdir
@@ -2563,6 +2573,7 @@ def _run_validate(
             "output_dir": multi_outdir,
             "classes": class_list,
             "band_num": band_num,
+            "variable": variable,
             "place_name": region_name,
             "include_photon_validation": include_photons,
             "measure_coverage": measure_coverage,
@@ -2591,6 +2602,7 @@ def _run_validate(
                 place_name=region_name,
                 include_photons=include_photons,
                 overwrite=overwrite,
+                variable=variable,
             )
             if to_validate:
                 _write_run_manifest(
@@ -2723,6 +2735,18 @@ def _run_validate(
     default=1,
     show_default=True,
     help="Raster band to validate in each DEM (1-indexed). Other bands are ignored.",
+)
+@click.option(
+    "--variable",
+    "variable",
+    type=str,
+    default=None,
+    help=(
+        "Variable to validate in a NetCDF DEM file. By default a "
+        "file's only variable is used; a file with several is searched for 'elev', "
+        "'elevation' and then 'z'. A file without the variable is an error: a "
+        "single-DEM run stops, and a multi-DEM run skips that file."
+    ),
 )
 @click.option(
     "-sd",
@@ -2955,6 +2979,7 @@ def validate(
     minimum_coverage_pct_land,
     minimum_coverage_pct_bathy,
     band_num,
+    variable,
     outlier_sd_threshold,
     classes,
     min_photons,
@@ -3091,30 +3116,38 @@ def validate(
         name: option_values[name] for name in manifest_module.tracked_params(validate)
     }
 
-    _run_validate(
-        files_or_directory,
-        vdatum,
-        region_name,
-        include_photons,
-        measure_coverage,
-        band_num,
-        outlier_sd_threshold,
-        classes,
-        min_photons,
-        buildings,
-        confidence_level,
-        bathy_confidence,
-        outdir,
-        ndv=ndv,
-        export_formats=export_formats,
-        overwrite=overwrite,
-        exclude_zones=exclude_zones,
-        minimum_coverage_pct=minimum_coverage_pct,
-        minimum_coverage_pct_land=minimum_coverage_pct_land,
-        minimum_coverage_pct_bathy=minimum_coverage_pct_bathy,
-        bathy_filter_settings=bathy_filter_settings,
-        manifest_options=manifest_options,
-    )
+    from ivert.utils.dem_source import DEMVariableError
+
+    try:
+        _run_validate(
+            files_or_directory,
+            vdatum,
+            region_name,
+            include_photons,
+            measure_coverage,
+            band_num,
+            outlier_sd_threshold,
+            classes,
+            min_photons,
+            buildings,
+            confidence_level,
+            bathy_confidence,
+            outdir,
+            ndv=ndv,
+            export_formats=export_formats,
+            overwrite=overwrite,
+            exclude_zones=exclude_zones,
+            minimum_coverage_pct=minimum_coverage_pct,
+            minimum_coverage_pct_land=minimum_coverage_pct_land,
+            minimum_coverage_pct_bathy=minimum_coverage_pct_bathy,
+            bathy_filter_settings=bathy_filter_settings,
+            manifest_options=manifest_options,
+            variable=variable,
+        )
+    except DEMVariableError as exc:
+        # Not logger.exception: the message says everything a traceback would.
+        logger.error(str(exc))  # noqa: TRY400
+        sys.exit(1)
 
 
 if __name__ == "__main__":

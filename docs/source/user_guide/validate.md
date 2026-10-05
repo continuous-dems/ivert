@@ -36,6 +36,7 @@ ivert validate /data/dems/
 | `FILES_OR_DIRECTORY` | *(required)* | One or more DEM raster paths, a directory, or a glob pattern. With a directory or several files, only `.tif`, `.tiff`, `.vrt`, `.nc`, `.nc4`, `.img`, `.asc`, `.bag`, `.grd` and `.flt` files are used |
 | `-o, --outdir DIR` | DEM's own directory | Output directory for results files |
 | `-bn, --band-num N` | `1` | Raster band to validate (1-indexed) |
+| `--variable NAME` | *(see description)* | Variable to validate in a NetCDF DEM file. A file with one variable uses it; otherwise `elev`, `elevation`, then `z` are tried. A file without the variable is an error: a single-DEM run stops, and a multi-DEM run logs it and skips that file |
 | `--ndv VALUE` | *(from file)* | No-data value to exclude; use `nan` for NaN |
 
 ### Vertical datum

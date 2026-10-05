@@ -13,6 +13,8 @@ import rasterio.crs
 import shapely
 import shapely.geometry
 
+from ivert.utils import dem_source
+
 
 def get_dem_reference_frame_from_user_input(
     crs: typing.Union[pyproj.CRS, "rasterio.crs.CRS", str, int, None],
@@ -80,7 +82,7 @@ def get_dem_reference_frame_from_file(
         FileNotFoundError: if the file does not exist.
 
     """
-    if not os.path.exists(dem_fname):
+    if not os.path.exists(dem_source.dem_file_path(dem_fname)):
         msg = f"DEM file {dem_fname} does not exist."
         raise FileNotFoundError(msg)
 
@@ -215,7 +217,7 @@ def get_wgs84_bounding_box(
         )
 
     elif isinstance(polygon_bbox_or_dem_fname, str):
-        if not os.path.exists(polygon_bbox_or_dem_fname):
+        if not os.path.exists(dem_source.dem_file_path(polygon_bbox_or_dem_fname)):
             msg = f"File not found: {polygon_bbox_or_dem_fname}"
             raise FileNotFoundError(msg)
         if dem_horz_reference_frame is None:

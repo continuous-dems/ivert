@@ -41,7 +41,7 @@ import ivert.utils.loggerproc
 import ivert.utils.logging_config
 import ivert.utils.split_dem
 import ivert.vdatum_lookup
-from ivert.utils import dem_geom, parallel_funcs
+from ivert.utils import dem_geom, dem_source, parallel_funcs
 
 logger = logging.getLogger(__name__)
 
@@ -506,7 +506,7 @@ def subdivide_dem(
     output_dir: str | None = None,
 ) -> list[str]:
     """Split a DEM into 4 smaller parts."""
-    if not os.path.exists(dem_name):
+    if not os.path.exists(dem_source.dem_file_path(dem_name)):
         msg = f"DEM {dem_name} does not exist."
         raise FileNotFoundError(msg)
 
@@ -573,6 +573,7 @@ def validate_dem(
     shared_ret_values: dict | None = None,
     icesat2_photon_database_obj: ivert.icesat2_database_v2.IS2Database | None = None,
     band_num: int = 1,
+    variable: str | None = None,
     dem_vertical_datum: str | int | None = None,
     dem_ndv: float | None = None,
     interim_data_dir: str | None = None,
@@ -621,6 +622,9 @@ def validate_dem(
             used if we've already created one, such as in validate_dem_collection, for efficiency.
             Typically ignored for a single DEM validation.
         band_num: The raster band to use in the DEMs. 1-indexed. Defaults to 1 (first band).
+        variable: The variable to validate in a NetCDF DEM file. Defaults to
+            None: a single-variable file is used as-is, and a multi-variable one is searched for
+            'elev', 'elevation' and then 'z' (see ivert.utils.dem_source.resolve_dem_source).
         dem_vertical_datum: The vertical datum of the DEM: a common name ("navd88",
             "mllw"), an EPSG code, or a transformez reference ID ("vdatum:mllw"); see
             ivert.vdatum_lookup. Defaults to "egm2008".
@@ -678,6 +682,7 @@ def validate_dem(
             reads them from the config files.
 
     """
+    dem_name = dem_source.resolve_dem_source(dem_name, variable)
     config = _resolve_config(config, icesat2_photon_database_obj)
 
     if shared_ret_values is None:
@@ -766,7 +771,7 @@ def validate_dem(
             raise MemoryError(msg)
 
         # Make sure the DEM exists that we're trying to sub-divide
-        if not os.path.exists(dem_name):
+        if not os.path.exists(dem_source.dem_file_path(dem_name)):
             msg = f"validate_dem.validate_dem_parallell({orig_dem_name},...) could not find {dem_name}."
             raise FileNotFoundError(msg)
 
@@ -888,7 +893,7 @@ def validate_dem(
 
             output_fname = os.path.join(
                 output_dir,
-                os.path.splitext(os.path.basename(dem_name))[0] + "_results.h5",
+                dem_source.dem_base_name(dem_name) + "_results.h5",
             )
             shared_results_df.to_hdf(
                 output_fname,
@@ -912,7 +917,7 @@ def validate_dem(
         ):
             merged_results_file = os.path.join(
                 output_dir,
-                os.path.splitext(os.path.basename(dem_name))[0] + "_results.h5",
+                dem_source.dem_base_name(dem_name) + "_results.h5",
             )
             with rasterio.open(dem_name) as dem_ds_tmp:
                 exported = export_error_results(
@@ -934,10 +939,13 @@ def validate_dem(
             # If any of the results existed, we don't need to do this just because one sub-result doesn't exist.
             empty_fname = os.path.join(
                 output_dir,
-                os.path.splitext(os.path.basename(dem_name))[0] + "_EMPTY.txt",
+                dem_source.dem_base_name(dem_name) + "_EMPTY.txt",
             )
             with open(empty_fname, "w", encoding="utf-8") as f:
-                f.write(os.path.basename(dem_name) + " had no IVERT results.")
+                f.write(
+                    os.path.basename(dem_source.dem_file_path(dem_name))
+                    + " had no IVERT results.",
+                )
             shared_ret_values["empty_results_filename"] = empty_fname
 
         # Create the overall summary stats text file.
@@ -949,7 +957,7 @@ def validate_dem(
             # Generate a new summary stats file only if we have results and if the recursion depth is zero.
             output_fname = os.path.join(
                 output_dir,
-                os.path.splitext(os.path.basename(dem_name))[0] + "_summary_stats.txt",
+                dem_source.dem_base_name(dem_name) + "_summary_stats.txt",
             )
             write_summary_stats_file(
                 shared_results_df,
@@ -974,7 +982,7 @@ def validate_dem(
             )
             output_fname = os.path.join(
                 output_dir,
-                os.path.splitext(os.path.basename(dem_name))[0] + "_photons.h5",
+                dem_source.dem_base_name(dem_name) + "_photons.h5",
             )
             results_df.to_hdf(output_fname, key="icesat2", complib="zlib", mode="w")
             written_files.append(output_fname)
@@ -988,7 +996,7 @@ def validate_dem(
         ):
             output_fname = os.path.join(
                 output_dir,
-                os.path.splitext(os.path.basename(dem_name))[0] + "_plot.png",
+                dem_source.dem_base_name(dem_name) + "_plot.png",
             )
             ivert.plot_validation_results.plot_histogram_and_error_stats_4_panels(
                 shared_results_df,
@@ -1028,7 +1036,7 @@ def _results_dataframe_filename(dem_name, output_dir):
     """Return the '<dem>_results.h5' path for a DEM's validation results in output_dir."""
     return os.path.join(
         output_dir,
-        os.path.splitext(os.path.basename(dem_name))[0] + "_results.h5",
+        dem_source.dem_base_name(dem_name) + "_results.h5",
     )
 
 
@@ -1038,22 +1046,35 @@ def _empty_results_filename(results_dataframe_file):
     return base + "_EMPTY.txt"
 
 
-def dem_needs_validation(dem_name, output_dir, include_photons=False, overwrite=False):
+def dem_needs_validation(
+    dem_name,
+    output_dir,
+    include_photons=False,
+    overwrite=False,
+    variable=None,
+):
     """Return True if validating this DEM into output_dir would do any validation work.
 
     Mirrors the checks in _check_existing_outputs(): a DEM is done when its results
     .h5 file exists (plus its photon-level results file, if include_photons is set),
     or when an earlier run marked it as empty. Summary files, plots and error exports
     that can be rebuilt from existing results don't count as validation work.
+
+    'variable' is the NetCDF variable to validate, as in validate_dem(). The DEM file
+    isn't opened: for a NetCDF file, each output name it could have is checked
+    (see dem_source.possible_base_names()).
     """
     if overwrite:
         return True
-    results_dataframe_file = _results_dataframe_filename(dem_name, output_dir)
-    if os.path.exists(results_dataframe_file):
-        return include_photons and not os.path.exists(
-            _photon_results_filename(results_dataframe_file),
-        )
-    return not os.path.exists(_empty_results_filename(results_dataframe_file))
+    for base in dem_source.possible_base_names(dem_name, variable):
+        results_dataframe_file = os.path.join(output_dir, base + "_results.h5")
+        if os.path.exists(results_dataframe_file):
+            return include_photons and not os.path.exists(
+                _photon_results_filename(results_dataframe_file),
+            )
+        if os.path.exists(_empty_results_filename(results_dataframe_file)):
+            return False
+    return True
 
 
 def _setup_output_paths(
@@ -1070,7 +1091,9 @@ def _setup_output_paths(
              empty_results_filename, summary_stats_filename, plot_filename).
     """
     if not output_dir:
-        output_dir = os.path.dirname(os.path.abspath(dem_name))
+        output_dir = os.path.dirname(
+            os.path.abspath(dem_source.dem_file_path(dem_name)),
+        )
     if not os.path.exists(output_dir):
         logger.info("Creating output directory %s", output_dir)
         os.makedirs(output_dir)
@@ -1199,7 +1222,7 @@ def _check_existing_outputs(
         if plot_results:
             if not os.path.exists(plot_filename):
                 if location_name is None:
-                    location_name = os.path.split(dem_name)[1]
+                    location_name = os.path.basename(dem_source.dem_file_path(dem_name))
                 if results_dataframe is None:
                     logger.info("Reading %s ...", results_dataframe_file)
                     results_dataframe = read_dataframe_file(results_dataframe_file)
@@ -1225,7 +1248,7 @@ def _check_existing_outputs(
     if mark_empty_results and os.path.exists(empty_results_filename):
         logger.info(
             "No valid data produced during previous ICESat-2 analysis of %s",
-            os.path.basename(dem_name) + ". Returning.",
+            os.path.basename(dem_source.dem_file_path(dem_name)) + ". Returning.",
         )
         return files_to_export
 
@@ -1993,7 +2016,7 @@ def _write_validation_outputs(
 
     if plot_results:
         if location_name is None:
-            location_name = os.path.split(dem_name)[1]
+            location_name = os.path.basename(dem_source.dem_file_path(dem_name))
         ivert.plot_validation_results.plot_histograms_and_line(
             results_dataframe,
             plot_filename,
@@ -2056,7 +2079,7 @@ def validate_dem_parallel(
     if log_level is not None:
         ivert.utils.logging_config.configure_worker_logging(log_level)
 
-    if not os.path.exists(dem_name):
+    if not os.path.exists(dem_source.dem_file_path(dem_name)):
         msg = f"Could not find file {dem_name}."
         raise FileNotFoundError(msg)
 
@@ -2132,7 +2155,10 @@ def validate_dem_parallel(
     if fetch_result is None:
         if mark_empty_results:
             with open(empty_results_filename, "w", encoding="utf-8") as f:
-                f.write(os.path.basename(dem_name) + " had no ICESat-2 results.")
+                f.write(
+                    os.path.basename(dem_source.dem_file_path(dem_name))
+                    + " had no ICESat-2 results.",
+                )
             logger.info(
                 "Created %s to indicate no valid ICESat-2 data was returned here.",
                 empty_results_filename,
@@ -2158,7 +2184,10 @@ def validate_dem_parallel(
     if overlap_result is None:
         if mark_empty_results:
             with open(empty_results_filename, "w", encoding="utf-8") as f:
-                f.write(os.path.basename(dem_name) + " had no ICESat-2 results.")
+                f.write(
+                    os.path.basename(dem_source.dem_file_path(dem_name))
+                    + " had no ICESat-2 results.",
+                )
             logger.info(
                 "Created %s to indicate no data was returned here.",
                 empty_results_filename,
@@ -2725,6 +2754,13 @@ def export_error_results(
     help="The band number (1-indexed) of the input_dem. (Default: 1)",
 )
 @click.option(
+    "--variable",
+    type=str,
+    default=None,
+    help="The variable to validate in a NetCDF DEM file. Defaults to the "
+    "file's only variable, or else the first of 'elev', 'elevation' or 'z' found.",
+)
+@click.option(
     "--place_name",
     "-name",
     type=str,
@@ -2789,6 +2825,7 @@ def main(
     input_vdatum,
     datadir,
     band_num,
+    variable,
     place_name,
     numprocs,
     delete_datafiles,
@@ -2832,6 +2869,12 @@ def main(
     # Set up multiprocessing. 'spawn' is the slowest but the most reliable. Otherwise, file handlers are fucking us up.
     # force=True avoids a RuntimeError if the start method was already set in this process.
     mp.set_start_method("spawn", force=True)
+
+    try:
+        input_dem = dem_source.resolve_dem_source(input_dem, variable)
+    except dem_source.DEMVariableError as exc:
+        logger.error(str(exc))  # noqa: TRY400
+        sys.exit(1)
 
     # Run the validation
     validate_dem(

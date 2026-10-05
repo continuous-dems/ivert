@@ -17,6 +17,8 @@ from pathlib import Path
 import click
 from packaging.version import InvalidVersion, Version
 
+from ivert.utils import dem_source
+
 logger = logging.getLogger(__name__)
 
 MANIFEST_FILENAME = "ivert_manifest.ini"
@@ -56,7 +58,7 @@ def manifest_path(output_dir, dem_name=None):
     """
     if dem_name is None:
         return os.path.join(output_dir, MANIFEST_FILENAME)
-    base = os.path.splitext(os.path.basename(dem_name))[0]
+    base = dem_source.dem_base_name(dem_name)
     return os.path.join(output_dir, f"{base}_{MANIFEST_FILENAME}")
 
 

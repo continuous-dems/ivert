@@ -14,7 +14,7 @@ def test_directory_keeps_raster_formats_and_skips_sidecars(tmp_path):
         tmp_path,
         "a.tif",
         "b.TIFF",
-        "c.nc",
+        "c.grd",
         "d.vrt",
         "e.img",
         "a.tif.aux.xml",
@@ -28,14 +28,14 @@ def test_directory_keeps_raster_formats_and_skips_sidecars(tmp_path):
     assert [p.rsplit("/", 1)[1] for p in dems] == [
         "a.tif",
         "b.TIFF",
-        "c.nc",
+        "c.grd",
         "d.vrt",
         "e.img",
     ]
 
 
 def test_explicit_non_tif_files_are_kept(tmp_path):
-    files = _touch(tmp_path, "a.nc", "b.asc")
+    files = _touch(tmp_path, "a.flt", "b.asc")
 
     assert _resolve_dem_list(files, None, None) == files
 
