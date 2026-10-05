@@ -2,10 +2,6 @@
 
 Code that needs settings builds a Config when it runs, or is handed one, so a
 change one caller makes can't reach another, and nothing is read at import.
-
-Self-contained on purpose: no conftest or pytest configuration is needed, so
-this runs today and folds under the shared scaffold when that lands. Nothing
-here touches the developer's real ~/.ivert.
 """
 
 import importlib
@@ -14,12 +10,6 @@ import pickle
 import pytest
 
 from ivert.utils import configfile
-
-
-@pytest.fixture(autouse=True)
-def _isolated_user_config(tmp_path, monkeypatch):
-    monkeypatch.setenv("IVERT_USER_CONFIG", str(tmp_path / "ivert_user_config.ini"))
-    monkeypatch.setattr("ivert.utils.is_aws.is_aws", lambda: False)
 
 
 def test_there_is_no_module_level_config():
