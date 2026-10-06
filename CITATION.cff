@@ -9,8 +9,8 @@ abstract: >-
   photon data. It supports topographic, bathymetric, and mixed coastal DEMs,
   runs fully offline, and handles vertical datum conversions automatically.
 
-version: "0.6.10"
-date-released: "2026-08-27"
+version: "0.7.0"
+date-released: "2026-10-06"
 
 type: "software"
 license: "MIT"
