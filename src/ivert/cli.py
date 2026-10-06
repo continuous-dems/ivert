@@ -1097,7 +1097,8 @@ def _check_projection_option(projection):
     help=(
         "Minimum ATL24 bathymetry confidence to save (0.0-1.0). "
         "Bathy-floor photons (class 40) below this confidence are discarded "
-        "before writing to the database."
+        "before writing to the database. Applies only to newly downloaded data; "
+        "tiles already in the database are not filtered again."
     ),
 )
 @click.option(

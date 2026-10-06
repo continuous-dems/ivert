@@ -113,6 +113,24 @@ def _delta_time_to_yyyymmdd(delta_time: float) -> int:
     )
 
 
+def _drop_low_confidence_bathy(
+    photons_df: pd.DataFrame,
+    min_bathy_confidence: float,
+) -> pd.DataFrame:
+    """Drop the bathy-floor (class 40) photons whose ATL24 confidence is below the threshold.
+
+    Photons of every other class are kept whatever their ``bathy_confidence``. A
+    threshold of 0 or less, or photons with no ``bathy_confidence`` column (no ATL24
+    data), are left as they are.
+    """
+    if min_bathy_confidence <= 0.0 or "bathy_confidence" not in photons_df.columns:
+        return photons_df
+    return photons_df[
+        (photons_df["class_code"] != 40)
+        | (photons_df["bathy_confidence"] >= min_bathy_confidence)
+    ]
+
+
 # --- Sizing the classification worker pool ----------------------------------
 # A subset is classified in memory: its photons expand into ~16 float64 columns
 # plus the classifiers' temporaries. Measured on the largest subset of a Southern
@@ -1160,6 +1178,7 @@ class IS2Database:
         classes_to_keep: tuple = (1, 2, 3, 6, 7, 40, 41, 42),
         overwrite: bool = False,
         min_confidence_level: int = 1,
+        min_bathy_confidence: float = 0.0,
         granule_num: int | None = None,
         total_granules: int | None = None,
         use_external_masks: bool = True,
@@ -1170,7 +1189,8 @@ class IS2Database:
         its photons are then dealt out to ``tiles``, a list of (tile_bbox, nc_fn)
         pairs that partition that box. A tile that already has its file keeps it
         unless ``overwrite`` is set, and a tile that receives no photons gets no
-        file.
+        file. Bathy-floor (class 40) photons with an ATL24 confidence below
+        ``min_bathy_confidence`` are dropped before the photons are dealt out.
 
         Returns the index records of the tiles that have a file.
         """
@@ -1197,6 +1217,7 @@ class IS2Database:
         if classified is None:
             return records
         df, vertical_datum = classified
+        df = _drop_low_confidence_bathy(df, min_bathy_confidence)
 
         progress = (
             f"{granule_num}/{total_granules} "
@@ -1289,6 +1310,7 @@ class IS2Database:
         query_bbox: tuple,
         classes_to_keep: tuple = (1, 2, 3, 6, 7, 40, 41, 42),
         min_confidence_level: int = 1,
+        min_bathy_confidence: float = 0.0,
         use_external_masks: bool = True,
     ) -> list[dict]:
         """Classify each downloaded subset and store its tiles, in parallel when the machine allows.
@@ -1324,6 +1346,7 @@ class IS2Database:
                 "tiles": tiles_of[h5_fn],
                 "classes_to_keep": classes_to_keep,
                 "min_confidence_level": min_confidence_level,
+                "min_bathy_confidence": min_bathy_confidence,
                 "granule_num": index,
                 "total_granules": total,
                 "use_external_masks": use_external_masks,
@@ -1401,6 +1424,7 @@ class IS2Database:
         classes_to_keep: tuple = (1, 2, 3, 6, 7, 40, 41, 42),
         overwrite: bool = False,
         min_confidence_level: int = 1,
+        min_bathy_confidence: float = 0.0,
         granule_num: int | None = None,
         total_granules: int | None = None,
         use_external_masks: bool = True,
@@ -1417,6 +1441,7 @@ class IS2Database:
             classes_to_keep=classes_to_keep,
             overwrite=overwrite,
             min_confidence_level=min_confidence_level,
+            min_bathy_confidence=min_bathy_confidence,
             granule_num=granule_num,
             total_granules=total_granules,
             use_external_masks=use_external_masks,
@@ -1742,14 +1767,7 @@ class IS2Database:
 
         photons_df = pd.concat(granule_dfs, ignore_index=True)
 
-        if min_bathy_confidence > 0.0:
-            photons_df = photons_df[
-                (photons_df["class_code"] != 40)
-                | (
-                    (photons_df["class_code"] == 40)
-                    & (photons_df["bathy_confidence"] >= min_bathy_confidence)
-                )
-            ]
+        photons_df = _drop_low_confidence_bathy(photons_df, min_bathy_confidence)
 
         if min_confidence_level > 1 and "confidence" in photons_df.columns:
             photons_df = photons_df[photons_df["confidence"] >= min_confidence_level]
@@ -2225,6 +2243,7 @@ class IS2Database:
                 sbbox,
                 classes_to_keep=classes_to_keep,
                 min_confidence_level=min_confidence_level,
+                min_bathy_confidence=min_bathy_confidence,
                 use_external_masks=use_external_masks,
             )
 
