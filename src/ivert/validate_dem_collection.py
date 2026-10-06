@@ -1,15 +1,18 @@
 """Validate and summarize an entire list or directory of DEMs."""
 
 import ast
+import datetime
 import logging
 import multiprocessing as mp
 import os
 import re
+import traceback
 
 import click
 import numpy as np
 import pandas as pd
 
+import ivert
 import ivert.bathy_filters
 import ivert.icesat2_database_v2
 import ivert.utils.query_yes_no as yes_no
@@ -220,6 +223,87 @@ def _resolve_dem_list(dem_list_or_dir, fname_filter, fname_omit):
     return dem_list
 
 
+def _dem_output_dir(dem_path, output_dir, dem_list):
+    """Return the directory a collection writes one DEM's results into.
+
+    The DEM's own directory if 'output_dir' is None, 'output_dir' if it is an existing
+    directory, and otherwise 'output_dir' taken relative to the first DEM's directory.
+    """
+    if output_dir is None:
+        return os.path.dirname(dem_source.dem_file_path(dem_path))
+    if os.path.isdir(output_dir):
+        return output_dir
+    return os.path.join(
+        os.path.dirname(dem_source.dem_file_path(dem_list[0])),
+        output_dir,
+    )
+
+
+# Marks a DEM that failed in a collection run, so later runs skip it until -ow is given.
+ERROR_MARKER_SUFFIX = "_results_ERROR.txt"
+
+
+def _error_marker_paths(dem, dem_output_dir, variable=None):
+    """Return every path the error marker of this DEM (as listed) could have."""
+    return [
+        os.path.join(dem_output_dir, base + ERROR_MARKER_SUFFIX)
+        for base in dem_source.possible_base_names(dem, variable)
+    ]
+
+
+def _existing_error_marker(dem, dem_output_dir, variable=None):
+    """Return the path of this DEM's error marker, or None if it has none."""
+    for path in _error_marker_paths(dem, dem_output_dir, variable):
+        if os.path.exists(path):
+            return path
+    return None
+
+
+def _absolute_dem_name(dem):
+    """Return a DEM path or subdataset string with its file path made absolute."""
+    file_path = dem_source.dem_file_path(dem)
+    return dem.replace(file_path, os.path.abspath(file_path), 1)
+
+
+def _write_error_marker(path, dem, message, traceback_text=None):
+    """Write a DEM's error marker: the DEM, when it failed, the error, and any traceback."""
+    failed_at = datetime.datetime.now(datetime.UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+    text = f"DEM: {_absolute_dem_name(dem)}\nFailed: {failed_at} (IVERT {ivert.__version__})\nError: {message}\n"
+    if traceback_text:
+        text += "\n" + traceback_text
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(text)
+
+
+def _failed_earlier(dem, dem_output_dir, include_photons=False, variable=None):
+    """Return this DEM's error marker if it has one and no results, else None."""
+    marker = _existing_error_marker(dem, dem_output_dir, variable)
+    if marker is not None and validate_dem.dem_needs_validation(
+        dem,
+        dem_output_dir,
+        include_photons=include_photons,
+        variable=variable,
+    ):
+        return marker
+    return None
+
+
+def _dem_is_done(dem, dem_output_dir, include_photons=False, variable=None):
+    """Return True if a collection run without -ow would leave this DEM alone.
+
+    It is done if it has results, was marked empty, or failed in an earlier run.
+    """
+    return (
+        not validate_dem.dem_needs_validation(
+            dem,
+            dem_output_dir,
+            include_photons=include_photons,
+            variable=variable,
+        )
+        or _existing_error_marker(dem, dem_output_dir, variable) is not None
+    )
+
+
 def dems_needing_validation(
     dem_list_or_dir,
     output_dir,
@@ -233,8 +317,9 @@ def dems_needing_validation(
     """Split a collection's DEMs into those validate_list_of_dems() would validate and those it would reuse.
 
     'output_dir' must be the absolute output directory, as 'ivert validate' passes it.
-    A collection whose summary results .h5 already exists returns early without
-    validating anything, so then every DEM counts as reused.
+    A DEM is reused if it already has results there (see
+    validate_dem.dem_needs_validation()), or failed in an earlier run and has an error
+    marker, whether or not the collection's summary files exist.
 
     Returns:
         (to_validate, reused): two lists of DEM paths.
@@ -243,20 +328,17 @@ def dems_needing_validation(
     dem_list = _resolve_dem_list(dem_list_or_dir, fname_filter, fname_omit)
     if overwrite:
         return list(dem_list), []
-    results_h5 = os.path.join(output_dir, _summary_results_base(place_name) + ".h5")
-    if os.path.exists(results_h5):
-        return [], list(dem_list)
     to_validate, reused = [], []
     for dem in dem_list:
-        if validate_dem.dem_needs_validation(
+        if _dem_is_done(
             dem,
             output_dir,
             include_photons=include_photons,
             variable=variable,
         ):
-            to_validate.append(dem)
-        else:
             reused.append(dem)
+        else:
+            to_validate.append(dem)
     return to_validate, reused
 
 
@@ -373,45 +455,54 @@ def validate_list_of_dems(
     )
     results_h5 = os.path.join(stats_and_plots_dir, stats_and_plots_base + ".h5")
 
-    # If the .h5 results file already exists but not the other files, just
-    # create them and exit.
-    if (not overwrite) and (results_h5 is not None) and os.path.exists(results_h5):
-        results_df = None
+    dem_list = _resolve_dem_list(dem_list_or_dir, fname_filter, fname_omit)
 
-        if not os.path.exists(statsfile_name):
-            results_df = pd.read_hdf(results_h5)
-            logger.info("%s read.", results_h5)
-            validate_dem.write_summary_stats_file(
-                results_df,
-                statsfile_name,
-                bathy_filter_report=ivert.bathy_filters.read_report_from_h5(results_h5),
+    # Without --overwrite, stop only if every DEM already has results (or failed in an
+    # earlier run) and every summary file is written. Otherwise the loop below reuses
+    # the DEMs that are done, validates the rest, and rewrites the summaries.
+    summary_files = [results_h5, statsfile_name, plot_file_name]
+    if write_summary_csv:
+        summary_files.append(csv_name)
+    if (
+        not overwrite
+        and all(os.path.exists(fn) for fn in summary_files)
+        and all(
+            _dem_is_done(
+                dem,
+                _dem_output_dir(dem, output_dir, dem_list),
+                include_photons=include_photon_validation,
+                variable=variable,
             )
-            validate_dem.log_written_files([statsfile_name])
-
-        if not os.path.exists(plot_file_name):
-            if results_df is None:
-                results_df = pd.read_hdf(results_h5)
-                logger.info("%s read.", results_h5)
-            plot_validation_results.plot_histograms_and_line(
-                results_df,
-                plot_file_name,
-                place_name=place_name,
+            for dem in dem_list
+        )
+    ):
+        logger.info(
+            "Every DEM is already validated in %s, and the collection's summary files "
+            "are written. There's nothing left to do here.\n"
+            " To recompute them, run with --overwrite enabled, or delete output"
+            " files as needed and re-run to create them again.",
+            stats_and_plots_dir,
+        )
+        failed_earlier = [
+            os.path.basename(dem_source.dem_file_path(dem))
+            for dem in dem_list
+            if _failed_earlier(
+                dem,
+                _dem_output_dir(dem, output_dir, dem_list),
+                include_photons=include_photon_validation,
+                variable=variable,
             )
-            validate_dem.log_written_files([plot_file_name])
-
-        if results_df is None:
-            logger.info(
-                "Files '%s', '%s', and '%s' are all already written. "
-                "There's nothing left to do here.\n"
-                " To recompute them, run with --overwrite enabled, or delete output"
-                " files as needed and re-run to create them again.\n Exiting.",
-                results_h5,
-                statsfile_name,
-                plot_file_name,
+        ]
+        if failed_earlier:
+            logger.error(
+                "%d of %d DEMs failed in an earlier run and were not tried again (see "
+                "their %s files; use -ow/--overwrite to retry them): %s",
+                len(failed_earlier),
+                len(dem_list),
+                ERROR_MARKER_SUFFIX,
+                ", ".join(failed_earlier),
             )
         return None
-
-    dem_list = _resolve_dem_list(dem_list_or_dir, fname_filter, fname_omit)
 
     # Generate a single photon database object and pass it repeatedly to all the objects.
     # This saves us a lot of re-reading the geodataframe repeatedly.
@@ -439,6 +530,34 @@ def validate_list_of_dems(
             str(len(dem_list)) + ")",
         )
 
+        dem_file = os.path.basename(dem_source.dem_file_path(listed_dem))
+        this_output_dir = _dem_output_dir(listed_dem, output_dir, dem_list)
+        # '' is the current directory, for a DEM given by a bare file name.
+        if this_output_dir and not os.path.exists(this_output_dir):
+            os.mkdir(this_output_dir)
+
+        # A DEM that failed in an earlier run is left alone until -ow is given.
+        if overwrite:
+            for marker in _error_marker_paths(listed_dem, this_output_dir, variable):
+                if os.path.exists(marker):
+                    os.remove(marker)
+        else:
+            marker = _failed_earlier(
+                listed_dem,
+                this_output_dir,
+                include_photons=include_photon_validation,
+                variable=variable,
+            )
+            if marker is not None:
+                logger.error(
+                    "Skipping %s: it failed in an earlier run (see %s). Use "
+                    "-ow/--overwrite to try it again.",
+                    dem_file,
+                    marker,
+                )
+                failed_dems.append(dem_file)
+                continue
+
         # Pick the NetCDF/HDF5 variable to validate now, one file at a time.
         try:
             dem_path = dem_source.resolve_dem_source(listed_dem, variable)
@@ -446,28 +565,23 @@ def validate_list_of_dems(
         except dem_source.DEMSourceError as exc:
             # Not logger.exception: the message names the file and what is wrong.
             logger.error("Skipping: %s", exc)  # noqa: TRY400
-            failed_dems.append(os.path.basename(dem_source.dem_file_path(listed_dem)))
-            continue
-        dem_file = os.path.basename(dem_source.dem_file_path(dem_path))
-
-        if output_dir is None:
-            this_output_dir = os.path.split(dem_path)[0]
-        elif os.path.isdir(output_dir):
-            this_output_dir = output_dir
-        else:
-            # If it's a relative dir, append it to where the dems are.
-            this_output_dir = os.path.join(
-                os.path.dirname(dem_source.dem_file_path(dem_list[0])),
-                output_dir,
+            _write_error_marker(
+                os.path.join(
+                    this_output_dir,
+                    dem_source.dem_base_name(listed_dem) + ERROR_MARKER_SUFFIX,
+                ),
+                listed_dem,
+                str(exc),
             )
-            if not os.path.exists(this_output_dir):
-                os.mkdir(this_output_dir)
+            failed_dems.append(dem_file)
+            continue
 
         results_h5_file = os.path.join(
             this_output_dir,
             dem_source.dem_base_name(dem_path) + "_results.h5",
         )
         empty_fname = results_h5_file.removesuffix("_results.h5") + "_results_EMPTY.txt"
+        error_fname = results_h5_file.removesuffix("_results.h5") + ERROR_MARKER_SUFFIX
 
         try:
             shared_ret_values = {}
@@ -510,14 +624,20 @@ def validate_list_of_dems(
                 "Skipping %s due to memory error.",
                 dem_file,
             )
+            _write_error_marker(
+                error_fname,
+                dem_path,
+                "Ran out of memory validating this DEM.",
+            )
             failed_dems.append(dem_file)
             continue
 
         except KeyboardInterrupt:
             raise
 
-        except Exception:
+        except Exception as exc:
             logger.exception("Skipping %s.", dem_file)
+            _write_error_marker(error_fname, dem_path, str(exc), traceback.format_exc())
             failed_dems.append(dem_file)
             continue
 

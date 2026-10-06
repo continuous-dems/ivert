@@ -1058,9 +1058,10 @@ def dem_needs_validation(
     or when an earlier run marked it as empty. Summary files, plots and error exports
     that can be rebuilt from existing results don't count as validation work.
 
-    'variable' is the NetCDF or HDF5 variable to validate, as in validate_dem(). The DEM
-    file isn't opened: for such a file, each output name it could have is checked
-    (see dem_source.possible_base_names()).
+    'variable' is the NetCDF or HDF5 variable to validate, as in validate_dem(). For
+    such a file, each output name it could have is checked (see
+    dem_source.possible_base_names(), which reads the file's header when no variable
+    is given).
     """
     if overwrite:
         return True
@@ -1154,6 +1155,7 @@ def _check_existing_outputs(
     if overwrite:
         for fn in (
             results_dataframe_file,
+            empty_results_filename,
             summary_stats_filename,
             plot_filename,
         ):

@@ -288,6 +288,13 @@ def test_collection_table_names_dems_without_gdal_prefixes(tmp_path):
     assert data["filename"].tolist() == ["a.nc:elev", "a.nc:z", "b.tif"]
 
 
+def test_possible_base_names_include_a_dataset_in_a_group(tmp_path):
+    """The default names can't guess 'grid/elev', so the file itself is read."""
+    path = _make_hdf5(tmp_path / "dem.h5", ["grid/elev", "grid/uncert"])
+
+    assert dem_source.possible_base_names(path)[-1] == "dem_grid_elev"
+
+
 def test_netcdf4_file_named_h5_opens_through_the_netcdf_driver(tmp_path):
     """GDAL's HDF5 driver reads no coordinates; its NetCDF driver does."""
     path = _make_netcdf(tmp_path / "dem.h5", ["elev", "uncert"])

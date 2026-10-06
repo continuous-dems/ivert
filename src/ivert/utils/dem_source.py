@@ -104,21 +104,31 @@ def _variable_file_driver(dem_name):
 
 
 def possible_base_names(dem_name, variable=None):
-    """Return every base name this DEM's outputs could have, without opening the file.
+    """Return every base name this DEM's outputs could have.
 
     A NetCDF or HDF5 file's outputs are named after the file alone when it has one
     variable, and with the chosen variable appended when it has several (see
-    resolve_dem_source()). Which one applies isn't known until the file is opened, so
-    for such a file this returns both: the variable given, or every
-    DEFAULT_ELEVATION_VARIABLES name if None.
+    resolve_dem_source()). This returns both: the variable given, or every
+    DEFAULT_ELEVATION_VARIABLES name if None. With no variable given, an existing file
+    is also opened to find the variable resolve_dem_source() would pick, since that may
+    be none of the defaults' names (an HDF5 dataset in a group, 'grid/elev'); a file
+    that can't be resolved adds nothing more.
     """
     base = dem_base_name(dem_name)
     if _variable_file_driver(dem_name) is None:
         return [base]
     names = [variable] if variable is not None else list(DEFAULT_ELEVATION_VARIABLES)
-    return [base] + [
+    bases = [base] + [
         f"{base}_{_variable_path(name).replace('/', '_')}" for name in names
     ]
+    if variable is None and os.path.exists(dem_name):
+        try:
+            resolved = dem_base_name(resolve_dem_source(dem_name))
+        except (DEMSourceError, rasterio.errors.RasterioIOError):
+            resolved = None
+        if resolved is not None and resolved not in bases:
+            bases.append(resolved)
+    return bases
 
 
 def _match_variable(name, candidates, file_path):
