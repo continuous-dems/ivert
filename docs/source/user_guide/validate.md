@@ -33,10 +33,21 @@ ivert validate /data/dems/
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `FILES_OR_DIRECTORY` | *(required)* | One or more GeoTIFF paths, a directory, or a glob pattern |
+| `FILES_OR_DIRECTORY` | *(required)* | One or more DEM raster paths, a directory, or a glob pattern. With a directory or several files, only `.tif`, `.tiff`, `.vrt`, `.nc`, `.nc4`, `.img`, `.asc`, `.bag`, `.grd`, `.flt`, `.h5` and `.hdf5` files are used (IVERT's own `*_results.h5` and `*_photons.h5` files are skipped) |
 | `-o, --outdir DIR` | DEM's own directory | Output directory for results files |
 | `-bn, --band-num N` | `1` | Raster band to validate (1-indexed) |
-| `--ndv VALUE` | *(from file)* | No-data value to exclude; use `nan` for NaN |
+| `--variable NAME` | *(see description)* | Variable to validate in a NetCDF (`.nc`, `.nc4`) or HDF5 (`.h5`, `.hdf5`) DEM file: a name (`elev`) or, for HDF5, a path within the file (`grid/elev`). A file with one variable uses it; otherwise `elev`, `elevation`, then `z` are tried. A file without the variable is an error: a single-DEM run stops, and a multi-DEM run logs it and skips that file. An HDF5 file that is a NetCDF-4 file with coordinate variables is read through GDAL's NetCDF driver, which georeferences it; a DEM with no georeferencing GDAL can read (such as a bare HDF5 array) is an error in the same way |
+| `--ndv VALUE` | *(from file)* | No-data value to exclude; use `nan` for NaN. Defaults to the nodata value of the band being validated. For packed (scale/offset) DEMs, give the value as stored in the file |
+
+Packed integer DEMs (common in NetCDF, using `scale_factor`/`add_offset`) are unpacked to elevations automatically.
+
+### Coordinate reference system
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `-p, --projection CRS` | *(DEM's embedded CRS)* | CRS of the DEM(s). Either horizontal only (`EPSG:26910`, `26910`), or compound to give the vertical datum as well: one code (`EPSG:6893`), two codes (`EPSG:4326+3855`), or a horizontal code plus a transformez reference ID (`EPSG:4326+vdatum:mllw`). Required for a DEM with no CRS of its own. Error exports are written in its horizontal CRS |
+
+Which CRS wins: the horizontal CRS comes from `-p`, else the DEM file. The vertical datum comes from `-V`, else the vertical part of `-p`, else the DEM file. Whenever a command-line value replaces a different one (from `-p` or the file), IVERT logs a warning.
 
 ### Vertical datum
 
@@ -120,7 +131,7 @@ ivert validate -m old_results/ivert_manifest.ini /data/new_dems/
 
 Options given on the command line override the manifest's values, so `-m manifest.ini -sd 3` repeats a run with only the outlier threshold changed.
 
-If the manifest's options don't match those of the installed IVERT (the manifest came from an older or newer version, or was edited), IVERT warns, names the version situation, and lists the options the manifest has that this version doesn't and those it lacks. It then asks whether to go on without the unrecognized options, with current defaults for the missing ones. Answering no stops the run. When IVERT isn't running in a terminal, it stops without asking.
+An option the manifest lacks, usually one added to IVERT after the manifest was written, takes the value given on the command line, if any; otherwise it takes its default, and IVERT logs a warning for each such option naming the default used. If the manifest has options the installed IVERT doesn't recognize (it came from a newer version, or was edited), IVERT warns, names the version situation, lists them, and asks whether to go on without them. Answering no stops the run. When IVERT isn't running in a terminal, it stops without asking.
 
 A run that finds every DEM already validated (without `-ow`) does no work and leaves the existing manifest alone. When a collection run does work but its settings differ from the manifest already in the output directory, and some DEMs already have results, IVERT warns how many of them are reused rather than redone. Their results still reflect the old settings. Use `-ow` to redo them with the new ones.
 

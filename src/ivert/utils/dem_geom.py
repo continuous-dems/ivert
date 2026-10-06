@@ -4,6 +4,7 @@ These functions were originally part of icesat2_query.py but have no dependency 
 the (deprecated) cudem library and are general-purpose enough to live in utils.
 """
 
+import logging
 import os
 import typing
 
@@ -12,6 +13,30 @@ import rasterio
 import rasterio.crs
 import shapely
 import shapely.geometry
+
+from ivert.utils import dem_source
+
+logger = logging.getLogger(__name__)
+
+# OGC's longitude-first versions of geographic CRSs, which GDAL reports for some
+# formats (ASCII Grid, ESRI .hdr/.flt). pyproj finds no EPSG match for them, since
+# their axis order differs, but IVERT always transforms in x/y (lon/lat) order.
+_OGC_LON_LAT_TO_EPSG = {"CRS84": 4326, "CRS83": 4269, "CRS27": 4267}
+
+
+def _epsg_equivalent(crs: pyproj.CRS | None) -> pyproj.CRS | None:
+    """Return the EPSG version of a CRS where one exists, so it pairs with EPSG datums."""
+    if crs is None:
+        return None
+    authority = crs.list_authority()
+    if authority and authority[0].auth_name.upper() == "EPSG":
+        return crs
+    if authority and authority[0].auth_name.upper() == "OGC":
+        code = _OGC_LON_LAT_TO_EPSG.get(authority[0].code.upper())
+        if code is not None:
+            return pyproj.CRS.from_epsg(code)
+    found = crs.to_authority("EPSG")
+    return crs if found is None else pyproj.CRS.from_epsg(int(found[1]))
 
 
 def get_dem_reference_frame_from_user_input(
@@ -48,6 +73,9 @@ def get_dem_reference_frame_from_user_input(
         horz, vert = None, crs_obj
     else:
         horz, vert = crs_obj, None
+    # A 3D CRS is its own vertical reference, so leave it as it is.
+    if horz is not vert:
+        horz = _epsg_equivalent(horz)
 
     choice_letter = vert_horz_or_both.strip().lower()[0]
     if choice_letter == "b":
@@ -80,7 +108,7 @@ def get_dem_reference_frame_from_file(
         FileNotFoundError: if the file does not exist.
 
     """
-    if not os.path.exists(dem_fname):
+    if not os.path.exists(dem_source.dem_file_path(dem_fname)):
         msg = f"DEM file {dem_fname} does not exist."
         raise FileNotFoundError(msg)
 
@@ -145,7 +173,7 @@ def split_srs_string(
         if "+" not in text:
             return None, text
         horizontal, vertical = text.rsplit("+", 1)
-        return pyproj.CRS.from_user_input(horizontal), vertical
+        return _epsg_equivalent(pyproj.CRS.from_user_input(horizontal)), vertical
 
     def code(c: pyproj.CRS | None) -> str | None:
         epsg = None if c is None else c.to_epsg()
@@ -154,14 +182,14 @@ def split_srs_string(
     if crs.is_compound:
         vert = next((s for s in crs.sub_crs_list if s.is_vertical), None)
         horz = next((s for s in crs.sub_crs_list if not s.is_vertical), None)
-        return horz, code(vert)
+        return _epsg_equivalent(horz), code(vert)
     if crs.is_vertical:
         return None, code(crs)
     # pyproj marks a 3D geographic CRS (e.g. EPSG:4979, WGS84 with ellipsoidal
     # height) as neither compound nor vertical.
     if crs.is_geographic and len(crs.axis_info) == 3:
         return crs, code(crs)
-    return crs, None
+    return _epsg_equivalent(crs), None
 
 
 def get_wgs84_bounding_box(
@@ -215,7 +243,7 @@ def get_wgs84_bounding_box(
         )
 
     elif isinstance(polygon_bbox_or_dem_fname, str):
-        if not os.path.exists(polygon_bbox_or_dem_fname):
+        if not os.path.exists(dem_source.dem_file_path(polygon_bbox_or_dem_fname)):
             msg = f"File not found: {polygon_bbox_or_dem_fname}"
             raise FileNotFoundError(msg)
         if dem_horz_reference_frame is None:
@@ -264,3 +292,61 @@ def get_wgs84_bounding_box(
 
     b = polygon_wgs84.bounds  # (xmin, ymin, xmax, ymax)
     return b[0], b[2], b[1], b[3]  # → (xmin, xmax, ymin, ymax)
+
+
+def _comparable_reference(reference):
+    """Return a CRS or reference ID in a form that can be compared for equality."""
+    if isinstance(reference, pyproj.CRS):
+        return reference
+    try:
+        return pyproj.CRS.from_user_input(reference)
+    except pyproj.exceptions.CRSError:
+        # A transformez reference ID such as 'vdatum:mllw', which pyproj can't read.
+        return str(reference).strip().lower()
+
+
+def same_reference(a, b):
+    """Return True if two CRSs or vertical reference IDs name the same thing."""
+    a, b = _comparable_reference(a), _comparable_reference(b)
+    if isinstance(a, pyproj.CRS) and isinstance(b, pyproj.CRS):
+        return a.equals(b)
+    return a == b
+
+
+def reference_label(reference):
+    """Return a short printable name for a CRS or vertical reference ID."""
+    if isinstance(reference, pyproj.CRS):
+        return reference.to_string()
+    return str(reference)
+
+
+def resolve_horizontal_crs(dem_name, file_horz_crs, projection_horz=None):
+    """Return a DEM's horizontal CRS: the one from -p/--projection, else the file's.
+
+    Args:
+        dem_name: The DEM's path or subdataset string, for messages.
+        file_horz_crs: The horizontal CRS in the DEM file, or None if it has none.
+        projection_horz: The horizontal part of the user's -p/--projection, or None.
+
+    A warning is logged when -p/--projection replaces a different CRS in the file.
+
+    Raises:
+        ValueError: if neither the file nor -p/--projection gives a CRS.
+
+    """
+    if projection_horz is None:
+        if file_horz_crs is None:
+            msg = (
+                f"{dem_source.dem_file_path(dem_name)} has no coordinate reference system. "
+                "Use -p/--projection to give one."
+            )
+            raise ValueError(msg)
+        return file_horz_crs
+    if file_horz_crs is not None and not same_reference(projection_horz, file_horz_crs):
+        logger.warning(
+            "Using -p/--projection %s for %s in place of the CRS in the file (%s).",
+            reference_label(projection_horz),
+            os.path.basename(dem_source.dem_file_path(dem_name)),
+            reference_label(file_horz_crs),
+        )
+    return projection_horz

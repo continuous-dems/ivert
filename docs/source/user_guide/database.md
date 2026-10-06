@@ -44,7 +44,7 @@ ivert database download /data/dems/*.tif
 ivert database download survey_tiles.gpkg
 ```
 
-Bounding box values are in the projection given by `-p` (default EPSG:4326, i.e. decimal degrees longitude/latitude). Vector files are read in their own coordinate system, and `-p` does not apply to them.
+Bounding box values are in the projection given by `-p` (default EPSG:4326, i.e. decimal degrees longitude/latitude). DEM files use their own CRS, unless `-p` is given: then it sets the CRS of a DEM that has none, and overrides a different one with a warning, as in `ivert validate`. For NetCDF or HDF5 DEMs with several variables, `--variable` picks the one whose extent is used. Vector files are always read in their own coordinate system.
 
 Whatever defines the area — a bounding box, DEM extents, or vector polygons, the last two dissolved into a single region — IVERT works out the fewest rectangular requests that cover it: the region's bounding box is cut into 2° squares, the squares the region does not reach are dropped, and the rest are merged back into rectangles (a clipped edge row or column narrower than half a degree is folded into its neighbour, so no request is a thin sliver). Each rectangle is one request to NASA's Harmony service, because one large subset of a granule costs less than several small ones. A vector file holding hundreds of adjacent tile outlines therefore turns into a handful of requests rather than one per outline, and the empty space between scattered outlines is not fetched. Data is still retrieved for the whole of each 2° square the region reaches into, so some photons just outside the polygons come along.
 
@@ -98,7 +98,8 @@ Photon class codes:
 
 | Flag | Description |
 |------|-------------|
-| `-p, --projection TEXT` | Horizontal CRS of the bounding box (default: `EPSG:4326`) |
+| `-p, --projection TEXT` | CRS of the bounding box (default: `EPSG:4326`), or of the DEM files given. A compound CRS (`EPSG:4326+3855`) is accepted; only its horizontal part is used |
+| `--variable NAME` | Variable to use from NetCDF or HDF5 DEM files, as in `ivert validate` |
 | `-r, --replace` | Replace any previously downloaded data overlapping this region |
 | `-f, --force` | Skip the interactive prompt when the date range extends beyond the ATL24 data cutoff |
 
