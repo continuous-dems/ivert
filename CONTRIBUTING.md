@@ -14,9 +14,10 @@ cd ivert
 pip install -e .
 ```
 
-The `fetchez`, `globato`, and `transformez` dependencies are pulled
-automatically from the [continuous-dems](https://github.com/continuous-dems)
-organization; see the [README](README.md) for the full installation options.
+The `fetchez`, `globato`, and `transformez` dependencies, from the
+[continuous-dems](https://github.com/continuous-dems) organization, are
+installed automatically from PyPI; see the [README](README.md) for the full
+installation options.
 
 ## Code style
 

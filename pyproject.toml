@@ -34,14 +34,13 @@ dependencies = [
     "rasterio",
     "scipy",
     "shapely",
-    "six",
     "tables",
     "tabulate",
     "tqdm",
     "xarray",
     "fetchez>=0.6.13",
     "globato>=0.3.9",
-    "transformez",
+    "transformez>=1.0.0",
 ]
 
 [dependency-groups]

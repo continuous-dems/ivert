@@ -9,7 +9,6 @@ import matplotlib as mpl
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-import six
 import tqdm
 from matplotlib import ticker
 
@@ -22,7 +21,7 @@ def is_iterable(obj):
     """Tell whether an object is a non-string iterable. (list, tuple, etc)."""
     return isinstance(obj, collections.abc.Iterable) and not isinstance(
         obj,
-        six.string_types,
+        str,
     )
 
 

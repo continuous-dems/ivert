@@ -5,6 +5,7 @@ IVERT's settings are managed through the `ivert options` command.
 | Subcommand | Purpose |
 |------------|---------|
 | `ivert options list` | Show all settings and their current values |
+| `ivert options info <key>` | Describe one setting, with its current and default values |
 | `ivert options <key>=<value> [...]` | Change one or more settings |
 | `ivert options reset` | Restore all settings to defaults |
 

@@ -1,6 +1,6 @@
 # 💻 Command Line Interface
 
-The `ivert` command line tool allows you to build an icesat2 database and validate DEms.
+The `ivert` command line tool allows you to build an icesat2 database and validate DEMs.
 
 ```{eval-rst}
 .. click:: ivert.cli:ivert_cli
