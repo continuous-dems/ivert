@@ -37,7 +37,7 @@ ivert validate /data/dems/
 | `-o, --outdir DIR` | DEM's own directory | Output directory for results files |
 | `-bn, --band-num N` | `1` | Raster band to validate (1-indexed) |
 | `--variable NAME` | *(see description)* | Variable to validate in a NetCDF DEM file. A file with one variable uses it; otherwise `elev`, `elevation`, then `z` are tried. A file without the variable is an error: a single-DEM run stops, and a multi-DEM run logs it and skips that file |
-| `--ndv VALUE` | *(from file)* | No-data value to exclude; use `nan` for NaN |
+| `--ndv VALUE` | *(from file)* | No-data value to exclude; use `nan` for NaN. Defaults to the nodata value of the band being validated |
 
 ### Vertical datum
 

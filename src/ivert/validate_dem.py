@@ -775,6 +775,9 @@ def validate_dem(
             msg = f"validate_dem.validate_dem_parallell({orig_dem_name},...) could not find {dem_name}."
             raise FileNotFoundError(msg)
 
+        with rasterio.open(dem_name) as parent_ds:
+            parent_band_ndv = parent_ds.nodatavals[band_num - 1]
+
         # Split up the DEM into 4 parts.
         sub_dem_names = subdivide_dem(
             dem_name,
@@ -804,7 +807,9 @@ def validate_dem(
                 icesat2_photon_database_obj=icesat2_photon_database_obj,
                 band_num=band_num,
                 dem_vertical_datum=dem_vertical_datum,
-                dem_ndv=dem_ndv,
+                # The sub-DEMs are GeoTIFFs, which keep only one nodata value for all
+                # bands, so hand them this band's own value.
+                dem_ndv=dem_ndv if dem_ndv is not None else parent_band_ndv,
                 interim_data_dir=interim_data_dir,
                 overwrite=overwrite,
                 delete_datafiles=delete_datafiles,
@@ -1011,25 +1016,6 @@ def validate_dem(
 
     msg = f"validate_dem.validate_dem({orig_dem_name},...) exited with exitcode {exitcode}."
     raise RuntimeError(msg)
-
-
-def get_dem_dataset_and_vars(dem_fn) -> tuple:
-    """Get the rasterio dataset and the variables in the dataset.
-
-    Return (dem_dataset, dem_array, dem_bbox, dem_step_xy).
-    """
-    dem_ds = rasterio.open(dem_fn)
-    dem_array = dem_ds.read(1)
-    gt = dem_ds.transform.to_gdal()
-    dem_step_xy = (gt[1], gt[5])
-    dem_bbox = (
-        gt[0],
-        gt[3] + (dem_ds.height + 1) * gt[5],
-        gt[0] + (dem_ds.width + 1) * gt[1],
-        gt[3],
-    )
-
-    return dem_ds, dem_array, dem_bbox, dem_step_xy
 
 
 def _results_dataframe_filename(dem_name, output_dir):
@@ -1270,10 +1256,6 @@ def _fetch_photons(
 
     Returns (dem_ds, dem_array, photon_df, dem_epsg_str) or None if no photons found.
     """
-    get_dem_dataset_and_vars(
-        dem_name,
-    )  # result unused; preserved for validation side-effects
-
     dem_ds = rasterio.open(dem_name)
     dem_array = dem_ds.read(band_num)
 
@@ -1357,6 +1339,17 @@ def _resolve_exclude_geometry(exclude_zones, dem_epsg_str):
     return shapely.unary_union(geoms)
 
 
+def _band_nodata(dem_ds, band_num, user_ndv=None, default_ndv=None):
+    """Return the nodata value to mask band 'band_num' with.
+
+    In order: the user's value, the band's own nodata value in the file, the config default.
+    """
+    if user_ndv is not None:
+        return user_ndv
+    band_ndv = dem_ds.nodatavals[band_num - 1]
+    return default_ndv if band_ndv is None else band_ndv
+
+
 def _compute_photon_overlap(
     dem_ds,
     dem_array,
@@ -1369,8 +1362,13 @@ def _compute_photon_overlap(
     user_ndv=None,
     exclude_zones=None,
     default_ndv=None,
+    band_num=1,
 ):
     """Transform photon coordinates into DEM space and compute cell-level overlap.
+
+    'dem_array' holds band 'band_num' as stored in the file, and its nodata value is
+    that band's. 'user_ndv' is compared against the stored values, like the file's own
+    nodata value.
 
     Photons whose class_code is not in 'classes' are dropped here, so every array
     handed downstream (height_field, the shared-memory arrays given to the child
@@ -1444,13 +1442,7 @@ def _compute_photon_overlap(
 
     height_field = photon_df["dem_z"]
 
-    # NDV priority: (1) user_ndv flag, (2) file header, (3) config default
-    if user_ndv is not None:
-        dem_ndv = user_ndv
-    else:
-        dem_ndv = dem_ds.nodata
-        if dem_ndv is None:
-            dem_ndv = default_ndv
+    dem_ndv = _band_nodata(dem_ds, band_num, user_ndv, default_ndv)
 
     if np.isnan(dem_ndv):
         dem_goodpixel_mask = ~np.isnan(dem_array)
@@ -2180,6 +2172,7 @@ def validate_dem_parallel(
         user_ndv=dem_ndv,
         exclude_zones=exclude_zones,
         default_ndv=config.dem_default_ndv,
+        band_num=band_num,
     )
     if overlap_result is None:
         if mark_empty_results:
