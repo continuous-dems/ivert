@@ -249,6 +249,27 @@ def test_a_tile_with_no_photons_gets_no_file(db, monkeypatch):
     ]
 
 
+def test_low_confidence_bathy_floor_photons_are_not_stored(db, monkeypatch):
+    """-bc/--bathy-confidence drops class-40 photons below it before they are written."""
+    photons = _photons([-120.5, -120.4, -120.3, -120.2]).assign(
+        class_code=[40, 40, 40, 1],
+        bathy_confidence=[0.2, 0.5, 0.9, 0.1],
+    )
+    monkeypatch.setattr(db, "_classify_h5", lambda *_a, **_k: (photons, "EPSG:4979"))
+
+    db.download_new_granules(PART_1, min_bathy_confidence=0.5)
+
+    (name,) = [n for n in os.listdir(db.granules_dir) if n.startswith("ATL03")]
+    with xarray.open_dataset(os.path.join(db.granules_dir, name)) as ds:
+        kept = ds[["class_code", "bathy_confidence"]].to_dataframe()
+    # The class-40 photon below 0.5 is gone; the land photon stays whatever its value.
+    assert sorted(zip(kept["class_code"], kept["bathy_confidence"], strict=True)) == [
+        (1, 0.1),
+        (40, 0.5),
+        (40, 0.9),
+    ]
+
+
 def test_each_part_fetches_and_reads_its_own_copy_of_a_shared_granule(db, monkeypatch):
     read = []
 

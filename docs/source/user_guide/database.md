@@ -90,7 +90,7 @@ Photon class codes:
 | Flag | Default | Description |
 |------|---------|-------------|
 | `-cl, --confidence-level N` | `1` | Minimum ATL03 signal confidence (1=keep all, 2=medium, 3=high, 4=very-high) |
-| `-bc, --bathy-confidence F` | `0.01` | Minimum ATL24 bathymetry confidence for bathy-floor photons (0.0–1.0) |
+| `-bc, --bathy-confidence F` | `0.01` | Minimum ATL24 bathymetry confidence for bathy-floor photons (0.0–1.0); those below it are not saved. Tiles already in the database are not filtered again |
 
 **Note:** Not all photons saved to disk are necessarily used for validations. See the "[ivert validate](./validate.md)" command for additional filters applied during validations. By default, the validate command uses photons with more-stringent confidence bounds. This just defines what is saved to disk and available for potential use after initial download.
 
