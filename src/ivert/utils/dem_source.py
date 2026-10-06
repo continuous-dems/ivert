@@ -1,10 +1,11 @@
-"""Work out which raster a DEM path refers to: a plain file, or one variable inside a NetCDF file.
+"""Work out which raster a DEM path refers to: a plain file, or one variable inside a NetCDF or HDF5 file.
 
-A NetCDF file with a single data variable opens as an ordinary raster. One with several
-variables opens with no bands of its own, so the elevation variable has to be picked out
-as a GDAL subdataset string such as 'NETCDF:"/data/dem.nc":elev'. The rest of IVERT passes
-that string around in place of a file name; dem_file_path() and dem_base_name() recover
-the real file path and a file-name-safe base name from it.
+A NetCDF or HDF5 file with a single data variable opens as an ordinary raster. One with
+several variables opens with no bands of its own, so the elevation variable has to be
+picked out as a GDAL subdataset string such as 'NETCDF:"/data/dem.nc":elev' or
+'HDF5:"/data/dem.h5"://grid/elev'. The rest of IVERT passes that string around in place
+of a file name; dem_file_path() and dem_base_name() recover the real file path and a
+file-name-safe base name from it.
 """
 
 import os
@@ -16,9 +17,15 @@ import rasterio
 # Variable names tried, in order, when a multi-variable file is given without --variable.
 DEFAULT_ELEVATION_VARIABLES = ("elev", "elevation", "z")
 
-# Files whose variables resolve_dem_source() looks into. Anything else is passed through
-# untouched, so it is only opened when it is validated.
-NETCDF_EXTENSIONS = (".nc", ".nc4")
+# Files whose variables resolve_dem_source() looks into, and the GDAL driver prefix of
+# their subdataset strings. Anything else is passed through untouched, so it is only
+# opened when it is validated.
+VARIABLE_FILE_DRIVERS = {
+    ".nc": "NETCDF",
+    ".nc4": "NETCDF",
+    ".h5": "HDF5",
+    ".hdf5": "HDF5",
+}
 
 # 'DRIVER:"path":variable' or 'DRIVER:path:variable'. The driver name must be at least two
 # characters so a Windows drive letter ('C:\...') isn't read as one.
@@ -39,9 +46,9 @@ def _parse_subdataset(dem_name):
     return m["driver"], m["qpath"] or m["path"], m["var"]
 
 
-def _variable_name(var):
-    """Return a subdataset's variable name without the leading '/' groups HDF5 puts on it."""
-    return var.strip("/").rsplit("/", 1)[-1]
+def _variable_path(var):
+    """Return a subdataset's variable without the leading '/'s HDF5 puts on it ('grid/elev')."""
+    return var.strip("/")
 
 
 def dem_file_path(dem_name):
@@ -54,36 +61,114 @@ def dem_base_name(dem_name):
     """Return the base name used for a DEM's output files.
 
     For a plain file this is the file name without its extension. For a subdataset the
-    variable name is appended ('dem_elev'), so two variables of one file don't share outputs.
+    variable is appended ('dem_elev', or 'dem_grid_elev' for an HDF5 dataset in a group),
+    so two variables of one file don't share outputs.
     """
     base = os.path.splitext(os.path.basename(dem_file_path(dem_name)))[0]
     parsed = _parse_subdataset(dem_name)
     if parsed is None:
         return base
-    return base + "_" + parsed[2].strip("/").replace("/", "_")
+    return base + "_" + _variable_path(parsed[2]).replace("/", "_")
 
 
-def _is_netcdf_file(dem_name):
-    """Return True for a plain NetCDF file path (not a subdataset string)."""
-    return (
-        _parse_subdataset(dem_name) is None
-        and os.path.splitext(dem_name)[1].lower() in NETCDF_EXTENSIONS
-    )
+def _variable_file_driver(dem_name):
+    """Return the subdataset driver prefix for a plain NetCDF or HDF5 path, else None."""
+    if _parse_subdataset(dem_name) is not None:
+        return None
+    return VARIABLE_FILE_DRIVERS.get(os.path.splitext(dem_name)[1].lower())
 
 
 def possible_base_names(dem_name, variable=None):
     """Return every base name this DEM's outputs could have, without opening the file.
 
-    A NetCDF file's outputs are named after the file alone when it has one variable, and
-    with the chosen variable appended when it has several (see resolve_dem_source()).
-    Which one applies isn't known until the file is opened, so for a NetCDF file this
-    returns both: the variable given, or every DEFAULT_ELEVATION_VARIABLES name if None.
+    A NetCDF or HDF5 file's outputs are named after the file alone when it has one
+    variable, and with the chosen variable appended when it has several (see
+    resolve_dem_source()). Which one applies isn't known until the file is opened, so
+    for such a file this returns both: the variable given, or every
+    DEFAULT_ELEVATION_VARIABLES name if None.
     """
     base = dem_base_name(dem_name)
-    if not _is_netcdf_file(dem_name):
+    if _variable_file_driver(dem_name) is None:
         return [base]
     names = [variable] if variable is not None else list(DEFAULT_ELEVATION_VARIABLES)
-    return [base] + [f"{base}_{name}" for name in names]
+    return [base] + [
+        f"{base}_{_variable_path(name).replace('/', '_')}" for name in names
+    ]
+
+
+def _match_variable(name, candidates, file_path):
+    """Return the subdataset string for variable 'name', or None if the file has none.
+
+    'name' matches a variable's full path ('grid/elev'), or else the last part of it
+    ('elev') if only one variable ends that way.
+
+    Raises:
+        DEMVariableError: if 'name' matches the last part of several variables' paths.
+    """
+    key = _variable_path(name)
+    if key in candidates:
+        return candidates[key]
+    matches = [path for path in candidates if path.rsplit("/", 1)[-1] == key]
+    if len(matches) > 1:
+        msg = (
+            f"{file_path} has several variables named '{key}' ({', '.join(matches)}). "
+            "Use --variable with the full path of the one to validate."
+        )
+        raise DEMVariableError(msg)
+    return candidates[matches[0]] if matches else None
+
+
+def _opens(subdataset):
+    """Return True if GDAL can open this subdataset string as a raster."""
+    try:
+        with rasterio.open(subdataset) as ds:
+            return ds.count > 0
+    except rasterio.errors.RasterioIOError:
+        return False
+
+
+def _resolve_named_variable(
+    variable,
+    candidates,
+    file_path,
+    driver,
+    single_var,
+    single_variable_file,
+):
+    """Return what to open for a variable the user named, as resolve_dem_source() does.
+
+    Args:
+        variable: The variable the user named.
+        candidates: {variable path: subdataset string} for a multi-variable file.
+        file_path: The file's path.
+        driver: Its subdataset driver prefix ('NETCDF' or 'HDF5').
+        single_var: The variable name GDAL reports for a single-variable NetCDF file.
+        single_variable_file: True if the file opened as a raster of its own.
+
+    Raises:
+        DEMVariableError: if the file has no such variable.
+
+    """
+    found = _match_variable(variable, candidates, file_path)
+    if found is not None:
+        return found
+    if single_variable_file:
+        # A single-variable file opens as a raster without listing its variable.
+        if variable == single_var:
+            return file_path
+        prefix = "//" if driver == "HDF5" else ""
+        subdataset = f'{driver}:"{os.path.abspath(file_path)}":{prefix}{_variable_path(variable)}'
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", rasterio.errors.NotGeoreferencedWarning)
+            if _opens(subdataset):
+                return subdataset
+    available = list(candidates) or ([single_var] if single_var else [])
+    msg = f"{file_path} has no variable '{variable}'. " + (
+        f"Variables found: {', '.join(available)}."
+        if available
+        else "It has no named variables to choose from."
+    )
+    raise DEMVariableError(msg)
 
 
 def resolve_dem_source(dem_name, variable=None):
@@ -91,8 +176,10 @@ def resolve_dem_source(dem_name, variable=None):
 
     Args:
         dem_name: A raster file path, or an already-resolved subdataset string. Files
-            without a NETCDF_EXTENSIONS extension are returned unchanged.
-        variable: The variable to read from a NetCDF file. If None, a file with one
+            without a VARIABLE_FILE_DRIVERS extension (NetCDF or HDF5) are returned
+            unchanged.
+        variable: The variable to read from a NetCDF or HDF5 file: a name ('elev') or,
+            for HDF5, a path within the file ('grid/elev'). If None, a file with one
             variable is used as-is, and a file with several is searched for
             DEFAULT_ELEVATION_VARIABLES in order.
 
@@ -106,11 +193,13 @@ def resolve_dem_source(dem_name, variable=None):
         return dem_name
 
     file_path = dem_file_path(dem_name)
-    if not _is_netcdf_file(file_path):
+    driver = _variable_file_driver(file_path)
+    if driver is None:
         return dem_name
     if not os.path.exists(file_path):
         msg = f"Could not find DEM file {file_path}."
         raise FileNotFoundError(msg)
+    abs_path = os.path.abspath(file_path)
 
     # A multi-variable file has no georeferencing of its own, which rasterio warns about.
     with warnings.catch_warnings():
@@ -120,35 +209,31 @@ def resolve_dem_source(dem_name, variable=None):
             subdatasets = list(ds.subdatasets)
             single_var = ds.tags(1).get("NETCDF_VARNAME") if count else None
 
-    # {variable name: subdataset string to open}
+    # {variable path: subdataset string to open}
     candidates = {}
     for sds in subdatasets:
         parsed = _parse_subdataset(sds)
         if parsed is not None:
-            driver, _, var = parsed
-            candidates[_variable_name(var)] = (
-                f'{driver.upper()}:"{os.path.abspath(file_path)}":{var}'
-            )
+            sds_driver, _, var = parsed
+            candidates[_variable_path(var)] = f'{sds_driver.upper()}:"{abs_path}":{var}'
 
     if variable is not None:
-        if variable in candidates:
-            return candidates[variable]
-        if not candidates and count and variable == single_var:
-            return file_path
-        available = list(candidates) or ([single_var] if single_var else [])
-        msg = f"{file_path} has no variable '{variable}'. " + (
-            f"Variables found: {', '.join(available)}."
-            if available
-            else "It has no named variables to choose from."
+        return _resolve_named_variable(
+            variable,
+            candidates,
+            file_path,
+            driver,
+            single_var if count else None,
+            single_variable_file=not candidates and count > 0,
         )
-        raise DEMVariableError(msg)
 
     if count or not candidates:
         return file_path
 
     for name in DEFAULT_ELEVATION_VARIABLES:
-        if name in candidates:
-            return candidates[name]
+        found = _match_variable(name, candidates, file_path)
+        if found is not None:
+            return found
 
     msg = (
         f"{file_path} has several variables ({', '.join(candidates)}) and none of the "

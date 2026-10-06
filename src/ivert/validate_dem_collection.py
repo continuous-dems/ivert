@@ -138,11 +138,21 @@ DEM_RASTER_EXTENSIONS = (
     ".bag",
     ".grd",
     ".flt",
+    ".h5",
+    ".hdf5",
 )
+
+# IVERT's own HDF5 outputs, which must never be taken for DEMs if they share a directory.
+_IVERT_OUTPUT_SUFFIXES = ("_results.h5", "_photons.h5")
 
 
 def _is_dem_raster(fname):
-    """Return True if the file name has one of the DEM_RASTER_EXTENSIONS (any case)."""
+    """Return True if the file name has one of the DEM_RASTER_EXTENSIONS (any case).
+
+    IVERT's own results files ('*_results.h5', '*_photons.h5') don't count.
+    """
+    if fname.lower().endswith(_IVERT_OUTPUT_SUFFIXES):
+        return False
     return os.path.splitext(fname)[1].lower() in DEM_RASTER_EXTENSIONS
 
 
@@ -278,10 +288,10 @@ def validate_list_of_dems(
 
     DEMs should encompass a contiguous area so as to use the same set of ICESat-2 granules for
     validation. 'bathy_filter_settings' is passed to validate_dem.validate_dem(); None uses
-    the 'bathy_*' config values. 'variable' picks the variable to validate in NetCDF
-    files, as in validate_dem.validate_dem(). A NetCDF file without that variable (or,
+    the 'bathy_*' config values. 'variable' picks the variable to validate in NetCDF and
+    HDF5 files, as in validate_dem.validate_dem(). A file without that variable (or,
     with no variable given, without a default elevation variable) is logged and skipped.
-    'dem_projection' is the DEMs' horizontal CRS, as in validate_dem.validate_dem().
+    'dem_projection' is the DEMs' CRS, as in validate_dem.validate_dem().
     """
     if output_dir is None:
         if isinstance(dem_list_or_dir, str) and os.path.isdir(dem_list_or_dir):
@@ -423,7 +433,7 @@ def validate_list_of_dems(
             str(len(dem_list)) + ")",
         )
 
-        # Pick the NetCDF variable to validate now, one file at a time.
+        # Pick the NetCDF/HDF5 variable to validate now, one file at a time.
         try:
             dem_path = dem_source.resolve_dem_source(listed_dem, variable)
         except dem_source.DEMVariableError as exc:
@@ -581,7 +591,7 @@ def validate_list_of_dems(
     default=None,
     help="A regex string to search for in all DEM file names, to use as a filter. Only files "
     "with a recognized raster extension (.tif, .tiff, .vrt, .nc, .nc4, .img, .asc, .bag, .grd, "
-    ".flt) are considered in any case.",
+    ".flt, .h5, .hdf5) are considered in any case.",
 )
 @click.option(
     "--fname_omit",
@@ -697,8 +707,9 @@ def validate_list_of_dems(
     "--variable",
     type=str,
     default=None,
-    help="The variable to validate in NetCDF DEM files. Defaults to each "
-    "file's only variable, or else the first of 'elev', 'elevation' or 'z' found.",
+    help="The variable to validate in NetCDF or HDF5 DEM files: a name ('elev') or, "
+    "for HDF5, a path within the file ('grid/elev'). Defaults to each file's only "
+    "variable, or else the first of 'elev', 'elevation' or 'z' found.",
 )
 @click.option("--quiet", "-q", is_flag=True, default=False, help="Suppress output.")
 def main(

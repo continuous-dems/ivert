@@ -33,10 +33,10 @@ ivert validate /data/dems/
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `FILES_OR_DIRECTORY` | *(required)* | One or more DEM raster paths, a directory, or a glob pattern. With a directory or several files, only `.tif`, `.tiff`, `.vrt`, `.nc`, `.nc4`, `.img`, `.asc`, `.bag`, `.grd` and `.flt` files are used |
+| `FILES_OR_DIRECTORY` | *(required)* | One or more DEM raster paths, a directory, or a glob pattern. With a directory or several files, only `.tif`, `.tiff`, `.vrt`, `.nc`, `.nc4`, `.img`, `.asc`, `.bag`, `.grd`, `.flt`, `.h5` and `.hdf5` files are used (IVERT's own `*_results.h5` and `*_photons.h5` files are skipped) |
 | `-o, --outdir DIR` | DEM's own directory | Output directory for results files |
 | `-bn, --band-num N` | `1` | Raster band to validate (1-indexed) |
-| `--variable NAME` | *(see description)* | Variable to validate in a NetCDF DEM file. A file with one variable uses it; otherwise `elev`, `elevation`, then `z` are tried. A file without the variable is an error: a single-DEM run stops, and a multi-DEM run logs it and skips that file |
+| `--variable NAME` | *(see description)* | Variable to validate in a NetCDF (`.nc`, `.nc4`) or HDF5 (`.h5`, `.hdf5`) DEM file: a name (`elev`) or, for HDF5, a path within the file (`grid/elev`). A file with one variable uses it; otherwise `elev`, `elevation`, then `z` are tried. A file without the variable is an error: a single-DEM run stops, and a multi-DEM run logs it and skips that file |
 | `--ndv VALUE` | *(from file)* | No-data value to exclude; use `nan` for NaN. Defaults to the nodata value of the band being validated. For packed (scale/offset) DEMs, give the value as stored in the file |
 
 Packed integer DEMs (common in NetCDF, using `scale_factor`/`add_offset`) are unpacked to elevations automatically.

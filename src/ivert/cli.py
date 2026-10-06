@@ -2793,10 +2793,12 @@ def _run_validate(
     type=str,
     default=None,
     help=(
-        "Variable to validate in a NetCDF DEM file. By default a "
-        "file's only variable is used; a file with several is searched for 'elev', "
+        "Variable to validate in a NetCDF (.nc, .nc4) or HDF5 (.h5, .hdf5) DEM file: "
+        "a name ('elev') or, for HDF5, a path within the file ('grid/elev'). By default "
+        "a file's only variable is used; a file with several is searched for 'elev', "
         "'elevation' and then 'z'. A file without the variable is an error: a "
-        "single-DEM run stops, and a multi-DEM run skips that file."
+        "single-DEM run stops, and a multi-DEM run skips that file. Ignored for other "
+        "formats."
     ),
 )
 @click.option(
@@ -3060,8 +3062,9 @@ def validate(
 
     FILES_OR_DIRECTORY can be one or more DEM raster paths, a directory, or a
     glob pattern (e.g., `data/ncei*.tif`). With a directory or several files,
-    only rasters ending in .tif, .tiff, .vrt, .nc, .nc4, .img, .asc, .bag, .grd
-    or .flt are used (any case), so sidecar files are skipped.
+    only rasters ending in .tif, .tiff, .vrt, .nc, .nc4, .img, .asc, .bag, .grd,
+    .flt, .h5 or .hdf5 are used (any case), so sidecar files and IVERT's own
+    results files are skipped.
 
     Example: ivert validate mydem.tif -V navd88 -n "Oregon Coast"
 

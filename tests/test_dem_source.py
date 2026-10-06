@@ -1,5 +1,6 @@
 """Tests for picking the elevation variable out of NetCDF DEMs."""
 
+import h5py
 import netCDF4
 import numpy as np
 import pytest
@@ -191,3 +192,74 @@ def test_collection_skips_a_file_without_an_elevation_variable(
     assert "b.nc has several variables (a, b)" in errors[0]
     assert errors[-1].startswith("1 of 2 DEMs did not run because of errors")
     assert errors[-1].endswith(": b.nc")
+
+
+def _make_hdf5(path, datasets: list[str]):
+    """Write one 4x5 float dataset per path ('elev', 'grid/elev', ...)."""
+    with h5py.File(path, "w") as f:
+        for name in datasets:
+            f[name] = np.arange(20, dtype="f4").reshape(4, 5)
+    return str(path)
+
+
+def test_hdf5_default_name_is_found(tmp_path):
+    path = _make_hdf5(tmp_path / "dem.h5", ["uncert", "z", "elevation"])
+
+    assert dem_source.resolve_dem_source(path) == f'HDF5:"{path}"://elevation'
+
+
+def test_hdf5_dataset_in_a_group_is_found_by_name_or_path(tmp_path):
+    path = _make_hdf5(tmp_path / "dem.h5", ["grid/elev", "grid/uncert"])
+    expected = f'HDF5:"{path}"://grid/elev'
+
+    assert dem_source.resolve_dem_source(path) == expected
+    assert dem_source.resolve_dem_source(path, "elev") == expected
+    assert dem_source.resolve_dem_source(path, "grid/elev") == expected
+    assert dem_source.resolve_dem_source(path, "/grid/elev") == expected
+
+
+def test_hdf5_name_in_several_groups_needs_the_full_path(tmp_path):
+    path = _make_hdf5(tmp_path / "dem.h5", ["a/elev", "b/elev"])
+
+    with pytest.raises(dem_source.DEMVariableError, match="a/elev, b/elev"):
+        dem_source.resolve_dem_source(path)
+    assert dem_source.resolve_dem_source(path, "b/elev") == f'HDF5:"{path}"://b/elev'
+
+
+def test_hdf5_missing_variable_is_an_error(tmp_path):
+    path = _make_hdf5(tmp_path / "dem.h5", ["elev", "uncert"])
+
+    with pytest.raises(dem_source.DEMVariableError, match="elev, uncert"):
+        dem_source.resolve_dem_source(path, "depth")
+
+
+def test_single_dataset_hdf5_file(tmp_path):
+    path = _make_hdf5(tmp_path / "dem.h5", ["height"])
+
+    assert dem_source.resolve_dem_source(path) == path
+    assert dem_source.resolve_dem_source(path, "height") == f'HDF5:"{path}"://height'
+    with pytest.raises(dem_source.DEMVariableError):
+        dem_source.resolve_dem_source(path, "elev")
+
+
+def test_hdf5_subdataset_base_name_and_possible_names(tmp_path):
+    sds = 'HDF5:"/d/dem.h5"://grid/elev'
+
+    assert dem_source.dem_file_path(sds) == "/d/dem.h5"
+    assert dem_source.dem_base_name(sds) == "dem_grid_elev"
+    assert dem_source.possible_base_names("/d/dem.h5", "grid/elev") == [
+        "dem",
+        "dem_grid_elev",
+    ]
+
+
+def test_collection_lists_hdf5_dems_but_not_ivert_results(tmp_path):
+    for name in ("a.h5", "b.HDF5", "a_results.h5", "a_photons.h5", "run_results.h5"):
+        (tmp_path / name).write_bytes(b"")
+
+    assert [
+        p.rsplit("/", 1)[1] for p in _resolve_dem_list(str(tmp_path), None, None)
+    ] == [
+        "a.h5",
+        "b.HDF5",
+    ]

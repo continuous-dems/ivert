@@ -624,7 +624,7 @@ def validate_dem(
             used if we've already created one, such as in validate_dem_collection, for efficiency.
             Typically ignored for a single DEM validation.
         band_num: The raster band to use in the DEMs. 1-indexed. Defaults to 1 (first band).
-        variable: The variable to validate in a NetCDF DEM file. Defaults to
+        variable: The variable to validate in a NetCDF or HDF5 DEM file. Defaults to
             None: a single-variable file is used as-is, and a multi-variable one is searched for
             'elev', 'elevation' and then 'z' (see ivert.utils.dem_source.resolve_dem_source).
         dem_vertical_datum: The vertical datum of the DEM: a common name ("navd88",
@@ -1057,8 +1057,8 @@ def dem_needs_validation(
     or when an earlier run marked it as empty. Summary files, plots and error exports
     that can be rebuilt from existing results don't count as validation work.
 
-    'variable' is the NetCDF variable to validate, as in validate_dem(). The DEM file
-    isn't opened: for a NetCDF file, each output name it could have is checked
+    'variable' is the NetCDF or HDF5 variable to validate, as in validate_dem(). The DEM
+    file isn't opened: for such a file, each output name it could have is checked
     (see dem_source.possible_base_names()).
     """
     if overwrite:
@@ -2956,8 +2956,9 @@ def export_error_results(
     "--variable",
     type=str,
     default=None,
-    help="The variable to validate in a NetCDF DEM file. Defaults to the "
-    "file's only variable, or else the first of 'elev', 'elevation' or 'z' found.",
+    help="The variable to validate in a NetCDF or HDF5 DEM file: a name ('elev') or, "
+    "for HDF5, a path within the file ('grid/elev'). Defaults to the file's only "
+    "variable, or else the first of 'elev', 'elevation' or 'z' found.",
 )
 @click.option(
     "--place_name",
