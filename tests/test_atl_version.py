@@ -161,6 +161,10 @@ class _FakeRequestsCSV:
 
     lookups: ClassVar[list[dict]] = []
     records: ClassVar[list[dict]] = []
+    configs: ClassVar[list[object]] = []
+
+    def __init__(self, config: object = None) -> None:
+        self.configs.append(config)
 
     def find_matching_request(self, *args: object, **kwargs: object):
         self.lookups.append(kwargs)
@@ -186,6 +190,7 @@ def db(tmp_path, monkeypatch):
     _FakeFetchezIceSat2.built_with = []
     _FakeRequestsCSV.lookups = []
     _FakeRequestsCSV.records = []
+    _FakeRequestsCSV.configs = []
     monkeypatch.setattr(is2db, "_FetchezIceSat2", _FakeFetchezIceSat2)
     monkeypatch.setattr(is2db, "ICESat2RequestsCSV", _FakeRequestsCSV)
     return is2db.IS2Database(ivert_config=config)
@@ -223,6 +228,14 @@ def test_the_configured_version_is_requested_and_recorded(db, monkeypatch):
     assert [m["version"] for m in _FakeFetchezIceSat2.built_with] == ["007"]
     assert [k["atl_version"] for k in _FakeRequestsCSV.lookups] == ["007"]
     assert [k["atl_version"] for k in _FakeRequestsCSV.records] == ["007"]
+
+
+def test_the_requests_cache_uses_the_database_config(db, monkeypatch):
+    """A database built on a non-default config must not read the default requests.csv."""
+    _download(db, monkeypatch, [V007_GRANULE])
+
+    assert _FakeRequestsCSV.configs
+    assert all(c is db.config for c in _FakeRequestsCSV.configs)
 
 
 def test_granules_of_another_release_are_left_out(db, monkeypatch):

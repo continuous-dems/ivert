@@ -28,12 +28,12 @@ Delete all files in the IVERT cache directory.
 
 ```
 ivert cache delete
-ivert cache delete --force
+ivert cache delete --yes
 ```
 
 | Flag | Description |
 |------|-------------|
-| `-f, --force` | Skip the confirmation prompt |
+| `-y, --yes` (or `-f, --force`) | Skip the confirmation prompt |
 
 The cache is safe to delete at any time. IVERT will re-download or recompute any needed files the next time they are required. The main cost is re-downloading datum shift grids, which may take a few minutes.
 

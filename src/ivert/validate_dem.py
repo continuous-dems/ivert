@@ -2006,7 +2006,9 @@ def _run_parallel_cell_validation(
             open_pipes_child,
             memory_objs,
         )
-        return results_dataframes_list
+        # Re-raise rather than hand back the cells finished so far, which the caller
+        # would write out as the DEM's complete results.
+        raise
 
     finally:
         progress.close()
