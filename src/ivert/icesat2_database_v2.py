@@ -280,7 +280,7 @@ _WORKER_DB = None
 
 def _start_classify_worker(config, nice: int) -> None:
     """Set up a forked classification worker: one database object, lower priority."""
-    global _WORKER_DB
+    global _WORKER_DB  # noqa: PLW0603  (a Pool initializer can only hand state to its tasks through a global)
     with contextlib.suppress(AttributeError, OSError):
         os.nice(nice)
     _WORKER_DB = IS2Database(ivert_config=config)
