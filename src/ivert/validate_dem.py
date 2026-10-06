@@ -54,23 +54,21 @@ INTERDECILE_MIN_PHOTONS = 5
 
 
 def read_dataframe_file(df_filename: str) -> pd.DataFrame:
-    """Read a dataframe file, either from a picklefile, HDF, CSV, or feather.
+    """Read a dataframe file, either from HDF, CSV, or feather.
 
     (Can handle other formats by adding more "elif ..." statements in the function.)
     """
     assert os.path.exists(df_filename)
     ext = os.path.splitext(df_filename)[1]
     ext = ext.lower()
-    if ext == ".pickle":
-        dataframe = pd.read_pickle(df_filename)
-    elif ext in (".h5", ".hdf"):
+    if ext in (".h5", ".hdf"):
         dataframe = pd.read_hdf(df_filename, mode="r")
     elif ext in (".csv", ".txt"):
         dataframe = pd.read_csv(df_filename)
     elif ext == ".feather":
         dataframe = pd.read_feather(df_filename)
     else:
-        msg = f"ERROR: Unknown dataframe file extension '{ext}'. (Currently supporting .pickle, .h5, .hdf, .csv, .txt, or .feather)"
+        msg = f"ERROR: Unknown dataframe file extension '{ext}'. (Currently supporting .h5, .hdf, .csv, .txt, or .feather)"
         raise NotImplementedError(msg)
 
     return dataframe

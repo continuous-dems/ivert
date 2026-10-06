@@ -31,7 +31,7 @@ def test_a_config_survives_pickling():
     """Spawned validation workers receive their Config by pickle."""
     config = configfile.Config()
 
-    copy = pickle.loads(pickle.dumps(config))
+    copy = pickle.loads(pickle.dumps(config))  # noqa: S301  (round-trips its own data)
 
     # Compared by repr: dem_default_ndv is NaN, which never equals itself.
     assert {k: repr(v) for k, v in vars(copy).items() if k != "_config"} == {

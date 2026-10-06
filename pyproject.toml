@@ -102,7 +102,6 @@ ignore = [
     "PLR0915",  # too-many-statements
     "PLR0917",  # too-many-positional-arguments
     "PLR2004",  # magic-value-comparison
-    "PLW0603",  # global-statement
     "PTH100",   # os-path-abspath
     "PTH102",   # os-mkdir
     "PTH103",   # os-makedirs
@@ -122,8 +121,6 @@ ignore = [
     "PTH207",   # glob
     "PTH208",   # os-listdir
     "S101",     # assert
-    "S301",     # suspicious-pickle-usage
-    "SIM115",   # open-file-with-context-handler
     "SLF001",   # private-member-access
     # Permanent: TRY003 wants a custom exception class for every multi-word message.
     # Most of ours are one-off argument checks or click exceptions, whose message
