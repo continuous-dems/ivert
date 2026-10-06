@@ -131,7 +131,7 @@ ivert validate -m old_results/ivert_manifest.ini /data/new_dems/
 
 Options given on the command line override the manifest's values, so `-m manifest.ini -sd 3` repeats a run with only the outlier threshold changed.
 
-If the manifest's options don't match those of the installed IVERT (the manifest came from an older or newer version, or was edited), IVERT warns, names the version situation, and lists the options the manifest has that this version doesn't and those it lacks. It then asks whether to go on without the unrecognized options, with current defaults for the missing ones. Answering no stops the run. When IVERT isn't running in a terminal, it stops without asking.
+An option the manifest lacks, usually one added to IVERT after the manifest was written, takes the value given on the command line, if any; otherwise it takes its default, and IVERT logs a warning for each such option naming the default used. If the manifest has options the installed IVERT doesn't recognize (it came from a newer version, or was edited), IVERT warns, names the version situation, lists them, and asks whether to go on without them. Answering no stops the run. When IVERT isn't running in a terminal, it stops without asking.
 
 A run that finds every DEM already validated (without `-ow`) does no work and leaves the existing manifest alone. When a collection run does work but its settings differ from the manifest already in the output directory, and some DEMs already have results, IVERT warns how many of them are reused rather than redone. Their results still reflect the old settings. Use `-ow` to redo them with the new ones.
 

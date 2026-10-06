@@ -2370,8 +2370,9 @@ def _parse_exclude_spec(value, wsen=False):
 def _manifest_option_values(ctx, manifest_file):
     """Return the manifest's values for every tracked option not given on the command line.
 
-    Warns and asks before going on if the manifest's options don't match the ones this
-    version of 'ivert validate' has.
+    Options the manifest lacks take their command-line values, or else their defaults
+    with a warning for each; unrecognized options in the manifest are warned about and asked
+    about before going on (see manifest.reconcile_options()).
     """
     from click.core import ParameterSource
 
@@ -2386,6 +2387,12 @@ def _manifest_option_values(ctx, manifest_file):
         params,
         ivert_version,
         interactive=_stdin_is_interactive(),
+        current_values=ctx.params,
+        command_line={
+            name
+            for name in params
+            if ctx.get_parameter_source(name) == ParameterSource.COMMANDLINE
+        },
     )
     logger.info("Using settings from manifest %s", manifest_file)
     return {

@@ -198,6 +198,12 @@ def _version_mismatch_message(manifest_version, current_version):
     )
 
 
+def _describe_default(value):
+    """Describe, for a warning, the default an option missing from a manifest runs with."""
+    text = ", ".join(format_value(value).split("\n"))
+    return f"its default, '{text}'" if text else "its default (not set)"
+
+
 def reconcile_options(
     path,
     manifest_version,
@@ -205,45 +211,70 @@ def reconcile_options(
     tracked_names,
     current_version,
     interactive,
+    current_values=None,
+    command_line=(),
 ):
     """Check a manifest's options against the current CLI and settle any differences.
 
-    If the manifest's option names match 'tracked_names' exactly, its options are
-    returned unchanged. Otherwise a warning names the version situation and lists the
-    extra and missing options, and the user is asked whether to go on without the
-    extra options (the missing ones take their current defaults).
+    An option the current CLI has but the manifest lacks (usually one added since the
+    manifest was written) runs with its command-line value if one was given, quietly,
+    and otherwise with its default, named in a warning. An option in the manifest that
+    the current CLI doesn't recognize could change the results if it were dropped, so
+    a warning lists them and the user is asked whether to go on without them.
+
+    Args:
+        path: The manifest's path, for messages.
+        manifest_version: The IVERT version that wrote the manifest.
+        manifest_options: {option name: raw text} from the manifest.
+        tracked_names: The option names the current CLI records in manifests.
+        current_version: The installed IVERT version.
+        interactive: Whether there is a terminal to ask on.
+        current_values: {option name: value} the run has without the manifest (the
+            defaults and command-line values), used to name the default a missing
+            option runs with.
+        command_line: Names of the options given on the command line, which need no
+            warning when the manifest lacks them.
 
     Returns:
         The manifest's options, limited to those the current CLI knows.
 
     Raises:
-        click.ClickException: the user declined, or there is no terminal to ask on.
+        click.ClickException: the manifest has unrecognized options and the user
+            declined, or there is no terminal to ask on.
 
     """
     extra = sorted(set(manifest_options) - set(tracked_names))
     missing = sorted(set(tracked_names) - set(manifest_options))
-    if not extra and not missing:
+    current_values = current_values or {}
+
+    for name in missing:
+        if name in command_line:
+            continue
+        logger.warning(
+            "%s: the manifest (IVERT %s) has no '%s' option; using %s.",
+            path,
+            manifest_version,
+            name,
+            _describe_default(current_values.get(name)),
+        )
+
+    if not extra:
         return dict(manifest_options)
 
-    lines = [f"{path}: {_version_mismatch_message(manifest_version, current_version)}"]
-    if extra:
-        lines.append(
-            "Options in the manifest that the current version of IVERT doesn't recognize: "
-            + ", ".join(extra),
-        )
-    if missing:
-        lines.append(
-            "Options the current version of IVERT uses that are missing from the manifest: "
-            + ", ".join(missing),
-        )
-    logger.warning("\n".join(lines))
+    logger.warning(
+        "%s: %s\nOptions in the manifest that the current version of IVERT doesn't "
+        "recognize: %s",
+        path,
+        _version_mismatch_message(manifest_version, current_version),
+        ", ".join(extra),
+    )
 
-    question = "Ignore the unrecognized manifest options, and use the current defaults for the missing ones?"
+    question = "Ignore the unrecognized manifest options?"
     if not interactive:
         msg = (
-            "The manifest doesn't match this version of IVERT, and there is no terminal to "
-            "ask whether to go ahead. Edit the manifest so its [options] match "
-            "'ivert validate', or run interactively."
+            "The manifest has options this version of IVERT doesn't recognize, and "
+            "there is no terminal to ask whether to go ahead without them. Edit the "
+            "manifest so its [options] match 'ivert validate', or run interactively."
         )
         raise click.ClickException(msg)
     if not click.confirm(question, default=False):
