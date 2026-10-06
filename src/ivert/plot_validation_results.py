@@ -13,6 +13,8 @@ import six
 import tqdm
 from matplotlib import ticker
 
+from ivert.utils import dem_source
+
 logger = logging.getLogger(__name__)
 
 
@@ -38,7 +40,7 @@ def get_data_from_h5_or_list(
                 data["filename"] = os.path.basename(h5_name_or_list)
             else:
                 assert type(orig_filenames) is str
-                data["filename"] = os.path.basename(orig_filenames)
+                data["filename"] = dem_source.dem_display_name(orig_filenames)
 
     elif is_iterable(h5_name_or_list):
         logger.info("Reading %s h5 results files.", len(h5_name_or_list))
@@ -60,7 +62,9 @@ def get_data_from_h5_or_list(
                         temp_data["filename"] = os.path.basename(h5_file)
                     else:
                         assert is_iterable(orig_filenames)
-                        temp_data["filename"] = os.path.basename(orig_filenames[i])
+                        temp_data["filename"] = dem_source.dem_display_name(
+                            orig_filenames[i],
+                        )
 
                 data_list.append(temp_data)
 

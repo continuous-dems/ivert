@@ -3,10 +3,11 @@
 import h5py
 import netCDF4
 import numpy as np
+import pandas as pd
 import pytest
 import rasterio
 
-from ivert import validate_dem, validate_dem_collection
+from ivert import plot_validation_results, validate_dem, validate_dem_collection
 from ivert.utils import dem_source
 from ivert.validate_dem_collection import _resolve_dem_list
 
@@ -251,6 +252,40 @@ def test_hdf5_subdataset_base_name_and_possible_names(tmp_path):
         "dem",
         "dem_grid_elev",
     ]
+
+
+@pytest.mark.parametrize(
+    ("dem_name", "expected"),
+    [
+        ("/d/dem.tif", "dem.tif"),
+        ('NETCDF:"/d/dem.nc4":elevation', "dem.nc4:elevation"),
+        ("NETCDF:/d/dem.nc:z", "dem.nc:z"),
+        ('HDF5:"/d/dem.h5"://grid/elev', "dem.h5:grid/elev"),
+        ('NETCDF:"/d/dem.h5":grid/elev', "dem.h5:grid/elev"),
+    ],
+)
+def test_dem_display_name(dem_name, expected):
+    assert dem_source.dem_display_name(dem_name) == expected
+
+
+def test_collection_table_names_dems_without_gdal_prefixes(tmp_path):
+    """Two variables of one file must keep apart: the summary CSV groups by this name."""
+    h5_files = []
+    for i in range(3):
+        h5_files.append(str(tmp_path / f"r{i}_results.h5"))
+        pd.DataFrame({"diff_mean": [float(i)]}).to_hdf(h5_files[-1], key="results")
+
+    data = plot_validation_results.get_data_from_h5_or_list(
+        h5_files,
+        orig_filenames=[
+            f'NETCDF:"{tmp_path}/a.nc":elev',
+            f'NETCDF:"{tmp_path}/a.nc":z',
+            f"{tmp_path}/b.tif",
+        ],
+        include_filenames=True,
+    )
+
+    assert data["filename"].tolist() == ["a.nc:elev", "a.nc:z", "b.tif"]
 
 
 def test_netcdf4_file_named_h5_opens_through_the_netcdf_driver(tmp_path):

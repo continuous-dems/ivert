@@ -82,6 +82,20 @@ def dem_base_name(dem_name):
     return base + "_" + _variable_path(parsed[2]).replace("/", "_")
 
 
+def dem_display_name(dem_name):
+    """Return the name to show for a DEM in tables: its file name, plus any variable.
+
+    A plain file gives its file name ('dem.tif'). A subdataset gives its file's name and
+    the variable, without the GDAL driver prefix or quotes ('dem.nc:elev',
+    'dem.h5:grid/elev'), so that two variables of one file stay apart.
+    """
+    file_name = os.path.basename(dem_file_path(dem_name))
+    parsed = _parse_subdataset(dem_name)
+    if parsed is None:
+        return file_name
+    return f"{file_name}:{_variable_path(parsed[2])}"
+
+
 def _variable_file_driver(dem_name):
     """Return the subdataset driver prefix for a plain NetCDF or HDF5 path, else None."""
     if _parse_subdataset(dem_name) is not None:
