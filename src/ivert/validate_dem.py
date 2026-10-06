@@ -1254,32 +1254,6 @@ def _check_existing_outputs(
     return None
 
 
-def _comparable_reference(reference):
-    """Return a CRS or reference ID in a form that can be compared for equality."""
-    if isinstance(reference, pyproj.CRS):
-        return reference
-    try:
-        return pyproj.CRS.from_user_input(reference)
-    except pyproj.exceptions.CRSError:
-        # A transformez reference ID such as 'vdatum:mllw', which pyproj can't read.
-        return str(reference).strip().lower()
-
-
-def _same_reference(a, b):
-    """Return True if two CRSs or vertical reference IDs name the same thing."""
-    a, b = _comparable_reference(a), _comparable_reference(b)
-    if isinstance(a, pyproj.CRS) and isinstance(b, pyproj.CRS):
-        return a.equals(b)
-    return a == b
-
-
-def _reference_label(reference):
-    """Return a short printable name for a CRS or vertical reference ID."""
-    if isinstance(reference, pyproj.CRS):
-        return reference.to_string()
-    return str(reference)
-
-
 def _split_projection(dem_projection):
     """Split -p/--projection into (horizontal CRS, vertical reference or None).
 
@@ -1322,24 +1296,7 @@ def _resolve_dem_crs(
     if dem_projection is not None:
         proj_horz, proj_vert = _split_projection(dem_projection)
 
-    # Horizontal.
-    if proj_horz is None:
-        if file_horz_crs is None:
-            msg = (
-                f"{dem_source.dem_file_path(dem_name)} has no coordinate reference system. "
-                "Use -p/--projection to give one."
-            )
-            raise ValueError(msg)
-        horz = file_horz_crs
-    else:
-        if file_horz_crs is not None and not _same_reference(proj_horz, file_horz_crs):
-            logger.warning(
-                "Using -p/--projection %s for %s in place of the CRS in the file (%s).",
-                _reference_label(proj_horz),
-                dem_label,
-                _reference_label(file_horz_crs),
-            )
-        horz = proj_horz
+    horz = dem_geom.resolve_horizontal_crs(dem_name, file_horz_crs, proj_horz)
 
     # Vertical.
     vdatum_ref = None
@@ -1348,7 +1305,7 @@ def _resolve_dem_crs(
         if vdatum_ref is None:
             msg = f"Unrecognised vertical datum {dem_vertical_datum!r}."
             raise ValueError(msg)
-        if proj_vert is not None and not _same_reference(vdatum_ref, proj_vert):
+        if proj_vert is not None and not dem_geom.same_reference(vdatum_ref, proj_vert):
             logger.warning(
                 "Using -V/--vdatum %s for %s in place of the vertical datum in "
                 "-p/--projection (%s).",
@@ -1375,13 +1332,16 @@ def _resolve_dem_crs(
         return horz, file_vert_crs
 
     ivert.vdatum_lookup.check_vdatum(user_vert)
-    if file_vert_crs is not None and not _same_reference(user_vert, file_vert_crs):
+    if file_vert_crs is not None and not dem_geom.same_reference(
+        user_vert,
+        file_vert_crs,
+    ):
         logger.warning(
             "Using %s %s for %s in place of the vertical datum in the file (%s).",
             user_flag,
             user_vert,
             dem_label,
-            _reference_label(file_vert_crs),
+            dem_geom.reference_label(file_vert_crs),
         )
     try:
         vert = dem_geom.get_dem_reference_frame_from_user_input(user_vert, "vert")

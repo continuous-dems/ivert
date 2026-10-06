@@ -1,12 +1,19 @@
-"""Tests for reading a DEM's CRS from its file."""
+"""Tests for reading a DEM's CRS from its file, and for the DEM region 'ivert database download' uses."""
 
+import logging
+
+import h5py
+import netCDF4
 import numpy as np
 import pyproj
+import pytest
 import rasterio
 import rasterio.transform
 from rasterio.shutil import copy as copy_raster
 
+from ivert.cli import _region_from_file
 from ivert.utils import dem_geom
+from ivert.utils.dem_source import DEMVariableError
 
 
 def _write_tif(path, crs="EPSG:4326"):
@@ -48,3 +55,63 @@ def test_split_srs_string_reads_ogc_crs84_as_epsg_4326():
 
     assert horz.equals(pyproj.CRS("EPSG:4326"))
     assert vert == "vdatum:mllw"
+
+
+def test_download_region_from_a_dem(tmp_path):
+    bbox, geometry = _region_from_file(_write_tif(tmp_path / "dem.tif"))
+
+    np.testing.assert_allclose(bbox, (-105.0, -104.5, 39.9, 40.3))
+    assert geometry is None
+
+
+def test_download_region_from_a_dem_without_a_crs_needs_projection(tmp_path):
+    path = _write_tif(tmp_path / "dem.tif", crs=None)
+
+    with pytest.raises(ValueError, match="-p/--projection"):
+        _region_from_file(path)
+    bbox, _ = _region_from_file(path, projection_horz=pyproj.CRS("EPSG:4326"))
+    np.testing.assert_allclose(bbox, (-105.0, -104.5, 39.9, 40.3))
+
+
+def test_download_projection_overrides_the_dem_crs_with_a_warning(tmp_path, caplog):
+    path = _write_tif(tmp_path / "dem.tif", crs="EPSG:4269")
+
+    with caplog.at_level(logging.WARNING):
+        _region_from_file(path, projection_horz=pyproj.CRS("EPSG:4326"))
+
+    assert "in place of the CRS in the file" in caplog.text
+
+
+def test_download_region_uses_the_variable(tmp_path):
+    """A multi-variable file has no extent of its own; the chosen variable's is used."""
+    path = tmp_path / "dem.nc"
+    with netCDF4.Dataset(path, "w") as ds:
+        ds.createDimension("lat", 4)
+        ds.createDimension("lon", 5)
+        lat = ds.createVariable("lat", "f8", ("lat",))
+        lat[:] = [40.0, 40.1, 40.2, 40.3]
+        lat.units = "degrees_north"
+        lon = ds.createVariable("lon", "f8", ("lon",))
+        lon[:] = [-105.0, -104.9, -104.8, -104.7, -104.6]
+        lon.units = "degrees_east"
+        for name in ("depth", "uncert"):
+            ds.createVariable(name, "f4", ("lat", "lon"))[:] = np.zeros((4, 5))
+
+    with pytest.raises(DEMVariableError):
+        _region_from_file(str(path))
+    bbox, _ = _region_from_file(
+        str(path),
+        variable="depth",
+        projection_horz=pyproj.CRS("EPSG:4326"),
+    )
+    np.testing.assert_allclose(bbox, (-105.05, -104.55, 39.95, 40.35))
+
+
+def test_download_region_from_an_ungeoreferenced_dem_is_an_error(tmp_path):
+    """Plain HDF5 has no georeferencing GDAL can read."""
+    path = tmp_path / "dem.h5"
+    with h5py.File(path, "w") as f:
+        f["elev"] = np.zeros((4, 5), dtype="f4")
+
+    with pytest.raises(ValueError, match="no georeferencing"):
+        _region_from_file(str(path), projection_horz=pyproj.CRS("EPSG:4326"))

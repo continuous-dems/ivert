@@ -4,6 +4,7 @@ These functions were originally part of icesat2_query.py but have no dependency 
 the (deprecated) cudem library and are general-purpose enough to live in utils.
 """
 
+import logging
 import os
 import typing
 
@@ -14,6 +15,8 @@ import shapely
 import shapely.geometry
 
 from ivert.utils import dem_source
+
+logger = logging.getLogger(__name__)
 
 # OGC's longitude-first versions of geographic CRSs, which GDAL reports for some
 # formats (ASCII Grid, ESRI .hdr/.flt). pyproj finds no EPSG match for them, since
@@ -289,3 +292,61 @@ def get_wgs84_bounding_box(
 
     b = polygon_wgs84.bounds  # (xmin, ymin, xmax, ymax)
     return b[0], b[2], b[1], b[3]  # → (xmin, xmax, ymin, ymax)
+
+
+def _comparable_reference(reference):
+    """Return a CRS or reference ID in a form that can be compared for equality."""
+    if isinstance(reference, pyproj.CRS):
+        return reference
+    try:
+        return pyproj.CRS.from_user_input(reference)
+    except pyproj.exceptions.CRSError:
+        # A transformez reference ID such as 'vdatum:mllw', which pyproj can't read.
+        return str(reference).strip().lower()
+
+
+def same_reference(a, b):
+    """Return True if two CRSs or vertical reference IDs name the same thing."""
+    a, b = _comparable_reference(a), _comparable_reference(b)
+    if isinstance(a, pyproj.CRS) and isinstance(b, pyproj.CRS):
+        return a.equals(b)
+    return a == b
+
+
+def reference_label(reference):
+    """Return a short printable name for a CRS or vertical reference ID."""
+    if isinstance(reference, pyproj.CRS):
+        return reference.to_string()
+    return str(reference)
+
+
+def resolve_horizontal_crs(dem_name, file_horz_crs, projection_horz=None):
+    """Return a DEM's horizontal CRS: the one from -p/--projection, else the file's.
+
+    Args:
+        dem_name: The DEM's path or subdataset string, for messages.
+        file_horz_crs: The horizontal CRS in the DEM file, or None if it has none.
+        projection_horz: The horizontal part of the user's -p/--projection, or None.
+
+    A warning is logged when -p/--projection replaces a different CRS in the file.
+
+    Raises:
+        ValueError: if neither the file nor -p/--projection gives a CRS.
+
+    """
+    if projection_horz is None:
+        if file_horz_crs is None:
+            msg = (
+                f"{dem_source.dem_file_path(dem_name)} has no coordinate reference system. "
+                "Use -p/--projection to give one."
+            )
+            raise ValueError(msg)
+        return file_horz_crs
+    if file_horz_crs is not None and not same_reference(projection_horz, file_horz_crs):
+        logger.warning(
+            "Using -p/--projection %s for %s in place of the CRS in the file (%s).",
+            reference_label(projection_horz),
+            os.path.basename(dem_source.dem_file_path(dem_name)),
+            reference_label(file_horz_crs),
+        )
+    return projection_horz

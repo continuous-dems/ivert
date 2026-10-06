@@ -964,6 +964,30 @@ def database_size():
     )
 
 
+def _check_projection_option(projection):
+    """Check a -p/--projection value; return its (horizontal CRS, vertical part or None).
+
+    The value may be a horizontal CRS ('EPSG:26910') or a compound one
+    ('EPSG:6893', 'EPSG:4326+3855', 'EPSG:4326+vdatum:mllw').
+
+    Raises:
+        click.ClickException: if it can't be read or has no horizontal CRS.
+    """
+    import pyproj
+
+    from ivert.utils import dem_geom
+
+    try:
+        horz_crs, vert = dem_geom.split_srs_string(projection)
+    except pyproj.exceptions.CRSError as exc:
+        msg = f"Unrecognised -p/--projection '{projection}': {exc}"
+        raise click.ClickException(msg) from exc
+    if horz_crs is None:
+        msg = f"-p/--projection '{projection}' has no horizontal CRS."
+        raise click.ClickException(msg)
+    return horz_crs, vert
+
+
 @database.command("download")
 @click.argument("bbox_or_files", nargs=-1, required=True)
 @click.option(
@@ -992,9 +1016,27 @@ def database_size():
 @click.option(
     "-p",
     "--projection",
-    default="EPSG:4326",
-    show_default=True,
-    help="Horizontal projection (EPSG code) that the bounding box coordinates are in.",
+    default=None,
+    help=(
+        "CRS of the region. For a numeric bounding box, the CRS its coordinates are "
+        "in (default EPSG:4326). For DEM files, the DEMs' CRS: required for a DEM "
+        "with no CRS of its own, and it overrides a different CRS in the file, with "
+        "a warning. A compound CRS ('EPSG:4326+3855', 'EPSG:4326+vdatum:mllw') is "
+        "accepted; only its horizontal part is used here. Vector files always use "
+        "their own CRS."
+    ),
+)
+@click.option(
+    "--variable",
+    "variable",
+    type=str,
+    default=None,
+    help=(
+        "Variable to use from NetCDF (.nc, .nc4) or HDF5 (.h5, .hdf5) DEM files: a "
+        "name ('elev') or, for HDF5, a path within the file ('grid/elev'). By default "
+        "a file's only variable is used; a file with several is searched for 'elev', "
+        "'elevation' and then 'z', and it is an error if none is found."
+    ),
 )
 @click.option(
     "--wsen",
@@ -1066,6 +1108,7 @@ def database_download(
     date_start,
     date_end,
     projection,
+    variable,
     wsen,
     replace,
     classes,
@@ -1085,8 +1128,8 @@ def database_download(
     its bounding box, minus the squares the area does not reach, merged back
     together), so a vector file of many adjacent or scattered tiles is fetched in
     one pass without a request per tile and without covering the gaps between
-    them. Vector files are read in their own coordinate system; -p only applies
-    to a numeric bounding box.
+    them. Vector files are read in their own coordinate system; -p applies to a
+    numeric bounding box and to DEM files.
 
     Examples:
         ivert database download -- -74.0/-73.0/40.5/41.0
@@ -1101,7 +1144,11 @@ def database_download(
 
     """
     from ivert import icesat2_database_v2 as is2db_mod
-    from ivert.utils import dem_geom
+    from ivert.utils import dem_geom, dem_source
+
+    projection_horz = None
+    if projection is not None:
+        projection_horz, _ = _check_projection_option(projection)
 
     # --- Parse bbox or files ---
     # Flatten slash-separated tokens into a flat list.
@@ -1121,12 +1168,12 @@ def database_download(
                 xmin, ymin, xmax, ymax = nums
             else:
                 xmin, xmax, ymin, ymax = nums
-            if projection.upper() in ("EPSG:4326", "4326"):
+            if projection_horz is None or projection_horz.to_epsg() == 4326:
                 wgs84_bbox = (xmin, xmax, ymin, ymax)
             else:
                 wgs84_bbox = dem_geom.get_wgs84_bounding_box(
                     (xmin, xmax, ymin, ymax),
-                    dem_horz_reference_frame=projection,
+                    dem_horz_reference_frame=projection_horz,
                 )
         except ValueError:
             pass  # not numeric — fall through to file path handling
@@ -1138,14 +1185,20 @@ def database_download(
             matches = glob.glob(token)
             expanded.extend(matches or [token])
 
-        missing = [f for f in expanded if not os.path.exists(f)]
+        missing = [
+            f for f in expanded if not os.path.exists(dem_source.dem_file_path(f))
+        ]
         if missing:
             raise click.ClickException(
                 "Files not found (and input is not a valid 4-value bbox): "
                 + ", ".join(missing),
             )
 
-        wgs84_bbox, geometry = _dissolve_region_files(expanded)
+        wgs84_bbox, geometry = _dissolve_region_files(
+            expanded,
+            variable=variable,
+            projection_horz=projection_horz,
+        )
 
     # --- Parse dates and classes ---
     db = is2db_mod.IS2Database()
@@ -1304,23 +1357,51 @@ def _region_from_vector_file(path):
     return bbox, geometry
 
 
-def _region_from_file(path):
+def _region_from_file(path, variable=None, projection_horz=None):
     """Return (bbox, geometry) for a raster or polygon-vector file.
 
     The geometry is None for a raster, and for a vector file with no polygons;
     the bbox alone defines the region then.
+
+    For a raster, 'variable' picks the variable of a NetCDF or HDF5 file, and
+    'projection_horz' (the horizontal part of -p/--projection) sets or overrides its
+    CRS, as 'ivert validate' does. Both are ignored for vector files.
     """
     ext = os.path.splitext(path)[1].lower()
     if ext in _REGION_VECTOR_EXTENSIONS:
         return _region_from_vector_file(path)
 
-    # Otherwise treat it as a raster; the CRS is read from the file header.
-    from ivert.utils import dem_geom
+    # Otherwise treat it as a raster.
+    import warnings
 
-    return dem_geom.get_wgs84_bounding_box(path), None
+    import rasterio
+
+    from ivert.utils import dem_geom, dem_source
+
+    dem_name = dem_source.resolve_dem_source(path, variable)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", rasterio.errors.NotGeoreferencedWarning)
+        with rasterio.open(dem_name) as ds:
+            ungeoreferenced = ds.transform.is_identity
+    if ungeoreferenced:
+        # Its extent would be in pixels, putting the region near 0°N, 0°E.
+        msg = (
+            f"{dem_source.dem_file_path(dem_name)} has no georeferencing (no "
+            "geotransform), so its extent is unknown."
+        )
+        raise ValueError(msg)
+    horz_crs = dem_geom.resolve_horizontal_crs(
+        dem_name,
+        dem_geom.get_dem_reference_frame_from_file(dem_name, "horz"),
+        projection_horz,
+    )
+    return dem_geom.get_wgs84_bounding_box(
+        dem_name,
+        dem_horz_reference_frame=horz_crs,
+    ), None
 
 
-def _dissolve_region_files(paths):
+def _dissolve_region_files(paths, variable=None, projection_horz=None):
     """Dissolve the footprints of raster and polygon-vector files into one region.
 
     Each raster contributes its WGS84 extent as a rectangle, and each vector file
@@ -1331,6 +1412,8 @@ def _dissolve_region_files(paths):
 
     Args:
         paths: Existing raster or vector files.
+        variable: The variable to use from NetCDF or HDF5 rasters (see _region_from_file).
+        projection_horz: The horizontal CRS to give rasters (see _region_from_file).
 
     Returns:
         (bbox, geometry): The WGS84 (xmin, xmax, ymin, ymax) bounds of the dissolved
@@ -1344,7 +1427,7 @@ def _dissolve_region_files(paths):
     footprints = []
     for path in paths:
         try:
-            bbox, geom = _region_from_file(path)
+            bbox, geom = _region_from_file(path, variable, projection_horz)
         except Exception as exc:
             msg = f"Could not read a region from '{path}': {exc}"
             raise click.ClickException(msg) from exc
@@ -2403,18 +2486,7 @@ def _run_validate(
     # a vertical datum too ('EPSG:6893', 'EPSG:4326+3855', 'EPSG:4326+vdatum:mllw');
     # -V/--vdatum, if given, overrides that part when each DEM is validated.
     if projection is not None:
-        import pyproj
-
-        from ivert.utils import dem_geom
-
-        try:
-            horz_crs, proj_vert = dem_geom.split_srs_string(projection)
-        except pyproj.exceptions.CRSError as exc:
-            msg = f"Unrecognised -p/--projection '{projection}': {exc}"
-            raise click.ClickException(msg) from exc
-        if horz_crs is None:
-            msg = f"-p/--projection '{projection}' has no horizontal CRS."
-            raise click.ClickException(msg)
+        _, proj_vert = _check_projection_option(projection)
         if proj_vert is not None:
             resolved_proj_vert = vdatum_lookup.resolve_vdatum(proj_vert)
             if resolved_proj_vert is None:
