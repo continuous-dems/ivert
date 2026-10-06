@@ -107,6 +107,9 @@ class _FakeFetchezIceSat2:
 
 
 class _FakeRequestsCSV:
+    def __init__(self, config: object = None) -> None:
+        pass
+
     def find_matching_request(self, *args: object, **kwargs: object):
         return None
 

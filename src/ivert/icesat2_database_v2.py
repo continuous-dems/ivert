@@ -1711,6 +1711,8 @@ class IS2Database:
         )
 
         gdf_subset = self.query_granules(bbox)
+        if gdf_subset is None or len(gdf_subset) == 0:
+            return None
 
         logger.debug("Reading %d granules overlapping %r.", len(gdf_subset), bbox)
 
@@ -2067,7 +2069,7 @@ class IS2Database:
             )
 
             # Check for a cached Harmony job for this bbox before submitting.
-            requests_csv = ICESat2RequestsCSV()
+            requests_csv = ICESat2RequestsCSV(self.config)
             cached = requests_csv.find_matching_request(
                 "ATL03",
                 sbbox,

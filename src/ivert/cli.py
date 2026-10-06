@@ -555,7 +555,14 @@ def _options_set_values(assignments, assume_yes=False):
     user_path = config.user_config_path
     user_config = _cp.ConfigParser()
     if os.path.exists(user_path):
-        user_config.read(user_path)
+        try:
+            user_config.read(user_path)
+        except _cp.Error as e:
+            msg = (
+                f"Could not parse the IVERT user config file {user_path}:\n  {e}\n"
+                "Fix or delete that file, or run 'ivert options reset' to start over."
+            )
+            raise click.ClickException(msg) from e
 
     for key, value in parsed:
         user_config["DEFAULT"][key] = value
@@ -2286,8 +2293,11 @@ def cache_list():
 
 @cache.command("delete")
 @click.option(
+    "-y",
+    "--yes",
     "-f",
     "--force",
+    "force",
     is_flag=True,
     default=False,
     help="Skip the confirmation prompt.",
@@ -2315,8 +2325,8 @@ def cache_delete(force):
             deleted_files += 1
 
     click.echo(
-        f"Deleted {deleted_dirs} subdirectorie(s) and {deleted_files} root file(s) "
-        f"from {cache_dir}",
+        f"Deleted {deleted_files} file(s) in {deleted_dirs} subdirectorie(s) and the "
+        f"top level of {cache_dir}",
     )
 
 
