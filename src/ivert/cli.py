@@ -2386,6 +2386,7 @@ def _run_validate(
     bathy_filter_settings=None,
     manifest_options=None,
     variable=None,
+    projection=None,
 ):
     """Branch to validate_dem or validate_list_of_dems based on the number of input files.
 
@@ -2397,6 +2398,39 @@ def _run_validate(
     from ivert import validate_dem as vd_module
     from ivert import validate_dem_collection as vdc_module
     from ivert import vdatum_lookup
+
+    # Check -p/--projection once here, rather than failing on every DEM. It may carry
+    # a vertical datum too ('EPSG:6893', 'EPSG:4326+3855', 'EPSG:4326+vdatum:mllw');
+    # -V/--vdatum, if given, overrides that part when each DEM is validated.
+    if projection is not None:
+        import pyproj
+
+        from ivert.utils import dem_geom
+
+        try:
+            horz_crs, proj_vert = dem_geom.split_srs_string(projection)
+        except pyproj.exceptions.CRSError as exc:
+            msg = f"Unrecognised -p/--projection '{projection}': {exc}"
+            raise click.ClickException(msg) from exc
+        if horz_crs is None:
+            msg = f"-p/--projection '{projection}' has no horizontal CRS."
+            raise click.ClickException(msg)
+        if proj_vert is not None:
+            resolved_proj_vert = vdatum_lookup.resolve_vdatum(proj_vert)
+            if resolved_proj_vert is None:
+                msg = (
+                    f"The vertical datum '{proj_vert}' in -p/--projection "
+                    f"'{projection}' is not recognised."
+                )
+                raise click.ClickException(msg)
+            try:
+                vdatum_lookup.check_vdatum(resolved_proj_vert)
+            except ValueError as exc:
+                msg = (
+                    f"The vertical datum '{proj_vert}' in -p/--projection "
+                    f"'{projection}' can't be used: {exc}"
+                )
+                raise click.ClickException(msg) from exc
 
     # Resolve common datum names ('navd88', 'mllw') to references transformez takes
     # ('EPSG:5703', 'vdatum:mllw'), and stop now if transformez can't use one.
@@ -2533,6 +2567,8 @@ def _run_validate(
         }
         if vdatum != "NONE_PROVIDED":
             kwargs["dem_vertical_datum"] = vdatum
+        if projection is not None:
+            kwargs["dem_projection"] = projection
         if ndv_float is not None:
             kwargs["dem_ndv"] = ndv_float
         if export_error_formats is not None:
@@ -2589,6 +2625,8 @@ def _run_validate(
         }
         if vdatum != "NONE_PROVIDED":
             kwargs["input_vdatum"] = vdatum
+        if projection is not None:
+            kwargs["dem_projection"] = projection
         if ndv_float is not None:
             kwargs["dem_ndv"] = ndv_float
         if export_error_formats is not None:
@@ -2735,6 +2773,19 @@ def _run_validate(
     default=1,
     show_default=True,
     help="Raster band to validate in each DEM (1-indexed). Other bands are ignored.",
+)
+@click.option(
+    "-p",
+    "--projection",
+    "projection",
+    type=str,
+    default=None,
+    help=(
+        "CRS of the DEM(s): horizontal ('EPSG:26910'), or compound to give the vertical "
+        "datum too ('EPSG:6893', 'EPSG:4326+3855', 'EPSG:4326+vdatum:mllw'). Required "
+        "for a DEM with no CRS of its own. Overrides the DEM's own CRS, with a warning, "
+        "if it differs. -V/--vdatum overrides its vertical part, with a warning."
+    ),
 )
 @click.option(
     "--variable",
@@ -2981,6 +3032,7 @@ def validate(
     minimum_coverage_pct_bathy,
     band_num,
     variable,
+    projection,
     outlier_sd_threshold,
     classes,
     min_photons,
@@ -3144,6 +3196,7 @@ def validate(
             bathy_filter_settings=bathy_filter_settings,
             manifest_options=manifest_options,
             variable=variable,
+            projection=projection,
         )
     except DEMVariableError as exc:
         # Not logger.exception: the message says everything a traceback would.

@@ -254,6 +254,7 @@ def validate_list_of_dems(
     band_num: int = 1,
     variable: str | None = None,
     input_vdatum: str | int | None = None,
+    dem_projection: str | int | None = None,
     dem_ndv: float | None = None,
     overwrite: bool = False,
     place_name: str | None = None,
@@ -280,6 +281,7 @@ def validate_list_of_dems(
     the 'bathy_*' config values. 'variable' picks the variable to validate in NetCDF
     files, as in validate_dem.validate_dem(). A NetCDF file without that variable (or,
     with no variable given, without a default elevation variable) is logged and skipped.
+    'dem_projection' is the DEMs' horizontal CRS, as in validate_dem.validate_dem().
     """
     if output_dir is None:
         if isinstance(dem_list_or_dir, str) and os.path.isdir(dem_list_or_dir):
@@ -463,6 +465,7 @@ def validate_list_of_dems(
                 shared_ret_values=shared_ret_values,
                 icesat2_photon_database_obj=photon_db_obj,
                 dem_vertical_datum=input_vdatum,
+                dem_projection=dem_projection,
                 dem_ndv=dem_ndv,
                 interim_data_dir=this_output_dir,
                 overwrite=overwrite,
@@ -681,6 +684,16 @@ def validate_list_of_dems(
     help="Write a CSV with summary results of each individual DEM.",
 )
 @click.option(
+    "--projection",
+    "-p",
+    type=str,
+    default=None,
+    help="The CRS of the DEM(s): horizontal ('EPSG:26910') or compound ('EPSG:6893', "
+    "'EPSG:4326+3855', 'EPSG:4326+vdatum:mllw'). Required for a DEM with no CRS of its "
+    "own; overrides the file's CRS, with a warning, if it differs. A vertical datum "
+    "given separately overrides its vertical part.",
+)
+@click.option(
     "--variable",
     type=str,
     default=None,
@@ -705,6 +718,7 @@ def main(
     minimum_coverage_pct,
     write_summary_csv,
     variable,
+    projection,
     quiet,
 ):
     """Validate a list or directory of DEMs against ICESat-2 photon data.
@@ -763,6 +777,7 @@ def main(
         output_dir=output_dir,
         variable=variable,
         input_vdatum=input_vdatum,
+        dem_projection=projection,
         overwrite=overwrite,
         place_name=place_name,
         create_individual_results=individual_results,

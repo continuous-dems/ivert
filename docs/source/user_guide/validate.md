@@ -41,6 +41,14 @@ ivert validate /data/dems/
 
 Packed integer DEMs (common in NetCDF, using `scale_factor`/`add_offset`) are unpacked to elevations automatically.
 
+### Coordinate reference system
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `-p, --projection CRS` | *(DEM's embedded CRS)* | CRS of the DEM(s). Either horizontal only (`EPSG:26910`, `26910`), or compound to give the vertical datum as well: one code (`EPSG:6893`), two codes (`EPSG:4326+3855`), or a horizontal code plus a transformez reference ID (`EPSG:4326+vdatum:mllw`). Required for a DEM with no CRS of its own. Error exports are written in its horizontal CRS |
+
+Which CRS wins: the horizontal CRS comes from `-p`, else the DEM file. The vertical datum comes from `-V`, else the vertical part of `-p`, else the DEM file. Whenever a command-line value replaces a different one (from `-p` or the file), IVERT logs a warning.
+
 ### Vertical datum
 
 | Flag | Default | Description |

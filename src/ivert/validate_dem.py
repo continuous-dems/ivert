@@ -28,6 +28,7 @@ import numpy as np
 import pandas as pd
 import pyproj
 import rasterio
+import rasterio.crs
 import shapely
 import shapely.geometry
 import tqdm
@@ -575,6 +576,7 @@ def validate_dem(
     band_num: int = 1,
     variable: str | None = None,
     dem_vertical_datum: str | int | None = None,
+    dem_projection: str | int | None = None,
     dem_ndv: float | None = None,
     interim_data_dir: str | None = None,
     overwrite: bool = False,
@@ -628,6 +630,12 @@ def validate_dem(
         dem_vertical_datum: The vertical datum of the DEM: a common name ("navd88",
             "mllw"), an EPSG code, or a transformez reference ID ("vdatum:mllw"); see
             ivert.vdatum_lookup. Defaults to "egm2008".
+        dem_projection: The CRS of the DEM: a horizontal CRS ("EPSG:26910"), or a compound
+            one that also gives the vertical datum ("EPSG:6893", "EPSG:4326+3855",
+            "EPSG:4326+vdatum:mllw"). Required if the DEM file has no CRS of its own.
+            Overrides the file's CRS, with a warning, if it differs. Its vertical part
+            is in turn overridden by dem_vertical_datum. Defaults to None, which uses
+            the file's CRS.
         dem_ndv: No-data value to exclude from the DEM pixels before validation.
             Overrides any no-data value in the DEM file header. Defaults to None, which uses the
             file header value, falling back to the config default (dem_default_ndv).
@@ -698,6 +706,7 @@ def validate_dem(
         "icesat2_photon_database_obj": icesat2_photon_database_obj,
         "band_num": band_num,
         "dem_vertical_datum": dem_vertical_datum,
+        "dem_projection": dem_projection,
         "dem_ndv": dem_ndv,
         "interim_data_dir": interim_data_dir,
         "overwrite": overwrite,
@@ -807,6 +816,7 @@ def validate_dem(
                 icesat2_photon_database_obj=icesat2_photon_database_obj,
                 band_num=band_num,
                 dem_vertical_datum=dem_vertical_datum,
+                dem_projection=dem_projection,
                 # The sub-DEMs are GeoTIFFs, which keep only one nodata value for all
                 # bands, so hand them this band's own value.
                 dem_ndv=dem_ndv if dem_ndv is not None else parent_band_ndv,
@@ -930,6 +940,7 @@ def validate_dem(
                     dem_ds_tmp,
                     merged_results_file,
                     export_error_formats,
+                    dem_crs=_output_crs(dem_ds_tmp, dem_projection),
                 )
 
             written_files.extend(exported)
@@ -1132,6 +1143,7 @@ def _check_existing_outputs(
     shared_ret_values,
     include_photon_level_validation=False,
     export_error_formats=None,
+    dem_projection=None,
 ):
     """Handle overwrite deletion or early return when outputs already exist.
 
@@ -1200,6 +1212,7 @@ def _check_existing_outputs(
                         dem_ds_tmp,
                         results_dataframe_file,
                         export_error_formats,
+                        dem_crs=_output_crs(dem_ds_tmp, dem_projection),
                     ),
                 )
             files_to_export.extend(export_files)
@@ -1241,6 +1254,150 @@ def _check_existing_outputs(
     return None
 
 
+def _comparable_reference(reference):
+    """Return a CRS or reference ID in a form that can be compared for equality."""
+    if isinstance(reference, pyproj.CRS):
+        return reference
+    try:
+        return pyproj.CRS.from_user_input(reference)
+    except pyproj.exceptions.CRSError:
+        # A transformez reference ID such as 'vdatum:mllw', which pyproj can't read.
+        return str(reference).strip().lower()
+
+
+def _same_reference(a, b):
+    """Return True if two CRSs or vertical reference IDs name the same thing."""
+    a, b = _comparable_reference(a), _comparable_reference(b)
+    if isinstance(a, pyproj.CRS) and isinstance(b, pyproj.CRS):
+        return a.equals(b)
+    return a == b
+
+
+def _reference_label(reference):
+    """Return a short printable name for a CRS or vertical reference ID."""
+    if isinstance(reference, pyproj.CRS):
+        return reference.to_string()
+    return str(reference)
+
+
+def _split_projection(dem_projection):
+    """Split -p/--projection into (horizontal CRS, vertical reference or None).
+
+    It may be a horizontal CRS ('EPSG:26910'), a compound CRS in one code
+    ('EPSG:6893'), two codes ('EPSG:4326+3855'), or a horizontal code plus a
+    transformez reference ID ('EPSG:4326+vdatum:mllw'). The vertical part comes back
+    as resolve_vdatum() returns it ('EPSG:3855', 'vdatum:mllw').
+    """
+    horz, vert = dem_geom.split_srs_string(dem_projection)
+    if horz is None:
+        msg = f"-p/--projection {dem_projection!r} has no horizontal CRS."
+        raise ValueError(msg)
+    if vert is not None:
+        vert = ivert.vdatum_lookup.resolve_vdatum(vert)
+    return horz, vert
+
+
+def _resolve_dem_crs(
+    dem_name,
+    file_horz_crs,
+    file_vert_crs,
+    dem_projection=None,
+    dem_vertical_datum=None,
+):
+    """Return the DEM's (horizontal CRS, vertical reference), with the user's settings applied.
+
+    Horizontal: -p/--projection, else the file's. Vertical: -V/--vdatum, else the vertical
+    part of -p/--projection, else the file's. Each override that differs from what it
+    replaces is logged as a warning. The vertical reference is a pyproj.CRS, or a
+    transformez reference ID such as 'vdatum:mllw' that pyproj can't represent.
+
+    Raises:
+        ValueError: if the DEM ends up with no horizontal CRS or no vertical datum, or a
+            vertical datum isn't recognised.
+
+    """
+    dem_label = os.path.basename(dem_source.dem_file_path(dem_name))
+
+    proj_horz, proj_vert = (None, None)
+    if dem_projection is not None:
+        proj_horz, proj_vert = _split_projection(dem_projection)
+
+    # Horizontal.
+    if proj_horz is None:
+        if file_horz_crs is None:
+            msg = (
+                f"{dem_source.dem_file_path(dem_name)} has no coordinate reference system. "
+                "Use -p/--projection to give one."
+            )
+            raise ValueError(msg)
+        horz = file_horz_crs
+    else:
+        if file_horz_crs is not None and not _same_reference(proj_horz, file_horz_crs):
+            logger.warning(
+                "Using -p/--projection %s for %s in place of the CRS in the file (%s).",
+                _reference_label(proj_horz),
+                dem_label,
+                _reference_label(file_horz_crs),
+            )
+        horz = proj_horz
+
+    # Vertical.
+    vdatum_ref = None
+    if dem_vertical_datum is not None:
+        vdatum_ref = ivert.vdatum_lookup.resolve_vdatum(dem_vertical_datum)
+        if vdatum_ref is None:
+            msg = f"Unrecognised vertical datum {dem_vertical_datum!r}."
+            raise ValueError(msg)
+        if proj_vert is not None and not _same_reference(vdatum_ref, proj_vert):
+            logger.warning(
+                "Using -V/--vdatum %s for %s in place of the vertical datum in "
+                "-p/--projection (%s).",
+                vdatum_ref,
+                dem_label,
+                proj_vert,
+            )
+
+    if vdatum_ref is not None:
+        user_vert, user_flag = vdatum_ref, "-V/--vdatum"
+    elif proj_vert is not None:
+        user_vert, user_flag = proj_vert, "-p/--projection"
+    else:
+        user_vert = None
+
+    if user_vert is None:
+        if file_vert_crs is None:
+            msg = (
+                f"{dem_source.dem_file_path(dem_name)} has no vertical datum in its "
+                "metadata. Use -V/--vdatum, or a compound -p/--projection such as "
+                "'EPSG:4326+3855', to give one."
+            )
+            raise ValueError(msg)
+        return horz, file_vert_crs
+
+    ivert.vdatum_lookup.check_vdatum(user_vert)
+    if file_vert_crs is not None and not _same_reference(user_vert, file_vert_crs):
+        logger.warning(
+            "Using %s %s for %s in place of the vertical datum in the file (%s).",
+            user_flag,
+            user_vert,
+            dem_label,
+            _reference_label(file_vert_crs),
+        )
+    try:
+        vert = dem_geom.get_dem_reference_frame_from_user_input(user_vert, "vert")
+    except pyproj.exceptions.CRSError:
+        # A transformez reference ID such as 'vdatum:mllw', which pyproj can't read.
+        vert = user_vert
+    return horz, vert
+
+
+def _output_crs(dem_ds, dem_projection):
+    """Return the CRS to write into exported error files: the user's, else the DEM's."""
+    if dem_projection is None:
+        return dem_ds.crs
+    return rasterio.crs.CRS.from_user_input(_split_projection(dem_projection)[0])
+
+
 def _fetch_photons(
     dem_name,
     band_num,
@@ -1251,8 +1408,12 @@ def _fetch_photons(
     omit_bboxes,
     min_confidence_level: int = 1,
     min_bathy_confidence: float = 0.75,
+    dem_projection=None,
 ):
     """Open the DEM and query overlapping ICESat-2 photons.
+
+    'dem_projection' and 'dem_vertical_datum' are the user's CRS and vertical datum for
+    the DEM (see validate_dem() and _resolve_dem_crs()).
 
     Returns (dem_ds, dem_array, photon_df, dem_epsg_str) or None if no photons found.
     """
@@ -1262,22 +1423,18 @@ def _fetch_photons(
     dem_horz_ref_frame, dem_vert_ref_frame = dem_geom.get_dem_reference_frame_from_file(
         dem_name,
     )
-    if dem_vertical_datum is not None:
-        reference = ivert.vdatum_lookup.resolve_vdatum(dem_vertical_datum)
-        if reference is None:
-            msg = f"Unrecognised vertical datum {dem_vertical_datum!r}."
-            raise ValueError(msg)
-        ivert.vdatum_lookup.check_vdatum(reference)
-        try:
-            dem_vert_ref_frame = dem_geom.get_dem_reference_frame_from_user_input(
-                reference,
-                "vert",
-            )
-        except pyproj.exceptions.CRSError:
-            # A transformez reference ID such as 'vdatum:mllw', which pyproj can't read.
-            dem_vert_ref_frame = reference
+    dem_horz_ref_frame, dem_vert_ref_frame = _resolve_dem_crs(
+        dem_name,
+        dem_horz_ref_frame,
+        dem_vert_ref_frame,
+        dem_projection,
+        dem_vertical_datum,
+    )
     dem_epsg_str = dem_geom.get_dem_srs_string(dem_horz_ref_frame, dem_vert_ref_frame)
-    dem_wgs84_bbox = dem_geom.get_wgs84_bounding_box(dem_name)
+    dem_wgs84_bbox = dem_geom.get_wgs84_bounding_box(
+        dem_name,
+        dem_horz_reference_frame=dem_horz_ref_frame,
+    )
 
     if icesat2_photon_database_obj is None:
         icesat2_photon_database_obj = ivert.icesat2_database_v2.IS2Database()
@@ -1939,6 +2096,7 @@ def _write_validation_outputs(
     min_coverage_pct_land=None,
     min_coverage_pct_bathy=None,
     bathy_filter_report=None,
+    dem_projection=None,
 ):
     """Concatenate results, filter outliers, and write all output files.
 
@@ -2027,6 +2185,7 @@ def _write_validation_outputs(
             dem_ds,
             results_dataframe_file,
             export_error_formats,
+            dem_crs=_output_crs(dem_ds, dem_projection),
         )
         files_to_export.extend(exported)
         written_files.extend(exported)
@@ -2059,6 +2218,7 @@ def validate_dem_parallel(
     | None = None,  # Used only if we've already created this, for efficiency.
     band_num: int = 1,
     dem_vertical_datum: str | int | None = None,
+    dem_projection: str | int | None = None,
     dem_ndv: float | None = None,
     interim_data_dir: str | None = None,
     overwrite: bool = False,
@@ -2138,6 +2298,7 @@ def validate_dem_parallel(
         shared_ret_values,
         include_photon_level_validation=include_photon_level_validation,
         export_error_formats=export_error_formats,
+        dem_projection=dem_projection,
     )
     if early is not None:
         return early
@@ -2159,6 +2320,7 @@ def validate_dem_parallel(
         omit_bboxes,
         min_confidence_level=min_confidence_level,
         min_bathy_confidence=min_bathy_confidence,
+        dem_projection=dem_projection,
     )
 
     bathy_filter_report = None
@@ -2270,6 +2432,7 @@ def validate_dem_parallel(
         min_coverage_pct_land=min_coverage_pct_land,
         min_coverage_pct_bathy=min_coverage_pct_bathy,
         bathy_filter_report=bathy_filter_report,
+        dem_projection=dem_projection,
     )
 
 
@@ -2523,6 +2686,7 @@ def generate_result_geotiff(
     dem_ds,
     result_tif_filename,
     empty_val=None,
+    crs=None,
 ):
     """Given the results in the dataframe, output geotiffs to visualize these.
 
@@ -2552,7 +2716,7 @@ def generate_result_geotiff(
         height=ysize,
         count=1,
         dtype="float32",
-        crs=dem_ds.crs,
+        crs=dem_ds.crs if crs is None else crs,
         transform=dem_ds.transform,
         nodata=emptyval,
         compress="deflate",
@@ -2596,7 +2760,7 @@ def _results_cell_centers(results_dataframe, dem_ds):
     return x, y
 
 
-def _export_errors_vector(results_dataframe, dem_ds, out_fname, fmt):
+def _export_errors_vector(results_dataframe, dem_ds, out_fname, fmt, crs=None):
     """Write one point per validated cell (at the cell center) to a GeoPackage or Shapefile."""
     driver_name = {"gpkg": "GPKG", "shp": "ESRI Shapefile"}[fmt]
 
@@ -2627,7 +2791,7 @@ def _export_errors_vector(results_dataframe, dem_ds, out_fname, fmt):
     gdf = geopandas.GeoDataFrame(
         data,
         geometry=geopandas.points_from_xy(x_centers, y_centers),
-        crs=dem_ds.crs,
+        crs=dem_ds.crs if crs is None else crs,
     )
     layer_name = os.path.splitext(os.path.basename(out_fname))[0]
     gdf.to_file(out_fname, driver=driver_name, layer=layer_name)
@@ -2691,6 +2855,7 @@ def export_error_results(
     dem_ds,
     results_dataframe_file,
     formats,
+    dem_crs=None,
 ):
     """Export the per-cell ICESat-2 errors from a results dataframe into GIS formats.
 
@@ -2706,6 +2871,7 @@ def export_error_results(
         dem_ds: an open rasterio dataset for the source DEM (supplies CRS and geotransform).
         results_dataframe_file: path to the '<dem>_results.h5' file (used to derive output names).
         formats: comma-separated string (e.g. 'tif,gpkg') or iterable of format names.
+        dem_crs: the CRS to write into the files. Defaults to None, which uses dem_ds.crs.
 
     Returns:
         list of file paths written.
@@ -2717,6 +2883,8 @@ def export_error_results(
 
     formats = _normalize_export_formats(formats)
     filenames = _error_export_filenames(results_dataframe_file, formats)
+    if dem_crs is None:
+        dem_crs = dem_ds.crs
 
     for fmt, out_fname in zip(formats, filenames, strict=True):
         if fmt == "tif":
@@ -2724,6 +2892,7 @@ def export_error_results(
                 results_dataframe,
                 dem_ds,
                 out_fname,
+                crs=dem_crs,
             )
         elif fmt in ("gpkg", "shp"):
             _export_errors_vector(
@@ -2731,6 +2900,7 @@ def export_error_results(
                 dem_ds,
                 out_fname,
                 fmt,
+                crs=dem_crs,
             )
         elif fmt == "xyz":
             _export_errors_xyz(results_dataframe, dem_ds, out_fname)
@@ -2771,6 +2941,16 @@ def export_error_results(
     type=int,
     default=1,
     help="The band number (1-indexed) of the input_dem. (Default: 1)",
+)
+@click.option(
+    "--projection",
+    "-p",
+    type=str,
+    default=None,
+    help="The CRS of the DEM(s): horizontal ('EPSG:26910') or compound ('EPSG:6893', "
+    "'EPSG:4326+3855', 'EPSG:4326+vdatum:mllw'). Required for a DEM with no CRS of its "
+    "own; overrides the file's CRS, with a warning, if it differs. A vertical datum "
+    "given separately overrides its vertical part.",
 )
 @click.option(
     "--variable",
@@ -2845,6 +3025,7 @@ def main(
     datadir,
     band_num,
     variable,
+    projection,
     place_name,
     numprocs,
     delete_datafiles,
@@ -2901,6 +3082,7 @@ def main(
         output_dir=output_dir,
         classes=classes_list,
         dem_vertical_datum=input_vdatum,
+        dem_projection=projection,
         interim_data_dir=(datadir or None),
         overwrite=overwrite,
         delete_datafiles=delete_datafiles,

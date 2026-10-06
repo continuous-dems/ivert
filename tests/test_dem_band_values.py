@@ -1,9 +1,12 @@
-"""Tests for reading a DEM band's values: its nodata value and scale/offset."""
+"""Tests for reading a DEM band's values: its nodata value, scale/offset, and CRS."""
 
+import logging
 import types
 
 import netCDF4
 import numpy as np
+import pyproj
+import pytest
 import rasterio
 import rasterio.transform
 
@@ -92,3 +95,160 @@ def test_split_pieces_keep_the_scale_and_offset(tmp_path):
     with rasterio.open(pieces[0]) as piece:
         assert piece.scales == (0.01,)
         assert piece.offsets == (-100.0,)
+
+
+@pytest.fixture
+def no_transformez_check(monkeypatch):
+    """Skip transformez's check of vertical references; these tests only test the choosing."""
+    monkeypatch.setattr(
+        validate_dem.ivert.vdatum_lookup,
+        "check_vdatum",
+        lambda _ref: None,
+    )
+
+
+WGS84 = pyproj.CRS("EPSG:4326")
+EGM2008 = pyproj.CRS("EPSG:3855")
+NAVD88 = pyproj.CRS("EPSG:5703")
+
+
+def test_missing_crs_without_projection_is_an_error(no_transformez_check):
+    with pytest.raises(ValueError, match="-p/--projection"):
+        validate_dem._resolve_dem_crs("dem.nc", None, EGM2008)
+
+
+def test_missing_vertical_datum_is_an_error(no_transformez_check):
+    with pytest.raises(ValueError, match="-V/--vdatum"):
+        validate_dem._resolve_dem_crs("dem.tif", WGS84, None)
+
+
+def test_file_crs_is_used_when_nothing_is_given(no_transformez_check, caplog):
+    horz, vert = validate_dem._resolve_dem_crs("dem.tif", WGS84, EGM2008)
+
+    assert horz.equals(WGS84)
+    assert vert.equals(EGM2008)
+    assert not caplog.records
+
+
+def test_projection_fills_in_a_missing_crs(no_transformez_check, caplog):
+    horz, _ = validate_dem._resolve_dem_crs("dem.nc", None, EGM2008, "EPSG:26910")
+
+    assert horz.equals(pyproj.CRS("EPSG:26910"))
+    assert not caplog.records
+
+
+def test_projection_overrides_the_file_crs_with_a_warning(no_transformez_check, caplog):
+    with caplog.at_level(logging.WARNING):
+        horz, _ = validate_dem._resolve_dem_crs("dem.tif", WGS84, EGM2008, "EPSG:26910")
+
+    assert horz.equals(pyproj.CRS("EPSG:26910"))
+    assert "in place of the CRS in the file" in caplog.text
+
+
+def test_matching_projection_logs_no_warning(no_transformez_check, caplog):
+    with caplog.at_level(logging.WARNING):
+        validate_dem._resolve_dem_crs("dem.tif", WGS84, EGM2008, "4326")
+
+    assert not caplog.records
+
+
+@pytest.mark.parametrize(
+    ("projection", "expected_horz", "expected_vert"),
+    [
+        ("EPSG:4326+3855", "EPSG:4326", 3855),
+        ("EPSG:4326+5703", "EPSG:4326", 5703),
+        ("EPSG:6893", "EPSG:3395", 3855),
+    ],
+)
+def test_compound_projection_gives_the_vertical_datum(
+    no_transformez_check,
+    projection,
+    expected_horz,
+    expected_vert,
+):
+    horz, vert = validate_dem._resolve_dem_crs("dem.nc", None, None, projection)
+
+    assert horz.equals(pyproj.CRS(expected_horz))
+    assert vert.to_epsg() == expected_vert
+
+
+def test_projection_with_a_transformez_tidal_datum(no_transformez_check):
+    horz, vert = validate_dem._resolve_dem_crs(
+        "dem.nc",
+        None,
+        None,
+        "EPSG:4326+vdatum:mllw",
+    )
+
+    assert horz.equals(WGS84)
+    assert vert == "vdatum:mllw"
+
+
+def test_vdatum_overrides_the_projection_vertical_with_a_warning(
+    no_transformez_check,
+    caplog,
+):
+    with caplog.at_level(logging.WARNING):
+        _, vert = validate_dem._resolve_dem_crs(
+            "dem.nc",
+            None,
+            None,
+            "EPSG:4326+3855",
+            "navd88",
+        )
+
+    assert vert.equals(NAVD88)
+    assert "in place of the vertical datum in -p/--projection" in caplog.text
+
+
+def test_vdatum_matching_the_projection_vertical_logs_no_warning(
+    no_transformez_check,
+    caplog,
+):
+    with caplog.at_level(logging.WARNING):
+        validate_dem._resolve_dem_crs("dem.nc", None, None, "EPSG:4326+3855", "egm2008")
+
+    assert not caplog.records
+
+
+@pytest.mark.parametrize(
+    ("projection", "vdatum", "flag"),
+    [
+        (None, "navd88", "-V/--vdatum"),
+        ("EPSG:4326+5703", None, "-p/--projection"),
+    ],
+)
+def test_command_line_vertical_overrides_the_file_with_a_warning(
+    no_transformez_check,
+    caplog,
+    projection,
+    vdatum,
+    flag,
+):
+    with caplog.at_level(logging.WARNING):
+        _, vert = validate_dem._resolve_dem_crs(
+            "dem.tif",
+            WGS84,
+            EGM2008,
+            projection,
+            vdatum,
+        )
+
+    assert vert.equals(NAVD88)
+    assert (
+        f"Using {flag} EPSG:5703 for dem.tif in place of the vertical datum in the file"
+        in (caplog.text)
+    )
+
+
+def test_projection_without_a_horizontal_crs_is_an_error(no_transformez_check):
+    with pytest.raises(ValueError, match="no horizontal CRS"):
+        validate_dem._resolve_dem_crs("dem.tif", WGS84, EGM2008, "EPSG:5703")
+
+
+def test_exports_use_the_projection():
+    ds = types.SimpleNamespace(crs=None)
+
+    assert validate_dem._output_crs(ds, None) is None
+    assert validate_dem._output_crs(ds, "EPSG:26910").to_epsg() == 26910
+    assert validate_dem._output_crs(ds, "EPSG:4326+vdatum:mllw").to_epsg() == 4326
