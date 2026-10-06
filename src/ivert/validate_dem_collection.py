@@ -21,10 +21,15 @@ logger = logging.getLogger(__name__)
 
 def write_summary_csv_file(
     total_results_df_or_file: pd.DataFrame | str,
-    list_of_empty_files: list[str] | tuple[str],
+    list_of_empty_dems: list[str] | tuple[str],
     csv_name: str,
 ) -> pd.DataFrame:
-    """Write a summary csv of all the results in a collection, after they've been run."""
+    """Write a summary csv of all the results in a collection, after they've been run.
+
+    Each DEM gets one row, named by its 'filename' in the results (see
+    dem_source.dem_display_name()). The DEMs in 'list_of_empty_dems', named the same
+    way, had no photons to validate against and get a row with no statistics.
+    """
     if type(total_results_df_or_file) is str:
         total_df = pd.read_hdf(total_results_df_or_file)
     else:
@@ -36,7 +41,7 @@ def write_summary_csv_file(
         raise ValueError(msg)
 
     unique_files = total_df["filename"].unique().tolist()
-    all_filenames = list(unique_files) + list(list_of_empty_files)
+    all_filenames = list(unique_files) + list(list_of_empty_dems)
     n = len(all_filenames)
 
     means = np.empty((n,), dtype=float)
@@ -57,7 +62,7 @@ def write_summary_csv_file(
 
         else:
             # For files with no results, just list n/a for this.
-            assert fname in list_of_empty_files
+            assert fname in list_of_empty_dems
             means[i] = np.nan
             stds[i] = np.nan
             rmses[i] = np.nan
@@ -420,7 +425,8 @@ def validate_list_of_dems(
     # The DEM behind each entry of list_of_results_dfs, in the same order. DEMs that
     # come back empty or fail are skipped, so this can't be indexed from dem_list.
     list_of_results_dems = []
-    list_of_empty_files = []
+    # The DEMs with no photons to validate against, as named in the summary CSV.
+    list_of_empty_dems = []
     # DEMs skipped because of an error, reported again once the run is over.
     failed_dems = []
 
@@ -522,7 +528,7 @@ def validate_list_of_dems(
             list_of_results_dems.append(dem_path)
 
         elif os.path.exists(empty_fname):
-            list_of_empty_files.append(empty_fname)
+            list_of_empty_dems.append(dem_source.dem_display_name(dem_path))
 
     # An extra newline is appreciated here just for readability's sake.
     logger.info("")
@@ -545,7 +551,7 @@ def validate_list_of_dems(
     if write_summary_csv:
         write_summary_csv_file(
             total_results_df,
-            list_of_empty_files,
+            list_of_empty_dems,
             csv_name,
         )
         files_to_export.append(csv_name)

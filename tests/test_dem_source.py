@@ -358,3 +358,70 @@ def test_collection_lists_hdf5_dems_but_not_ivert_results(tmp_path):
         "a.h5",
         "b.HDF5",
     ]
+
+
+def test_collection_csv_names_an_empty_dem_like_the_others(tmp_path, monkeypatch):
+    """A DEM with no photons is listed by its DEM name, not its _EMPTY.txt file."""
+    _make_netcdf(tmp_path / "a.nc", ["elev", "uncert"])
+    _make_netcdf(tmp_path / "b.nc", ["elev", "uncert"])
+    out = tmp_path / "out"
+    out.mkdir()
+    csv_args = {}
+
+    class _FakeDatabase:
+        def open_gdf(self):
+            pass
+
+    def _fake_validate_dem(dem_path, output_dir, *_args: object, **_kwargs: object):
+        base = dem_source.dem_base_name(dem_path)
+        if base.startswith("a"):
+            pd.DataFrame({"diff_mean": [1.0], "numphotons_intd": [5]}).to_hdf(
+                f"{output_dir}/{base}_results.h5",
+                key="results",
+            )
+        else:
+            (out / f"{base}_results_EMPTY.txt").write_text("")
+
+    def _fake_csv(_df, empty_dems, _csv_name):
+        csv_args["empty"] = list(empty_dems)
+
+    def _do_nothing(*_args: object, **_kwargs: object):
+        return None
+
+    collection = validate_dem_collection
+    monkeypatch.setattr(
+        collection.ivert.icesat2_database_v2,
+        "IS2Database",
+        _FakeDatabase,
+    )
+    monkeypatch.setattr(collection.validate_dem, "validate_dem", _fake_validate_dem)
+    monkeypatch.setattr(collection, "write_summary_csv_file", _fake_csv)
+    monkeypatch.setattr(
+        collection.validate_dem,
+        "write_summary_stats_file",
+        _do_nothing,
+    )
+    monkeypatch.setattr(
+        collection.plot_validation_results,
+        "plot_histograms_and_line",
+        _do_nothing,
+    )
+    monkeypatch.setattr(
+        collection.ivert.bathy_filters,
+        "read_report_from_h5",
+        _do_nothing,
+    )
+    monkeypatch.setattr(
+        collection.ivert.bathy_filters.BathyFilterReport,
+        "combine",
+        _do_nothing,
+    )
+    monkeypatch.setattr(
+        collection.ivert.bathy_filters,
+        "write_report_to_h5",
+        _do_nothing,
+    )
+
+    collection.validate_list_of_dems(str(tmp_path), output_dir=str(out))
+
+    assert csv_args["empty"] == ["b.nc:elev"]
