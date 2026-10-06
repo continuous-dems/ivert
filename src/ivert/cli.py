@@ -746,8 +746,9 @@ def options_reset(yes):
 def database(ctx):
     """Manage the local IVERT ICESat-2 photon database.
 
-    Subcommands handle downloading new data, updating existing records,
-    and editing or inspecting the database.
+    Subcommands download new data, list, size, rebuild and delete what is
+    stored, convert photons to GIS formats, and dump the database to or
+    restore it from an archive.
 
     Run 'ivert database <subcommand> --help' for details.
     """

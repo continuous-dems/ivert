@@ -17,7 +17,7 @@ Developed by the [continuous-dems team](https://github.com/continuous-dems). Pri
 - Automatically-generated validation plots (per-DEM and collection-wide).
 - Export per-cell errors to GeoTIFF, GeoPackage, Shapefile, or XYZ text.
 - Every validation writes a manifest of its settings and IVERT version, so a run can be repeated exactly, by you or anyone you share it with, on the same DEMs or new ones (`ivert validate -m`).
-- Local, spatially-indexed photon database — download once, validate many times — with commands to list, size, rebuild, and delete cached data.
+- Local, spatially-indexed photon database — download once, validate many times — with commands to list, size, rebuild, delete, and archive (dump and restore) its data.
 - Export classified photons from the database to GeoPackage, Shapefile, or XYZ text.
 - Runs fully offline on any machine, with configurable data directories and per-project config profiles.
 
@@ -45,7 +45,7 @@ cd ivert
 pip install -e .
 ```
 
-Three dependencies — `fetchez`, `globato`, and `transformez` — are pulled automatically from the [continuous-dems](https://github.com/continuous-dems) GitHub organization and do not need to be installed separately.
+Three dependencies from the [continuous-dems](https://github.com/continuous-dems) organization — `fetchez`, `globato`, and `transformez` — are installed automatically from PyPI and do not need to be installed separately.
 
 ---
 
@@ -81,7 +81,7 @@ ivert validate mydem.tif
 |---------|-------------|
 | [ivert setup](docs/source/user_guide/setup.md) | Create data directories and set up NASA Earthdata credentials |
 | [ivert validate](docs/source/user_guide/validate.md) | Validate DEMs against ICESat-2 data |
-| [ivert database](docs/source/user_guide/database.md) | Download, export, and manage the local photon database |
+| [ivert database](docs/source/user_guide/database.md) | Download, convert, archive, and manage the local photon database |
 | [ivert classes](docs/source/user_guide/classes.md) | List the ICESat-2 photon classification codes |
 | [ivert cache](docs/source/user_guide/cache.md) | View and clear the local file cache |
 | [ivert options](docs/source/user_guide/options.md) | View and change configuration settings |

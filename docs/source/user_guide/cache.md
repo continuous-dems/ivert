@@ -5,7 +5,6 @@ Manage the IVERT local file cache. The cache holds files that IVERT generates or
 - **Vertical datum shift grids** — downloaded on first use when converting between vertical datums
 - **ETOPO 2022 tiles** (`etopo/`) — the reference bathymetry for the [bathymetry filters](bathy_filters.md), downloaded on first use
 - **OpenStreetMap landmasks** (`osm_landmask/`) — fetched while downloading ICESat-2 data. IVERT copies them into its landmask store (`ivert_landmask_directory`, kept with the database, outside the cache), so deleting the cache does not lose them
-- **Harmony job records** — tracking active/recent ICESat-2 data requests
 - **Temporary downloads** — intermediate files during data retrieval
 
 The default cache location is `~/.ivert/cache`. You can change it with `ivert options cache_directory=/your/path` (see [ivert options](options.md)).
