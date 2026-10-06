@@ -6,6 +6,9 @@ picked out as a GDAL subdataset string such as 'NETCDF:"/data/dem.nc":elev' or
 'HDF5:"/data/dem.h5"://grid/elev'. The rest of IVERT passes that string around in place
 of a file name; dem_file_path() and dem_base_name() recover the real file path and a
 file-name-safe base name from it.
+
+GDAL's HDF5 driver reads no coordinates, so an HDF5 file (often a NetCDF-4 file under
+another name) is opened through the NetCDF driver when only that one georeferences it.
 """
 
 import os
@@ -34,8 +37,16 @@ _SUBDATASET_RE = re.compile(
 )
 
 
-class DEMVariableError(ValueError):
+class DEMSourceError(ValueError):
+    """A DEM file can't be validated as given: see the subclasses."""
+
+
+class DEMVariableError(DEMSourceError):
     """The DEM variable asked for (or any default elevation variable) isn't in the file."""
+
+
+class DEMNotGeoreferencedError(DEMSourceError):
+    """GDAL reads no geotransform for the DEM, so where it lies is unknown."""
 
 
 def _parse_subdataset(dem_name):
@@ -127,6 +138,51 @@ def _opens(subdataset):
         return False
 
 
+def _georeferenced_source(subdataset):
+    """Return the NetCDF form of an HDF5 subdataset string if only that one is georeferenced.
+
+    GDAL's HDF5 driver never reads coordinate variables, so a NetCDF-4 file (which is an
+    HDF5 file) with CF latitude/longitude or x/y coordinates opens through 'HDF5:' with
+    no geotransform. Its 'NETCDF:' form reads the coordinates. Anything else, including
+    an HDF5 file the NetCDF driver can't georeference either, is returned unchanged.
+    """
+    parsed = _parse_subdataset(subdataset)
+    if parsed is None or parsed[0].upper() != "HDF5":
+        return subdataset
+    _, file_path, var = parsed
+    netcdf = f'NETCDF:"{file_path}":{_variable_path(var)}'
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", rasterio.errors.NotGeoreferencedWarning)
+        try:
+            with rasterio.open(netcdf) as ds:
+                if ds.count > 0 and not ds.transform.is_identity:
+                    return netcdf
+        except rasterio.errors.RasterioIOError:
+            pass
+    return subdataset
+
+
+def check_georeferenced(dem_name):
+    """Raise DEMNotGeoreferencedError if GDAL reads no geotransform for this DEM.
+
+    rasterio gives such a raster the identity transform, which would put its pixel
+    indices in place of its coordinates: a DEM in degrees would seem to lie near
+    0°N, 0°E and find no photons, with no sign of why.
+    """
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", rasterio.errors.NotGeoreferencedWarning)
+        with rasterio.open(dem_name) as ds:
+            ungeoreferenced = ds.transform.is_identity
+    if ungeoreferenced:
+        msg = (
+            f"{dem_file_path(dem_name)} has no georeferencing (no geotransform), so "
+            "where it lies is unknown. -p/--projection gives only its CRS, not its "
+            "position; save the DEM in a format that records its grid coordinates "
+            "(GeoTIFF, or NetCDF with coordinate variables)."
+        )
+        raise DEMNotGeoreferencedError(msg)
+
+
 def _resolve_named_variable(
     variable,
     candidates,
@@ -181,7 +237,9 @@ def resolve_dem_source(dem_name, variable=None):
         variable: The variable to read from a NetCDF or HDF5 file: a name ('elev') or,
             for HDF5, a path within the file ('grid/elev'). If None, a file with one
             variable is used as-is, and a file with several is searched for
-            DEFAULT_ELEVATION_VARIABLES in order.
+            DEFAULT_ELEVATION_VARIABLES in order. A variable of an HDF5 file that
+            GDAL can georeference only through its NetCDF driver (a NetCDF-4 file
+            with coordinate variables) comes back as a 'NETCDF:' subdataset string.
 
     Raises:
         FileNotFoundError: if the file doesn't exist.
@@ -218,13 +276,15 @@ def resolve_dem_source(dem_name, variable=None):
             candidates[_variable_path(var)] = f'{sds_driver.upper()}:"{abs_path}":{var}'
 
     if variable is not None:
-        return _resolve_named_variable(
-            variable,
-            candidates,
-            file_path,
-            driver,
-            single_var if count else None,
-            single_variable_file=not candidates and count > 0,
+        return _georeferenced_source(
+            _resolve_named_variable(
+                variable,
+                candidates,
+                file_path,
+                driver,
+                single_var if count else None,
+                single_variable_file=not candidates and count > 0,
+            ),
         )
 
     if count or not candidates:
@@ -233,7 +293,7 @@ def resolve_dem_source(dem_name, variable=None):
     for name in DEFAULT_ELEVATION_VARIABLES:
         found = _match_variable(name, candidates, file_path)
         if found is not None:
-            return found
+            return _georeferenced_source(found)
 
     msg = (
         f"{file_path} has several variables ({', '.join(candidates)}) and none of the "

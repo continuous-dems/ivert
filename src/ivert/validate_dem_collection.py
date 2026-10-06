@@ -436,8 +436,9 @@ def validate_list_of_dems(
         # Pick the NetCDF/HDF5 variable to validate now, one file at a time.
         try:
             dem_path = dem_source.resolve_dem_source(listed_dem, variable)
-        except dem_source.DEMVariableError as exc:
-            # Not logger.exception: the message names the file and its variables.
+            dem_source.check_georeferenced(dem_path)
+        except dem_source.DEMSourceError as exc:
+            # Not logger.exception: the message names the file and what is wrong.
             logger.error("Skipping: %s", exc)  # noqa: TRY400
             failed_dems.append(os.path.basename(dem_source.dem_file_path(listed_dem)))
             continue

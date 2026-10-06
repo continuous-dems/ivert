@@ -691,6 +691,7 @@ def validate_dem(
 
     """
     dem_name = dem_source.resolve_dem_source(dem_name, variable)
+    dem_source.check_georeferenced(dem_name)
     config = _resolve_config(config, icesat2_photon_database_obj)
 
     if shared_ret_values is None:
@@ -3033,7 +3034,8 @@ def main(
 
     try:
         input_dem = dem_source.resolve_dem_source(input_dem, variable)
-    except dem_source.DEMVariableError as exc:
+        dem_source.check_georeferenced(input_dem)
+    except dem_source.DEMSourceError as exc:
         logger.error(str(exc))  # noqa: TRY400
         sys.exit(1)
 

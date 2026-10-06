@@ -1372,24 +1372,11 @@ def _region_from_file(path, variable=None, projection_horz=None):
         return _region_from_vector_file(path)
 
     # Otherwise treat it as a raster.
-    import warnings
-
-    import rasterio
-
     from ivert.utils import dem_geom, dem_source
 
     dem_name = dem_source.resolve_dem_source(path, variable)
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", rasterio.errors.NotGeoreferencedWarning)
-        with rasterio.open(dem_name) as ds:
-            ungeoreferenced = ds.transform.is_identity
-    if ungeoreferenced:
-        # Its extent would be in pixels, putting the region near 0°N, 0°E.
-        msg = (
-            f"{dem_source.dem_file_path(dem_name)} has no georeferencing (no "
-            "geotransform), so its extent is unknown."
-        )
-        raise ValueError(msg)
+    # Its extent would otherwise be in pixels, putting the region near 0°N, 0°E.
+    dem_source.check_georeferenced(dem_name)
     horz_crs = dem_geom.resolve_horizontal_crs(
         dem_name,
         dem_geom.get_dem_reference_frame_from_file(dem_name, "horz"),
@@ -2608,8 +2595,10 @@ def _run_validate(
 
     if len(expanded) == 1 and os.path.isfile(dem_source.dem_file_path(expanded[0])):
         # A multi-variable file (e.g. NetCDF) becomes the subdataset string of the
-        # variable to validate. Raises DEMVariableError if there isn't one.
+        # variable to validate. Raises DEMVariableError if there isn't one, and
+        # DEMNotGeoreferencedError if GDAL finds no geotransform for it.
         dem_name = dem_source.resolve_dem_source(expanded[0], variable)
+        dem_source.check_georeferenced(dem_name)
         # validate_dem uses output_dir as-is, so resolve any relative path against
         # the DEM's own directory rather than the current working directory.
         if not os.path.isabs(outdir):
@@ -3244,7 +3233,7 @@ def validate(
         name: option_values[name] for name in manifest_module.tracked_params(validate)
     }
 
-    from ivert.utils.dem_source import DEMVariableError
+    from ivert.utils.dem_source import DEMSourceError
 
     try:
         _run_validate(
@@ -3273,7 +3262,7 @@ def validate(
             variable=variable,
             projection=projection,
         )
-    except DEMVariableError as exc:
+    except DEMSourceError as exc:
         # Not logger.exception: the message says everything a traceback would.
         logger.error(str(exc))  # noqa: TRY400
         sys.exit(1)

@@ -1,4 +1,4 @@
-"""Tests for picking the elevation variable out of NetCDF DEMs."""
+"""Tests for picking the elevation variable out of NetCDF and HDF5 DEMs, and checking it is georeferenced."""
 
 import h5py
 import netCDF4
@@ -251,6 +251,66 @@ def test_hdf5_subdataset_base_name_and_possible_names(tmp_path):
         "dem",
         "dem_grid_elev",
     ]
+
+
+def test_netcdf4_file_named_h5_opens_through_the_netcdf_driver(tmp_path):
+    """GDAL's HDF5 driver reads no coordinates; its NetCDF driver does."""
+    path = _make_netcdf(tmp_path / "dem.h5", ["elev", "uncert"])
+    expected = f'NETCDF:"{path}":elev'
+
+    assert dem_source.resolve_dem_source(path) == expected
+    assert dem_source.resolve_dem_source(path, "elev") == expected
+    dem_source.check_georeferenced(expected)
+    with rasterio.open(expected) as ds:
+        np.testing.assert_allclose(ds.bounds, (-105.05, 39.95, -104.55, 40.35))
+
+
+def test_plain_hdf5_stays_hdf5_and_is_not_georeferenced(tmp_path):
+    path = _make_hdf5(tmp_path / "dem.h5", ["grid/elev", "grid/uncert"])
+    sds = dem_source.resolve_dem_source(path)
+
+    assert sds == f'HDF5:"{path}"://grid/elev'
+    with pytest.raises(dem_source.DEMNotGeoreferencedError, match="no georeferencing"):
+        dem_source.check_georeferenced(sds)
+
+
+def test_validate_dem_refuses_an_ungeoreferenced_dem(tmp_path):
+    """It would otherwise read pixel indices as coordinates and find no photons."""
+    path = _make_hdf5(tmp_path / "dem.h5", ["elev", "uncert"])
+
+    with pytest.raises(dem_source.DEMNotGeoreferencedError):
+        validate_dem.validate_dem(path, str(tmp_path / "out"))
+
+
+def test_collection_skips_an_ungeoreferenced_dem(tmp_path, monkeypatch, caplog):
+    good = _make_netcdf(tmp_path / "a.nc", ["elev", "uncert"])
+    _make_hdf5(tmp_path / "b.h5", ["elev", "uncert"])
+    validated = []
+
+    class _FakeDatabase:
+        def open_gdf(self):
+            pass
+
+    monkeypatch.setattr(
+        validate_dem_collection.ivert.icesat2_database_v2,
+        "IS2Database",
+        _FakeDatabase,
+    )
+    monkeypatch.setattr(
+        validate_dem_collection.validate_dem,
+        "validate_dem",
+        lambda dem_path, *_args, **_kwargs: validated.append(dem_path),
+    )
+
+    validate_dem_collection.validate_list_of_dems(
+        str(tmp_path),
+        output_dir=str(tmp_path / "out"),
+    )
+
+    assert validated == [f'NETCDF:"{good}":elev']
+    errors = [r.getMessage() for r in caplog.records if r.levelname == "ERROR"]
+    assert "b.h5 has no georeferencing" in errors[0]
+    assert errors[-1].endswith(": b.h5")
 
 
 def test_collection_lists_hdf5_dems_but_not_ivert_results(tmp_path):
