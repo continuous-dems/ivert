@@ -15,6 +15,26 @@ import shapely.geometry
 
 from ivert.utils import dem_source
 
+# OGC's longitude-first versions of geographic CRSs, which GDAL reports for some
+# formats (ASCII Grid, ESRI .hdr/.flt). pyproj finds no EPSG match for them, since
+# their axis order differs, but IVERT always transforms in x/y (lon/lat) order.
+_OGC_LON_LAT_TO_EPSG = {"CRS84": 4326, "CRS83": 4269, "CRS27": 4267}
+
+
+def _epsg_equivalent(crs: pyproj.CRS | None) -> pyproj.CRS | None:
+    """Return the EPSG version of a CRS where one exists, so it pairs with EPSG datums."""
+    if crs is None:
+        return None
+    authority = crs.list_authority()
+    if authority and authority[0].auth_name.upper() == "EPSG":
+        return crs
+    if authority and authority[0].auth_name.upper() == "OGC":
+        code = _OGC_LON_LAT_TO_EPSG.get(authority[0].code.upper())
+        if code is not None:
+            return pyproj.CRS.from_epsg(code)
+    found = crs.to_authority("EPSG")
+    return crs if found is None else pyproj.CRS.from_epsg(int(found[1]))
+
 
 def get_dem_reference_frame_from_user_input(
     crs: typing.Union[pyproj.CRS, "rasterio.crs.CRS", str, int, None],
@@ -50,6 +70,9 @@ def get_dem_reference_frame_from_user_input(
         horz, vert = None, crs_obj
     else:
         horz, vert = crs_obj, None
+    # A 3D CRS is its own vertical reference, so leave it as it is.
+    if horz is not vert:
+        horz = _epsg_equivalent(horz)
 
     choice_letter = vert_horz_or_both.strip().lower()[0]
     if choice_letter == "b":
@@ -147,7 +170,7 @@ def split_srs_string(
         if "+" not in text:
             return None, text
         horizontal, vertical = text.rsplit("+", 1)
-        return pyproj.CRS.from_user_input(horizontal), vertical
+        return _epsg_equivalent(pyproj.CRS.from_user_input(horizontal)), vertical
 
     def code(c: pyproj.CRS | None) -> str | None:
         epsg = None if c is None else c.to_epsg()
@@ -156,14 +179,14 @@ def split_srs_string(
     if crs.is_compound:
         vert = next((s for s in crs.sub_crs_list if s.is_vertical), None)
         horz = next((s for s in crs.sub_crs_list if not s.is_vertical), None)
-        return horz, code(vert)
+        return _epsg_equivalent(horz), code(vert)
     if crs.is_vertical:
         return None, code(crs)
     # pyproj marks a 3D geographic CRS (e.g. EPSG:4979, WGS84 with ellipsoidal
     # height) as neither compound nor vertical.
     if crs.is_geographic and len(crs.axis_info) == 3:
         return crs, code(crs)
-    return crs, None
+    return _epsg_equivalent(crs), None
 
 
 def get_wgs84_bounding_box(
