@@ -28,6 +28,7 @@ import numpy as np
 import pandas as pd
 import pyproj
 import rasterio
+import rasterio.crs
 import shapely
 import shapely.geometry
 import tqdm
@@ -41,7 +42,7 @@ import ivert.utils.loggerproc
 import ivert.utils.logging_config
 import ivert.utils.split_dem
 import ivert.vdatum_lookup
-from ivert.utils import dem_geom, parallel_funcs
+from ivert.utils import dem_geom, dem_source, parallel_funcs
 
 logger = logging.getLogger(__name__)
 
@@ -506,7 +507,7 @@ def subdivide_dem(
     output_dir: str | None = None,
 ) -> list[str]:
     """Split a DEM into 4 smaller parts."""
-    if not os.path.exists(dem_name):
+    if not os.path.exists(dem_source.dem_file_path(dem_name)):
         msg = f"DEM {dem_name} does not exist."
         raise FileNotFoundError(msg)
 
@@ -573,7 +574,9 @@ def validate_dem(
     shared_ret_values: dict | None = None,
     icesat2_photon_database_obj: ivert.icesat2_database_v2.IS2Database | None = None,
     band_num: int = 1,
+    variable: str | None = None,
     dem_vertical_datum: str | int | None = None,
+    dem_projection: str | int | None = None,
     dem_ndv: float | None = None,
     interim_data_dir: str | None = None,
     overwrite: bool = False,
@@ -621,9 +624,18 @@ def validate_dem(
             used if we've already created one, such as in validate_dem_collection, for efficiency.
             Typically ignored for a single DEM validation.
         band_num: The raster band to use in the DEMs. 1-indexed. Defaults to 1 (first band).
+        variable: The variable to validate in a NetCDF or HDF5 DEM file. Defaults to
+            None: a single-variable file is used as-is, and a multi-variable one is searched for
+            'elev', 'elevation' and then 'z' (see ivert.utils.dem_source.resolve_dem_source).
         dem_vertical_datum: The vertical datum of the DEM: a common name ("navd88",
             "mllw"), an EPSG code, or a transformez reference ID ("vdatum:mllw"); see
             ivert.vdatum_lookup. Defaults to "egm2008".
+        dem_projection: The CRS of the DEM: a horizontal CRS ("EPSG:26910"), or a compound
+            one that also gives the vertical datum ("EPSG:6893", "EPSG:4326+3855",
+            "EPSG:4326+vdatum:mllw"). Required if the DEM file has no CRS of its own.
+            Overrides the file's CRS, with a warning, if it differs. Its vertical part
+            is in turn overridden by dem_vertical_datum. Defaults to None, which uses
+            the file's CRS.
         dem_ndv: No-data value to exclude from the DEM pixels before validation.
             Overrides any no-data value in the DEM file header. Defaults to None, which uses the
             file header value, falling back to the config default (dem_default_ndv).
@@ -678,6 +690,8 @@ def validate_dem(
             reads them from the config files.
 
     """
+    dem_name = dem_source.resolve_dem_source(dem_name, variable)
+    dem_source.check_georeferenced(dem_name)
     config = _resolve_config(config, icesat2_photon_database_obj)
 
     if shared_ret_values is None:
@@ -693,6 +707,7 @@ def validate_dem(
         "icesat2_photon_database_obj": icesat2_photon_database_obj,
         "band_num": band_num,
         "dem_vertical_datum": dem_vertical_datum,
+        "dem_projection": dem_projection,
         "dem_ndv": dem_ndv,
         "interim_data_dir": interim_data_dir,
         "overwrite": overwrite,
@@ -766,9 +781,12 @@ def validate_dem(
             raise MemoryError(msg)
 
         # Make sure the DEM exists that we're trying to sub-divide
-        if not os.path.exists(dem_name):
+        if not os.path.exists(dem_source.dem_file_path(dem_name)):
             msg = f"validate_dem.validate_dem_parallell({orig_dem_name},...) could not find {dem_name}."
             raise FileNotFoundError(msg)
+
+        with rasterio.open(dem_name) as parent_ds:
+            parent_band_ndv = parent_ds.nodatavals[band_num - 1]
 
         # Split up the DEM into 4 parts.
         sub_dem_names = subdivide_dem(
@@ -799,7 +817,10 @@ def validate_dem(
                 icesat2_photon_database_obj=icesat2_photon_database_obj,
                 band_num=band_num,
                 dem_vertical_datum=dem_vertical_datum,
-                dem_ndv=dem_ndv,
+                dem_projection=dem_projection,
+                # The sub-DEMs are GeoTIFFs, which keep only one nodata value for all
+                # bands, so hand them this band's own value.
+                dem_ndv=dem_ndv if dem_ndv is not None else parent_band_ndv,
                 interim_data_dir=interim_data_dir,
                 overwrite=overwrite,
                 delete_datafiles=delete_datafiles,
@@ -888,7 +909,7 @@ def validate_dem(
 
             output_fname = os.path.join(
                 output_dir,
-                os.path.splitext(os.path.basename(dem_name))[0] + "_results.h5",
+                dem_source.dem_base_name(dem_name) + "_results.h5",
             )
             shared_results_df.to_hdf(
                 output_fname,
@@ -912,7 +933,7 @@ def validate_dem(
         ):
             merged_results_file = os.path.join(
                 output_dir,
-                os.path.splitext(os.path.basename(dem_name))[0] + "_results.h5",
+                dem_source.dem_base_name(dem_name) + "_results.h5",
             )
             with rasterio.open(dem_name) as dem_ds_tmp:
                 exported = export_error_results(
@@ -920,6 +941,7 @@ def validate_dem(
                     dem_ds_tmp,
                     merged_results_file,
                     export_error_formats,
+                    dem_crs=_output_crs(dem_ds_tmp, dem_projection),
                 )
 
             written_files.extend(exported)
@@ -934,10 +956,13 @@ def validate_dem(
             # If any of the results existed, we don't need to do this just because one sub-result doesn't exist.
             empty_fname = os.path.join(
                 output_dir,
-                os.path.splitext(os.path.basename(dem_name))[0] + "_EMPTY.txt",
+                dem_source.dem_base_name(dem_name) + "_EMPTY.txt",
             )
             with open(empty_fname, "w", encoding="utf-8") as f:
-                f.write(os.path.basename(dem_name) + " had no IVERT results.")
+                f.write(
+                    os.path.basename(dem_source.dem_file_path(dem_name))
+                    + " had no IVERT results.",
+                )
             shared_ret_values["empty_results_filename"] = empty_fname
 
         # Create the overall summary stats text file.
@@ -949,7 +974,7 @@ def validate_dem(
             # Generate a new summary stats file only if we have results and if the recursion depth is zero.
             output_fname = os.path.join(
                 output_dir,
-                os.path.splitext(os.path.basename(dem_name))[0] + "_summary_stats.txt",
+                dem_source.dem_base_name(dem_name) + "_summary_stats.txt",
             )
             write_summary_stats_file(
                 shared_results_df,
@@ -974,7 +999,7 @@ def validate_dem(
             )
             output_fname = os.path.join(
                 output_dir,
-                os.path.splitext(os.path.basename(dem_name))[0] + "_photons.h5",
+                dem_source.dem_base_name(dem_name) + "_photons.h5",
             )
             results_df.to_hdf(output_fname, key="icesat2", complib="zlib", mode="w")
             written_files.append(output_fname)
@@ -988,7 +1013,7 @@ def validate_dem(
         ):
             output_fname = os.path.join(
                 output_dir,
-                os.path.splitext(os.path.basename(dem_name))[0] + "_plot.png",
+                dem_source.dem_base_name(dem_name) + "_plot.png",
             )
             ivert.plot_validation_results.plot_histogram_and_error_stats_4_panels(
                 shared_results_df,
@@ -1005,30 +1030,11 @@ def validate_dem(
     raise RuntimeError(msg)
 
 
-def get_dem_dataset_and_vars(dem_fn) -> tuple:
-    """Get the rasterio dataset and the variables in the dataset.
-
-    Return (dem_dataset, dem_array, dem_bbox, dem_step_xy).
-    """
-    dem_ds = rasterio.open(dem_fn)
-    dem_array = dem_ds.read(1)
-    gt = dem_ds.transform.to_gdal()
-    dem_step_xy = (gt[1], gt[5])
-    dem_bbox = (
-        gt[0],
-        gt[3] + (dem_ds.height + 1) * gt[5],
-        gt[0] + (dem_ds.width + 1) * gt[1],
-        gt[3],
-    )
-
-    return dem_ds, dem_array, dem_bbox, dem_step_xy
-
-
 def _results_dataframe_filename(dem_name, output_dir):
     """Return the '<dem>_results.h5' path for a DEM's validation results in output_dir."""
     return os.path.join(
         output_dir,
-        os.path.splitext(os.path.basename(dem_name))[0] + "_results.h5",
+        dem_source.dem_base_name(dem_name) + "_results.h5",
     )
 
 
@@ -1038,22 +1044,36 @@ def _empty_results_filename(results_dataframe_file):
     return base + "_EMPTY.txt"
 
 
-def dem_needs_validation(dem_name, output_dir, include_photons=False, overwrite=False):
+def dem_needs_validation(
+    dem_name,
+    output_dir,
+    include_photons=False,
+    overwrite=False,
+    variable=None,
+):
     """Return True if validating this DEM into output_dir would do any validation work.
 
     Mirrors the checks in _check_existing_outputs(): a DEM is done when its results
     .h5 file exists (plus its photon-level results file, if include_photons is set),
     or when an earlier run marked it as empty. Summary files, plots and error exports
     that can be rebuilt from existing results don't count as validation work.
+
+    'variable' is the NetCDF or HDF5 variable to validate, as in validate_dem(). For
+    such a file, each output name it could have is checked (see
+    dem_source.possible_base_names(), which reads the file's header when no variable
+    is given).
     """
     if overwrite:
         return True
-    results_dataframe_file = _results_dataframe_filename(dem_name, output_dir)
-    if os.path.exists(results_dataframe_file):
-        return include_photons and not os.path.exists(
-            _photon_results_filename(results_dataframe_file),
-        )
-    return not os.path.exists(_empty_results_filename(results_dataframe_file))
+    for base in dem_source.possible_base_names(dem_name, variable):
+        results_dataframe_file = os.path.join(output_dir, base + "_results.h5")
+        if os.path.exists(results_dataframe_file):
+            return include_photons and not os.path.exists(
+                _photon_results_filename(results_dataframe_file),
+            )
+        if os.path.exists(_empty_results_filename(results_dataframe_file)):
+            return False
+    return True
 
 
 def _setup_output_paths(
@@ -1070,7 +1090,9 @@ def _setup_output_paths(
              empty_results_filename, summary_stats_filename, plot_filename).
     """
     if not output_dir:
-        output_dir = os.path.dirname(os.path.abspath(dem_name))
+        output_dir = os.path.dirname(
+            os.path.abspath(dem_source.dem_file_path(dem_name)),
+        )
     if not os.path.exists(output_dir):
         logger.info("Creating output directory %s", output_dir)
         os.makedirs(output_dir)
@@ -1123,6 +1145,7 @@ def _check_existing_outputs(
     shared_ret_values,
     include_photon_level_validation=False,
     export_error_formats=None,
+    dem_projection=None,
 ):
     """Handle overwrite deletion or early return when outputs already exist.
 
@@ -1132,6 +1155,7 @@ def _check_existing_outputs(
     if overwrite:
         for fn in (
             results_dataframe_file,
+            empty_results_filename,
             summary_stats_filename,
             plot_filename,
         ):
@@ -1191,6 +1215,7 @@ def _check_existing_outputs(
                         dem_ds_tmp,
                         results_dataframe_file,
                         export_error_formats,
+                        dem_crs=_output_crs(dem_ds_tmp, dem_projection),
                     ),
                 )
             files_to_export.extend(export_files)
@@ -1199,7 +1224,7 @@ def _check_existing_outputs(
         if plot_results:
             if not os.path.exists(plot_filename):
                 if location_name is None:
-                    location_name = os.path.split(dem_name)[1]
+                    location_name = os.path.basename(dem_source.dem_file_path(dem_name))
                 if results_dataframe is None:
                     logger.info("Reading %s ...", results_dataframe_file)
                     results_dataframe = read_dataframe_file(results_dataframe_file)
@@ -1225,11 +1250,115 @@ def _check_existing_outputs(
     if mark_empty_results and os.path.exists(empty_results_filename):
         logger.info(
             "No valid data produced during previous ICESat-2 analysis of %s",
-            os.path.basename(dem_name) + ". Returning.",
+            os.path.basename(dem_source.dem_file_path(dem_name)) + ". Returning.",
         )
         return files_to_export
 
     return None
+
+
+def _split_projection(dem_projection):
+    """Split -p/--projection into (horizontal CRS, vertical reference or None).
+
+    It may be a horizontal CRS ('EPSG:26910'), a compound CRS in one code
+    ('EPSG:6893'), two codes ('EPSG:4326+3855'), or a horizontal code plus a
+    transformez reference ID ('EPSG:4326+vdatum:mllw'). The vertical part comes back
+    as resolve_vdatum() returns it ('EPSG:3855', 'vdatum:mllw').
+    """
+    horz, vert = dem_geom.split_srs_string(dem_projection)
+    if horz is None:
+        msg = f"-p/--projection {dem_projection!r} has no horizontal CRS."
+        raise ValueError(msg)
+    if vert is not None:
+        vert = ivert.vdatum_lookup.resolve_vdatum(vert)
+    return horz, vert
+
+
+def _resolve_dem_crs(
+    dem_name,
+    file_horz_crs,
+    file_vert_crs,
+    dem_projection=None,
+    dem_vertical_datum=None,
+):
+    """Return the DEM's (horizontal CRS, vertical reference), with the user's settings applied.
+
+    Horizontal: -p/--projection, else the file's. Vertical: -V/--vdatum, else the vertical
+    part of -p/--projection, else the file's. Each override that differs from what it
+    replaces is logged as a warning. The vertical reference is a pyproj.CRS, or a
+    transformez reference ID such as 'vdatum:mllw' that pyproj can't represent.
+
+    Raises:
+        ValueError: if the DEM ends up with no horizontal CRS or no vertical datum, or a
+            vertical datum isn't recognised.
+
+    """
+    dem_label = os.path.basename(dem_source.dem_file_path(dem_name))
+
+    proj_horz, proj_vert = (None, None)
+    if dem_projection is not None:
+        proj_horz, proj_vert = _split_projection(dem_projection)
+
+    horz = dem_geom.resolve_horizontal_crs(dem_name, file_horz_crs, proj_horz)
+
+    # Vertical.
+    vdatum_ref = None
+    if dem_vertical_datum is not None:
+        vdatum_ref = ivert.vdatum_lookup.resolve_vdatum(dem_vertical_datum)
+        if vdatum_ref is None:
+            msg = f"Unrecognised vertical datum {dem_vertical_datum!r}."
+            raise ValueError(msg)
+        if proj_vert is not None and not dem_geom.same_reference(vdatum_ref, proj_vert):
+            logger.warning(
+                "Using -V/--vdatum %s for %s in place of the vertical datum in "
+                "-p/--projection (%s).",
+                vdatum_ref,
+                dem_label,
+                proj_vert,
+            )
+
+    if vdatum_ref is not None:
+        user_vert, user_flag = vdatum_ref, "-V/--vdatum"
+    elif proj_vert is not None:
+        user_vert, user_flag = proj_vert, "-p/--projection"
+    else:
+        user_vert = None
+
+    if user_vert is None:
+        if file_vert_crs is None:
+            msg = (
+                f"{dem_source.dem_file_path(dem_name)} has no vertical datum in its "
+                "metadata. Use -V/--vdatum, or a compound -p/--projection such as "
+                "'EPSG:4326+3855', to give one."
+            )
+            raise ValueError(msg)
+        return horz, file_vert_crs
+
+    ivert.vdatum_lookup.check_vdatum(user_vert)
+    if file_vert_crs is not None and not dem_geom.same_reference(
+        user_vert,
+        file_vert_crs,
+    ):
+        logger.warning(
+            "Using %s %s for %s in place of the vertical datum in the file (%s).",
+            user_flag,
+            user_vert,
+            dem_label,
+            dem_geom.reference_label(file_vert_crs),
+        )
+    try:
+        vert = dem_geom.get_dem_reference_frame_from_user_input(user_vert, "vert")
+    except pyproj.exceptions.CRSError:
+        # A transformez reference ID such as 'vdatum:mllw', which pyproj can't read.
+        vert = user_vert
+    return horz, vert
+
+
+def _output_crs(dem_ds, dem_projection):
+    """Return the CRS to write into exported error files: the user's, else the DEM's."""
+    if dem_projection is None:
+        return dem_ds.crs
+    return rasterio.crs.CRS.from_user_input(_split_projection(dem_projection)[0])
 
 
 def _fetch_photons(
@@ -1242,37 +1371,33 @@ def _fetch_photons(
     omit_bboxes,
     min_confidence_level: int = 1,
     min_bathy_confidence: float = 0.75,
+    dem_projection=None,
 ):
     """Open the DEM and query overlapping ICESat-2 photons.
 
+    'dem_projection' and 'dem_vertical_datum' are the user's CRS and vertical datum for
+    the DEM (see validate_dem() and _resolve_dem_crs()).
+
     Returns (dem_ds, dem_array, photon_df, dem_epsg_str) or None if no photons found.
     """
-    get_dem_dataset_and_vars(
-        dem_name,
-    )  # result unused; preserved for validation side-effects
-
     dem_ds = rasterio.open(dem_name)
     dem_array = dem_ds.read(band_num)
 
     dem_horz_ref_frame, dem_vert_ref_frame = dem_geom.get_dem_reference_frame_from_file(
         dem_name,
     )
-    if dem_vertical_datum is not None:
-        reference = ivert.vdatum_lookup.resolve_vdatum(dem_vertical_datum)
-        if reference is None:
-            msg = f"Unrecognised vertical datum {dem_vertical_datum!r}."
-            raise ValueError(msg)
-        ivert.vdatum_lookup.check_vdatum(reference)
-        try:
-            dem_vert_ref_frame = dem_geom.get_dem_reference_frame_from_user_input(
-                reference,
-                "vert",
-            )
-        except pyproj.exceptions.CRSError:
-            # A transformez reference ID such as 'vdatum:mllw', which pyproj can't read.
-            dem_vert_ref_frame = reference
+    dem_horz_ref_frame, dem_vert_ref_frame = _resolve_dem_crs(
+        dem_name,
+        dem_horz_ref_frame,
+        dem_vert_ref_frame,
+        dem_projection,
+        dem_vertical_datum,
+    )
     dem_epsg_str = dem_geom.get_dem_srs_string(dem_horz_ref_frame, dem_vert_ref_frame)
-    dem_wgs84_bbox = dem_geom.get_wgs84_bounding_box(dem_name)
+    dem_wgs84_bbox = dem_geom.get_wgs84_bounding_box(
+        dem_name,
+        dem_horz_reference_frame=dem_horz_ref_frame,
+    )
 
     if icesat2_photon_database_obj is None:
         icesat2_photon_database_obj = ivert.icesat2_database_v2.IS2Database()
@@ -1334,6 +1459,38 @@ def _resolve_exclude_geometry(exclude_zones, dem_epsg_str):
     return shapely.unary_union(geoms)
 
 
+def _band_nodata(dem_ds, band_num, user_ndv=None, default_ndv=None):
+    """Return the nodata value to mask band 'band_num' with.
+
+    In order: the user's value, the band's own nodata value in the file, the config default.
+    """
+    if user_ndv is not None:
+        return user_ndv
+    band_ndv = dem_ds.nodatavals[band_num - 1]
+    return default_ndv if band_ndv is None else band_ndv
+
+
+def _unpack_elevations(stored_values, dem_ds, band_num):
+    """Apply the band's scale and offset to stored DEM values, if it has any.
+
+    Packed integer DEMs (common in NetCDF, via scale_factor/add_offset) store
+    elevation = stored * scale + offset. GDAL reports those, but reading the band
+    returns the stored integers.
+    """
+    scale = dem_ds.scales[band_num - 1]
+    offset = dem_ds.offsets[band_num - 1]
+    if scale == 1 and offset == 0:
+        return stored_values
+    logger.info(
+        "Unpacking %s band %d: elevation = stored value * %s + %s.",
+        os.path.basename(dem_ds.name),
+        band_num,
+        scale,
+        offset,
+    )
+    return stored_values.astype(np.float64) * scale + offset
+
+
 def _compute_photon_overlap(
     dem_ds,
     dem_array,
@@ -1346,8 +1503,14 @@ def _compute_photon_overlap(
     user_ndv=None,
     exclude_zones=None,
     default_ndv=None,
+    band_num=1,
 ):
     """Transform photon coordinates into DEM space and compute cell-level overlap.
+
+    'dem_array' holds band 'band_num' as stored in the file. Its nodata value is that
+    band's, and any scale/offset the band carries (packed integers, as in many NetCDF
+    DEMs) is applied to the elevations returned. 'user_ndv' is compared against the
+    stored values, like the file's own nodata value.
 
     Photons whose class_code is not in 'classes' are dropped here, so every array
     handed downstream (height_field, the shared-memory arrays given to the child
@@ -1421,13 +1584,7 @@ def _compute_photon_overlap(
 
     height_field = photon_df["dem_z"]
 
-    # NDV priority: (1) user_ndv flag, (2) file header, (3) config default
-    if user_ndv is not None:
-        dem_ndv = user_ndv
-    else:
-        dem_ndv = dem_ds.nodata
-        if dem_ndv is None:
-            dem_ndv = default_ndv
+    dem_ndv = _band_nodata(dem_ds, band_num, user_ndv, default_ndv)
 
     if np.isnan(dem_ndv):
         dem_goodpixel_mask = ~np.isnan(dem_array)
@@ -1440,7 +1597,11 @@ def _compute_photon_overlap(
 
     dem_overlap_mask = dem_goodpixel_mask & dem_mask_w_photons
     dem_overlap_i, dem_overlap_j = np.where(dem_overlap_mask)
-    dem_overlap_elevs = dem_array[dem_overlap_mask]
+    dem_overlap_elevs = _unpack_elevations(
+        dem_array[dem_overlap_mask],
+        dem_ds,
+        band_num,
+    )
 
     num_goodpixels = np.count_nonzero(dem_goodpixel_mask)
     if num_goodpixels == 0:
@@ -1898,6 +2059,7 @@ def _write_validation_outputs(
     min_coverage_pct_land=None,
     min_coverage_pct_bathy=None,
     bathy_filter_report=None,
+    dem_projection=None,
 ):
     """Concatenate results, filter outliers, and write all output files.
 
@@ -1986,6 +2148,7 @@ def _write_validation_outputs(
             dem_ds,
             results_dataframe_file,
             export_error_formats,
+            dem_crs=_output_crs(dem_ds, dem_projection),
         )
         files_to_export.extend(exported)
         written_files.extend(exported)
@@ -1993,7 +2156,7 @@ def _write_validation_outputs(
 
     if plot_results:
         if location_name is None:
-            location_name = os.path.split(dem_name)[1]
+            location_name = os.path.basename(dem_source.dem_file_path(dem_name))
         ivert.plot_validation_results.plot_histograms_and_line(
             results_dataframe,
             plot_filename,
@@ -2018,6 +2181,7 @@ def validate_dem_parallel(
     | None = None,  # Used only if we've already created this, for efficiency.
     band_num: int = 1,
     dem_vertical_datum: str | int | None = None,
+    dem_projection: str | int | None = None,
     dem_ndv: float | None = None,
     interim_data_dir: str | None = None,
     overwrite: bool = False,
@@ -2056,7 +2220,7 @@ def validate_dem_parallel(
     if log_level is not None:
         ivert.utils.logging_config.configure_worker_logging(log_level)
 
-    if not os.path.exists(dem_name):
+    if not os.path.exists(dem_source.dem_file_path(dem_name)):
         msg = f"Could not find file {dem_name}."
         raise FileNotFoundError(msg)
 
@@ -2097,6 +2261,7 @@ def validate_dem_parallel(
         shared_ret_values,
         include_photon_level_validation=include_photon_level_validation,
         export_error_formats=export_error_formats,
+        dem_projection=dem_projection,
     )
     if early is not None:
         return early
@@ -2118,6 +2283,7 @@ def validate_dem_parallel(
         omit_bboxes,
         min_confidence_level=min_confidence_level,
         min_bathy_confidence=min_bathy_confidence,
+        dem_projection=dem_projection,
     )
 
     bathy_filter_report = None
@@ -2132,7 +2298,10 @@ def validate_dem_parallel(
     if fetch_result is None:
         if mark_empty_results:
             with open(empty_results_filename, "w", encoding="utf-8") as f:
-                f.write(os.path.basename(dem_name) + " had no ICESat-2 results.")
+                f.write(
+                    os.path.basename(dem_source.dem_file_path(dem_name))
+                    + " had no ICESat-2 results.",
+                )
             logger.info(
                 "Created %s to indicate no valid ICESat-2 data was returned here.",
                 empty_results_filename,
@@ -2154,11 +2323,15 @@ def validate_dem_parallel(
         user_ndv=dem_ndv,
         exclude_zones=exclude_zones,
         default_ndv=config.dem_default_ndv,
+        band_num=band_num,
     )
     if overlap_result is None:
         if mark_empty_results:
             with open(empty_results_filename, "w", encoding="utf-8") as f:
-                f.write(os.path.basename(dem_name) + " had no ICESat-2 results.")
+                f.write(
+                    os.path.basename(dem_source.dem_file_path(dem_name))
+                    + " had no ICESat-2 results.",
+                )
             logger.info(
                 "Created %s to indicate no data was returned here.",
                 empty_results_filename,
@@ -2222,6 +2395,7 @@ def validate_dem_parallel(
         min_coverage_pct_land=min_coverage_pct_land,
         min_coverage_pct_bathy=min_coverage_pct_bathy,
         bathy_filter_report=bathy_filter_report,
+        dem_projection=dem_projection,
     )
 
 
@@ -2475,6 +2649,7 @@ def generate_result_geotiff(
     dem_ds,
     result_tif_filename,
     empty_val=None,
+    crs=None,
 ):
     """Given the results in the dataframe, output geotiffs to visualize these.
 
@@ -2504,7 +2679,7 @@ def generate_result_geotiff(
         height=ysize,
         count=1,
         dtype="float32",
-        crs=dem_ds.crs,
+        crs=dem_ds.crs if crs is None else crs,
         transform=dem_ds.transform,
         nodata=emptyval,
         compress="deflate",
@@ -2548,7 +2723,7 @@ def _results_cell_centers(results_dataframe, dem_ds):
     return x, y
 
 
-def _export_errors_vector(results_dataframe, dem_ds, out_fname, fmt):
+def _export_errors_vector(results_dataframe, dem_ds, out_fname, fmt, crs=None):
     """Write one point per validated cell (at the cell center) to a GeoPackage or Shapefile."""
     driver_name = {"gpkg": "GPKG", "shp": "ESRI Shapefile"}[fmt]
 
@@ -2579,7 +2754,7 @@ def _export_errors_vector(results_dataframe, dem_ds, out_fname, fmt):
     gdf = geopandas.GeoDataFrame(
         data,
         geometry=geopandas.points_from_xy(x_centers, y_centers),
-        crs=dem_ds.crs,
+        crs=dem_ds.crs if crs is None else crs,
     )
     layer_name = os.path.splitext(os.path.basename(out_fname))[0]
     gdf.to_file(out_fname, driver=driver_name, layer=layer_name)
@@ -2643,6 +2818,7 @@ def export_error_results(
     dem_ds,
     results_dataframe_file,
     formats,
+    dem_crs=None,
 ):
     """Export the per-cell ICESat-2 errors from a results dataframe into GIS formats.
 
@@ -2658,6 +2834,7 @@ def export_error_results(
         dem_ds: an open rasterio dataset for the source DEM (supplies CRS and geotransform).
         results_dataframe_file: path to the '<dem>_results.h5' file (used to derive output names).
         formats: comma-separated string (e.g. 'tif,gpkg') or iterable of format names.
+        dem_crs: the CRS to write into the files. Defaults to None, which uses dem_ds.crs.
 
     Returns:
         list of file paths written.
@@ -2669,6 +2846,8 @@ def export_error_results(
 
     formats = _normalize_export_formats(formats)
     filenames = _error_export_filenames(results_dataframe_file, formats)
+    if dem_crs is None:
+        dem_crs = dem_ds.crs
 
     for fmt, out_fname in zip(formats, filenames, strict=True):
         if fmt == "tif":
@@ -2676,6 +2855,7 @@ def export_error_results(
                 results_dataframe,
                 dem_ds,
                 out_fname,
+                crs=dem_crs,
             )
         elif fmt in ("gpkg", "shp"):
             _export_errors_vector(
@@ -2683,6 +2863,7 @@ def export_error_results(
                 dem_ds,
                 out_fname,
                 fmt,
+                crs=dem_crs,
             )
         elif fmt == "xyz":
             _export_errors_xyz(results_dataframe, dem_ds, out_fname)
@@ -2723,6 +2904,24 @@ def export_error_results(
     type=int,
     default=1,
     help="The band number (1-indexed) of the input_dem. (Default: 1)",
+)
+@click.option(
+    "--projection",
+    "-p",
+    type=str,
+    default=None,
+    help="The CRS of the DEM(s): horizontal ('EPSG:26910') or compound ('EPSG:6893', "
+    "'EPSG:4326+3855', 'EPSG:4326+vdatum:mllw'). Required for a DEM with no CRS of its "
+    "own; overrides the file's CRS, with a warning, if it differs. A vertical datum "
+    "given separately overrides its vertical part.",
+)
+@click.option(
+    "--variable",
+    type=str,
+    default=None,
+    help="The variable to validate in a NetCDF or HDF5 DEM file: a name ('elev') or, "
+    "for HDF5, a path within the file ('grid/elev'). Defaults to the file's only "
+    "variable, or else the first of 'elev', 'elevation' or 'z' found.",
 )
 @click.option(
     "--place_name",
@@ -2789,6 +2988,8 @@ def main(
     input_vdatum,
     datadir,
     band_num,
+    variable,
+    projection,
     place_name,
     numprocs,
     delete_datafiles,
@@ -2833,12 +3034,20 @@ def main(
     # force=True avoids a RuntimeError if the start method was already set in this process.
     mp.set_start_method("spawn", force=True)
 
+    try:
+        input_dem = dem_source.resolve_dem_source(input_dem, variable)
+        dem_source.check_georeferenced(input_dem)
+    except dem_source.DEMSourceError as exc:
+        logger.error(str(exc))  # noqa: TRY400
+        sys.exit(1)
+
     # Run the validation
     validate_dem(
         input_dem,
         output_dir=output_dir,
         classes=classes_list,
         dem_vertical_datum=input_vdatum,
+        dem_projection=projection,
         interim_data_dir=(datadir or None),
         overwrite=overwrite,
         delete_datafiles=delete_datafiles,

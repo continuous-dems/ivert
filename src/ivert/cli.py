@@ -964,6 +964,30 @@ def database_size():
     )
 
 
+def _check_projection_option(projection):
+    """Check a -p/--projection value; return its (horizontal CRS, vertical part or None).
+
+    The value may be a horizontal CRS ('EPSG:26910') or a compound one
+    ('EPSG:6893', 'EPSG:4326+3855', 'EPSG:4326+vdatum:mllw').
+
+    Raises:
+        click.ClickException: if it can't be read or has no horizontal CRS.
+    """
+    import pyproj
+
+    from ivert.utils import dem_geom
+
+    try:
+        horz_crs, vert = dem_geom.split_srs_string(projection)
+    except pyproj.exceptions.CRSError as exc:
+        msg = f"Unrecognised -p/--projection '{projection}': {exc}"
+        raise click.ClickException(msg) from exc
+    if horz_crs is None:
+        msg = f"-p/--projection '{projection}' has no horizontal CRS."
+        raise click.ClickException(msg)
+    return horz_crs, vert
+
+
 @database.command("download")
 @click.argument("bbox_or_files", nargs=-1, required=True)
 @click.option(
@@ -992,9 +1016,27 @@ def database_size():
 @click.option(
     "-p",
     "--projection",
-    default="EPSG:4326",
-    show_default=True,
-    help="Horizontal projection (EPSG code) that the bounding box coordinates are in.",
+    default=None,
+    help=(
+        "CRS of the region. For a numeric bounding box, the CRS its coordinates are "
+        "in (default EPSG:4326). For DEM files, the DEMs' CRS: required for a DEM "
+        "with no CRS of its own, and it overrides a different CRS in the file, with "
+        "a warning. A compound CRS ('EPSG:4326+3855', 'EPSG:4326+vdatum:mllw') is "
+        "accepted; only its horizontal part is used here. Vector files always use "
+        "their own CRS."
+    ),
+)
+@click.option(
+    "--variable",
+    "variable",
+    type=str,
+    default=None,
+    help=(
+        "Variable to use from NetCDF (.nc, .nc4) or HDF5 (.h5, .hdf5) DEM files: a "
+        "name ('elev') or, for HDF5, a path within the file ('grid/elev'). By default "
+        "a file's only variable is used; a file with several is searched for 'elev', "
+        "'elevation' and then 'z', and it is an error if none is found."
+    ),
 )
 @click.option(
     "--wsen",
@@ -1066,6 +1108,7 @@ def database_download(
     date_start,
     date_end,
     projection,
+    variable,
     wsen,
     replace,
     classes,
@@ -1085,8 +1128,8 @@ def database_download(
     its bounding box, minus the squares the area does not reach, merged back
     together), so a vector file of many adjacent or scattered tiles is fetched in
     one pass without a request per tile and without covering the gaps between
-    them. Vector files are read in their own coordinate system; -p only applies
-    to a numeric bounding box.
+    them. Vector files are read in their own coordinate system; -p applies to a
+    numeric bounding box and to DEM files.
 
     Examples:
         ivert database download -- -74.0/-73.0/40.5/41.0
@@ -1101,7 +1144,11 @@ def database_download(
 
     """
     from ivert import icesat2_database_v2 as is2db_mod
-    from ivert.utils import dem_geom
+    from ivert.utils import dem_geom, dem_source
+
+    projection_horz = None
+    if projection is not None:
+        projection_horz, _ = _check_projection_option(projection)
 
     # --- Parse bbox or files ---
     # Flatten slash-separated tokens into a flat list.
@@ -1121,12 +1168,12 @@ def database_download(
                 xmin, ymin, xmax, ymax = nums
             else:
                 xmin, xmax, ymin, ymax = nums
-            if projection.upper() in ("EPSG:4326", "4326"):
+            if projection_horz is None or projection_horz.to_epsg() == 4326:
                 wgs84_bbox = (xmin, xmax, ymin, ymax)
             else:
                 wgs84_bbox = dem_geom.get_wgs84_bounding_box(
                     (xmin, xmax, ymin, ymax),
-                    dem_horz_reference_frame=projection,
+                    dem_horz_reference_frame=projection_horz,
                 )
         except ValueError:
             pass  # not numeric — fall through to file path handling
@@ -1138,14 +1185,20 @@ def database_download(
             matches = glob.glob(token)
             expanded.extend(matches or [token])
 
-        missing = [f for f in expanded if not os.path.exists(f)]
+        missing = [
+            f for f in expanded if not os.path.exists(dem_source.dem_file_path(f))
+        ]
         if missing:
             raise click.ClickException(
                 "Files not found (and input is not a valid 4-value bbox): "
                 + ", ".join(missing),
             )
 
-        wgs84_bbox, geometry = _dissolve_region_files(expanded)
+        wgs84_bbox, geometry = _dissolve_region_files(
+            expanded,
+            variable=variable,
+            projection_horz=projection_horz,
+        )
 
     # --- Parse dates and classes ---
     db = is2db_mod.IS2Database()
@@ -1304,23 +1357,38 @@ def _region_from_vector_file(path):
     return bbox, geometry
 
 
-def _region_from_file(path):
+def _region_from_file(path, variable=None, projection_horz=None):
     """Return (bbox, geometry) for a raster or polygon-vector file.
 
     The geometry is None for a raster, and for a vector file with no polygons;
     the bbox alone defines the region then.
+
+    For a raster, 'variable' picks the variable of a NetCDF or HDF5 file, and
+    'projection_horz' (the horizontal part of -p/--projection) sets or overrides its
+    CRS, as 'ivert validate' does. Both are ignored for vector files.
     """
     ext = os.path.splitext(path)[1].lower()
     if ext in _REGION_VECTOR_EXTENSIONS:
         return _region_from_vector_file(path)
 
-    # Otherwise treat it as a raster; the CRS is read from the file header.
-    from ivert.utils import dem_geom
+    # Otherwise treat it as a raster.
+    from ivert.utils import dem_geom, dem_source
 
-    return dem_geom.get_wgs84_bounding_box(path), None
+    dem_name = dem_source.resolve_dem_source(path, variable)
+    # Its extent would otherwise be in pixels, putting the region near 0°N, 0°E.
+    dem_source.check_georeferenced(dem_name)
+    horz_crs = dem_geom.resolve_horizontal_crs(
+        dem_name,
+        dem_geom.get_dem_reference_frame_from_file(dem_name, "horz"),
+        projection_horz,
+    )
+    return dem_geom.get_wgs84_bounding_box(
+        dem_name,
+        dem_horz_reference_frame=horz_crs,
+    ), None
 
 
-def _dissolve_region_files(paths):
+def _dissolve_region_files(paths, variable=None, projection_horz=None):
     """Dissolve the footprints of raster and polygon-vector files into one region.
 
     Each raster contributes its WGS84 extent as a rectangle, and each vector file
@@ -1331,6 +1399,8 @@ def _dissolve_region_files(paths):
 
     Args:
         paths: Existing raster or vector files.
+        variable: The variable to use from NetCDF or HDF5 rasters (see _region_from_file).
+        projection_horz: The horizontal CRS to give rasters (see _region_from_file).
 
     Returns:
         (bbox, geometry): The WGS84 (xmin, xmax, ymin, ymax) bounds of the dissolved
@@ -1344,7 +1414,7 @@ def _dissolve_region_files(paths):
     footprints = []
     for path in paths:
         try:
-            bbox, geom = _region_from_file(path)
+            bbox, geom = _region_from_file(path, variable, projection_horz)
         except Exception as exc:
             msg = f"Could not read a region from '{path}': {exc}"
             raise click.ClickException(msg) from exc
@@ -2300,8 +2370,9 @@ def _parse_exclude_spec(value, wsen=False):
 def _manifest_option_values(ctx, manifest_file):
     """Return the manifest's values for every tracked option not given on the command line.
 
-    Warns and asks before going on if the manifest's options don't match the ones this
-    version of 'ivert validate' has.
+    Options the manifest lacks take their command-line values, or else their defaults
+    with a warning for each; unrecognized options in the manifest are warned about and asked
+    about before going on (see manifest.reconcile_options()).
     """
     from click.core import ParameterSource
 
@@ -2316,6 +2387,12 @@ def _manifest_option_values(ctx, manifest_file):
         params,
         ivert_version,
         interactive=_stdin_is_interactive(),
+        current_values=ctx.params,
+        command_line={
+            name
+            for name in params
+            if ctx.get_parameter_source(name) == ParameterSource.COMMANDLINE
+        },
     )
     logger.info("Using settings from manifest %s", manifest_file)
     return {
@@ -2385,6 +2462,8 @@ def _run_validate(
     minimum_coverage_pct_bathy=None,
     bathy_filter_settings=None,
     manifest_options=None,
+    variable=None,
+    projection=None,
 ):
     """Branch to validate_dem or validate_list_of_dems based on the number of input files.
 
@@ -2396,6 +2475,28 @@ def _run_validate(
     from ivert import validate_dem as vd_module
     from ivert import validate_dem_collection as vdc_module
     from ivert import vdatum_lookup
+
+    # Check -p/--projection once here, rather than failing on every DEM. It may carry
+    # a vertical datum too ('EPSG:6893', 'EPSG:4326+3855', 'EPSG:4326+vdatum:mllw');
+    # -V/--vdatum, if given, overrides that part when each DEM is validated.
+    if projection is not None:
+        _, proj_vert = _check_projection_option(projection)
+        if proj_vert is not None:
+            resolved_proj_vert = vdatum_lookup.resolve_vdatum(proj_vert)
+            if resolved_proj_vert is None:
+                msg = (
+                    f"The vertical datum '{proj_vert}' in -p/--projection "
+                    f"'{projection}' is not recognised."
+                )
+                raise click.ClickException(msg)
+            try:
+                vdatum_lookup.check_vdatum(resolved_proj_vert)
+            except ValueError as exc:
+                msg = (
+                    f"The vertical datum '{proj_vert}' in -p/--projection "
+                    f"'{projection}' can't be used: {exc}"
+                )
+                raise click.ClickException(msg) from exc
 
     # Resolve common datum names ('navd88', 'mllw') to references transformez takes
     # ('EPSG:5703', 'vdatum:mllw'), and stop now if transformez can't use one.
@@ -2497,18 +2598,25 @@ def _run_validate(
     except is2db_mod.DatabaseNotFoundError as exc:
         raise click.ClickException(str(exc)) from exc
 
-    if len(expanded) == 1 and os.path.isfile(expanded[0]):
+    from ivert.utils import dem_source
+
+    if len(expanded) == 1 and os.path.isfile(dem_source.dem_file_path(expanded[0])):
+        # A multi-variable file (e.g. NetCDF) becomes the subdataset string of the
+        # variable to validate. Raises DEMVariableError if there isn't one, and
+        # DEMNotGeoreferencedError if GDAL finds no geotransform for it.
+        dem_name = dem_source.resolve_dem_source(expanded[0], variable)
+        dem_source.check_georeferenced(dem_name)
         # validate_dem uses output_dir as-is, so resolve any relative path against
         # the DEM's own directory rather than the current working directory.
         if not os.path.isabs(outdir):
             single_outdir = os.path.join(
-                os.path.dirname(os.path.abspath(expanded[0])),
+                os.path.dirname(os.path.abspath(dem_source.dem_file_path(dem_name))),
                 outdir,
             )
         else:
             single_outdir = outdir
         kwargs = {
-            "dem_name": expanded[0],
+            "dem_name": dem_name,
             "output_dir": single_outdir,
             "classes": class_list,
             "band_num": band_num,
@@ -2527,6 +2635,8 @@ def _run_validate(
         }
         if vdatum != "NONE_PROVIDED":
             kwargs["dem_vertical_datum"] = vdatum
+        if projection is not None:
+            kwargs["dem_projection"] = projection
         if ndv_float is not None:
             kwargs["dem_ndv"] = ndv_float
         if export_error_formats is not None:
@@ -2534,13 +2644,13 @@ def _run_validate(
         if exclude_zones:
             kwargs["exclude_zones"] = exclude_zones
         if manifest_options is not None and vd_module.dem_needs_validation(
-            expanded[0],
+            dem_name,
             single_outdir,
             include_photons=include_photons,
             overwrite=overwrite,
         ):
             _write_run_manifest(
-                manifest_module.manifest_path(single_outdir, dem_name=expanded[0]),
+                manifest_module.manifest_path(single_outdir, dem_name=dem_name),
                 manifest_options,
                 expanded,
                 single_outdir,
@@ -2550,11 +2660,15 @@ def _run_validate(
         dem_input = expanded[0] if len(expanded) == 1 else expanded
         if not os.path.isabs(outdir):
             if isinstance(dem_input, list):
-                dem_dir = os.path.dirname(os.path.abspath(dem_input[0]))
+                dem_dir = os.path.dirname(
+                    os.path.abspath(dem_source.dem_file_path(dem_input[0])),
+                )
             elif os.path.isdir(dem_input):
                 dem_dir = os.path.abspath(dem_input)
             else:
-                dem_dir = os.path.dirname(os.path.abspath(dem_input))
+                dem_dir = os.path.dirname(
+                    os.path.abspath(dem_source.dem_file_path(dem_input)),
+                )
             multi_outdir = os.path.join(dem_dir, outdir)
         else:
             multi_outdir = outdir
@@ -2563,6 +2677,7 @@ def _run_validate(
             "output_dir": multi_outdir,
             "classes": class_list,
             "band_num": band_num,
+            "variable": variable,
             "place_name": region_name,
             "include_photon_validation": include_photons,
             "measure_coverage": measure_coverage,
@@ -2578,6 +2693,8 @@ def _run_validate(
         }
         if vdatum != "NONE_PROVIDED":
             kwargs["input_vdatum"] = vdatum
+        if projection is not None:
+            kwargs["dem_projection"] = projection
         if ndv_float is not None:
             kwargs["dem_ndv"] = ndv_float
         if export_error_formats is not None:
@@ -2591,6 +2708,7 @@ def _run_validate(
                 place_name=region_name,
                 include_photons=include_photons,
                 overwrite=overwrite,
+                variable=variable,
             )
             if to_validate:
                 _write_run_manifest(
@@ -2723,6 +2841,33 @@ def _run_validate(
     default=1,
     show_default=True,
     help="Raster band to validate in each DEM (1-indexed). Other bands are ignored.",
+)
+@click.option(
+    "-p",
+    "--projection",
+    "projection",
+    type=str,
+    default=None,
+    help=(
+        "CRS of the DEM(s): horizontal ('EPSG:26910'), or compound to give the vertical "
+        "datum too ('EPSG:6893', 'EPSG:4326+3855', 'EPSG:4326+vdatum:mllw'). Required "
+        "for a DEM with no CRS of its own. Overrides the DEM's own CRS, with a warning, "
+        "if it differs. -V/--vdatum overrides its vertical part, with a warning."
+    ),
+)
+@click.option(
+    "--variable",
+    "variable",
+    type=str,
+    default=None,
+    help=(
+        "Variable to validate in a NetCDF (.nc, .nc4) or HDF5 (.h5, .hdf5) DEM file: "
+        "a name ('elev') or, for HDF5, a path within the file ('grid/elev'). By default "
+        "a file's only variable is used; a file with several is searched for 'elev', "
+        "'elevation' and then 'z'. A file without the variable is an error: a "
+        "single-DEM run stops, and a multi-DEM run skips that file. Ignored for other "
+        "formats."
+    ),
 )
 @click.option(
     "-sd",
@@ -2894,8 +3039,9 @@ def _run_validate(
         "No-data value to exclude from DEM pixels before validation. "
         "Accepts a number (e.g. -9999) or 'nan' for IEEE floating-point NaN. "
         "Overrides any no-data value in the DEM file header. "
-        "If not set, the file header value is used, falling back to the "
-        "config default (dem_default_ndv)."
+        "If not set, the header value for the band being validated is used, "
+        "falling back to the config default (dem_default_ndv). For packed "
+        "(scale/offset) DEMs, give the value as stored in the file."
     ),
 )
 @click.option(
@@ -2955,6 +3101,8 @@ def validate(
     minimum_coverage_pct_land,
     minimum_coverage_pct_bathy,
     band_num,
+    variable,
+    projection,
     outlier_sd_threshold,
     classes,
     min_photons,
@@ -2980,8 +3128,11 @@ def validate(
 ):
     """Validate one or more DEMs against ICESat-2 photon data.
 
-    FILES_OR_DIRECTORY can be one or more GeoTIFF paths, a directory
-    (all `*.tif` files are used), or a glob pattern (e.g., `data/ncei*.tif`).
+    FILES_OR_DIRECTORY can be one or more DEM raster paths, a directory, or a
+    glob pattern (e.g., `data/ncei*.tif`). With a directory or several files,
+    only rasters ending in .tif, .tiff, .vrt, .nc, .nc4, .img, .asc, .bag, .grd,
+    .flt, .h5 or .hdf5 are used (any case), so sidecar files and IVERT's own
+    results files are skipped.
 
     Example: ivert validate mydem.tif -V navd88 -n "Oregon Coast"
 
@@ -3089,30 +3240,39 @@ def validate(
         name: option_values[name] for name in manifest_module.tracked_params(validate)
     }
 
-    _run_validate(
-        files_or_directory,
-        vdatum,
-        region_name,
-        include_photons,
-        measure_coverage,
-        band_num,
-        outlier_sd_threshold,
-        classes,
-        min_photons,
-        buildings,
-        confidence_level,
-        bathy_confidence,
-        outdir,
-        ndv=ndv,
-        export_formats=export_formats,
-        overwrite=overwrite,
-        exclude_zones=exclude_zones,
-        minimum_coverage_pct=minimum_coverage_pct,
-        minimum_coverage_pct_land=minimum_coverage_pct_land,
-        minimum_coverage_pct_bathy=minimum_coverage_pct_bathy,
-        bathy_filter_settings=bathy_filter_settings,
-        manifest_options=manifest_options,
-    )
+    from ivert.utils.dem_source import DEMSourceError
+
+    try:
+        _run_validate(
+            files_or_directory,
+            vdatum,
+            region_name,
+            include_photons,
+            measure_coverage,
+            band_num,
+            outlier_sd_threshold,
+            classes,
+            min_photons,
+            buildings,
+            confidence_level,
+            bathy_confidence,
+            outdir,
+            ndv=ndv,
+            export_formats=export_formats,
+            overwrite=overwrite,
+            exclude_zones=exclude_zones,
+            minimum_coverage_pct=minimum_coverage_pct,
+            minimum_coverage_pct_land=minimum_coverage_pct_land,
+            minimum_coverage_pct_bathy=minimum_coverage_pct_bathy,
+            bathy_filter_settings=bathy_filter_settings,
+            manifest_options=manifest_options,
+            variable=variable,
+            projection=projection,
+        )
+    except DEMSourceError as exc:
+        # Not logger.exception: the message says everything a traceback would.
+        logger.error(str(exc))  # noqa: TRY400
+        sys.exit(1)
 
 
 if __name__ == "__main__":
