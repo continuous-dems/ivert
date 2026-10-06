@@ -100,12 +100,8 @@ def configure_worker_logging(level: int) -> None:
 def _install_handler(level: int) -> None:
     """Install a stderr handler at the given level, replacing any existing handlers.
 
-    Rebuilding the handler matters in a sub-process launched through
-    :class:`ivert.utils.loggerproc.LoggerProc`: that class reassigns ``sys.stdout`` and
-    ``sys.stderr`` to a file-backed logger *before* calling its target. A StreamHandler
-    binds whatever ``sys.stderr`` refers to at the moment it is constructed, so building
-    the handler here -- after the redirect, and discarding any handler built before it --
-    is what keeps job output flowing into the logfile rather than to the real terminal.
+    A StreamHandler binds whatever ``sys.stderr`` refers to when it is constructed, so
+    a new one is built on each call and any handler installed before it is discarded.
     """
     handler = logging.StreamHandler()
     handler.setFormatter(LevelPrefixFormatter(always_prefix=level <= logging.DEBUG))

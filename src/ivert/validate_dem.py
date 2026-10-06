@@ -38,7 +38,6 @@ import ivert.icesat2_database_v2
 import ivert.plot_validation_results
 import ivert.transform_points
 import ivert.utils.configfile
-import ivert.utils.loggerproc
 import ivert.utils.logging_config
 import ivert.utils.split_dem
 import ivert.vdatum_lookup
@@ -737,17 +736,7 @@ def validate_dem(
         "log_level": logging.getLogger().getEffectiveLevel(),
     }
 
-    # If we're in this from a logged process, make sure the children are logged processes as well.
-    if isinstance(sys.stdout, ivert.utils.loggerproc.Logger):
-        subproc = ivert.utils.loggerproc.LoggerProc(
-            target=validate_dem_parallel,
-            filename_out=sys.stdout.filename_out,
-            output_to_terminal=sys.stdout.output_to_terminal,
-            args=args,
-            kwargs=kwargs,
-        )
-    else:
-        subproc = mp.Process(target=validate_dem_parallel, args=args, kwargs=kwargs)
+    subproc = mp.Process(target=validate_dem_parallel, args=args, kwargs=kwargs)
 
     subproc.start()
     subproc.join(timeout=None)

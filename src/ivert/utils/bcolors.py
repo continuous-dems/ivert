@@ -6,9 +6,8 @@ processing to be enabled on the console, which is off by default; colorama's
 ``just_fix_windows_console()`` turns it on for modern Windows terminals
 (Windows 10+ / Windows Terminal) and is a harmless no-op on other platforms.
 
-That call only sets the console-mode flag -- it does not wrap or replace
-``sys.stdout`` -- so it does not interfere with the stdout redirection in
-``loggerproc.Logger`` (which strips these codes when writing to log files).
+That call only sets the console-mode flag; it does not wrap or replace
+``sys.stdout``.
 
 colorama is a hard dependency on Windows (pulled in via click) and is not needed
 on Linux/macOS, so a missing import there is fine and simply left as a no-op.
