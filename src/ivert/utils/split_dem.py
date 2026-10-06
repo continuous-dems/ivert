@@ -96,6 +96,9 @@ def split(
                     )
                     with rasterio.open(fn_out, "w", **profile) as dst:
                         dst.write(src.read(window=window))
+                        # Keep packed (scaled/offset) values decodable in the pieces.
+                        dst.scales = src.scales
+                        dst.offsets = src.offsets
 
                     if os.path.exists(fn_out):
                         logger.info("%s written.", fn_out)

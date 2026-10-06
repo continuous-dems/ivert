@@ -2919,7 +2919,8 @@ def _run_validate(
         "Accepts a number (e.g. -9999) or 'nan' for IEEE floating-point NaN. "
         "Overrides any no-data value in the DEM file header. "
         "If not set, the header value for the band being validated is used, "
-        "falling back to the config default (dem_default_ndv)."
+        "falling back to the config default (dem_default_ndv). For packed "
+        "(scale/offset) DEMs, give the value as stored in the file."
     ),
 )
 @click.option(

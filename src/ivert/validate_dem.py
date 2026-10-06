@@ -1350,6 +1350,27 @@ def _band_nodata(dem_ds, band_num, user_ndv=None, default_ndv=None):
     return default_ndv if band_ndv is None else band_ndv
 
 
+def _unpack_elevations(stored_values, dem_ds, band_num):
+    """Apply the band's scale and offset to stored DEM values, if it has any.
+
+    Packed integer DEMs (common in NetCDF, via scale_factor/add_offset) store
+    elevation = stored * scale + offset. GDAL reports those, but reading the band
+    returns the stored integers.
+    """
+    scale = dem_ds.scales[band_num - 1]
+    offset = dem_ds.offsets[band_num - 1]
+    if scale == 1 and offset == 0:
+        return stored_values
+    logger.info(
+        "Unpacking %s band %d: elevation = stored value * %s + %s.",
+        os.path.basename(dem_ds.name),
+        band_num,
+        scale,
+        offset,
+    )
+    return stored_values.astype(np.float64) * scale + offset
+
+
 def _compute_photon_overlap(
     dem_ds,
     dem_array,
@@ -1366,9 +1387,10 @@ def _compute_photon_overlap(
 ):
     """Transform photon coordinates into DEM space and compute cell-level overlap.
 
-    'dem_array' holds band 'band_num' as stored in the file, and its nodata value is
-    that band's. 'user_ndv' is compared against the stored values, like the file's own
-    nodata value.
+    'dem_array' holds band 'band_num' as stored in the file. Its nodata value is that
+    band's, and any scale/offset the band carries (packed integers, as in many NetCDF
+    DEMs) is applied to the elevations returned. 'user_ndv' is compared against the
+    stored values, like the file's own nodata value.
 
     Photons whose class_code is not in 'classes' are dropped here, so every array
     handed downstream (height_field, the shared-memory arrays given to the child
@@ -1455,7 +1477,11 @@ def _compute_photon_overlap(
 
     dem_overlap_mask = dem_goodpixel_mask & dem_mask_w_photons
     dem_overlap_i, dem_overlap_j = np.where(dem_overlap_mask)
-    dem_overlap_elevs = dem_array[dem_overlap_mask]
+    dem_overlap_elevs = _unpack_elevations(
+        dem_array[dem_overlap_mask],
+        dem_ds,
+        band_num,
+    )
 
     num_goodpixels = np.count_nonzero(dem_goodpixel_mask)
     if num_goodpixels == 0:
