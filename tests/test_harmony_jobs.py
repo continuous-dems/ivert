@@ -88,3 +88,11 @@ def test_a_refused_submission_fails_the_part(db):
     assert summary.parts_failed == 1
     assert _FakeFetchezIceSat2.runs == []
     assert _FakeRequestsCSV.records == []
+
+
+def test_fetchez_does_not_answer_from_its_cache(db):
+    """The fetchez cache keys links without the job ID, so a new job got an old job's links."""
+    db.download_new_granules(BBOX)
+
+    assert [m.get("use_cache") for m in _FakeFetchezIceSat2.built_with] == [False]
+    assert _FakeFetchezIceSat2.runs == ["job-new"]

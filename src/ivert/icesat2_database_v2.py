@@ -2077,6 +2077,9 @@ class IS2Database:
                 time_end,
             )
             src_region = fetchez.spatial.parse_region(region_str)[0]
+            # requests.csv decides which Harmony job this part uses. fetchez's own
+            # cache of a module's results is keyed without the job ID, so it would
+            # hand back the links of whichever job ran first for this box.
             mod = _FetchezIceSat2(
                 src_region=src_region,
                 outdir=cache_dir,
@@ -2084,6 +2087,7 @@ class IS2Database:
                 version=atl_version,
                 time_start=time_start,
                 time_end=time_end,
+                use_cache=False,
             )
 
             # Check for a cached Harmony job for this bbox before submitting.
