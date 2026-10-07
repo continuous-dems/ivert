@@ -1,7 +1,6 @@
 """Quick utility for splitting a large DEM into sub-segments to ease processing constraints."""
 
 import glob
-import itertools
 import logging
 import os
 
@@ -63,8 +62,6 @@ def split(
 
             for xi, xb in zip(range(factor), x_steps, strict=True):
                 for yj, yb in zip(range(factor), y_steps, strict=True):
-                    assert len(xb) == 2
-                    assert len(yb) == 2
                     fn_out = os.path.join(
                         output_dir,
                         f"{dem_source.dem_base_name(fname)}_{yj}.{xi}.tif",
@@ -72,6 +69,7 @@ def split(
 
                     if os.path.exists(fn_out):
                         logger.info("%s already exists.", fn_out)
+                        outfiles.append(fn_out)
                         continue
 
                     window = rasterio.windows.Window(
@@ -103,7 +101,8 @@ def split(
                     if os.path.exists(fn_out):
                         logger.info("%s written.", fn_out)
                         outfiles.append(fn_out)
-                    logger.error("%s failed.", fn_out)
+                    else:
+                        logger.error("%s failed.", fn_out)
 
     return outfiles
 
@@ -115,21 +114,17 @@ def evenly_split(n: int, factor: int) -> list:
 
     Returns the starting and ending index of each sub-segment.
     """
-    batches_all = list(itertools.batched(range(n), n // factor))
-    if len(batches_all) == factor:
-        batches = [(b[0], b[-1]) for b in batches_all]
-    else:
-        assert len(batches_all) == (factor + 1)
-        batches = [(b[0], b[-1]) for b in batches_all[:-1]]
-        extras = batches_all[-1]
-        assert len(extras) < len(batches)
+    if n < factor:
+        msg = f"Cannot split {n} indices into {factor} pieces."
+        raise ValueError(msg)
 
-        m = len(extras)
-        for i in range(m):
-            j = -(i + 1)
-            batches[j] = (batches[j][0] + (m + j), batches[j][1] + (m + j + 1))
-
-        assert len(batches) == factor
+    base, extra = divmod(n, factor)
+    batches = []
+    start = 0
+    for i in range(factor):
+        size = base + (1 if i >= factor - extra else 0)
+        batches.append((start, start + size - 1))
+        start += size
 
     return batches
 
