@@ -2137,6 +2137,16 @@ class IS2Database:
                         harmony_status,
                         atl_version=atl_version,
                     )
+                else:
+                    # Without a job ID, mod.run() would submit a job of its own, which
+                    # requests.csv would never record. Leave this part for a rerun.
+                    logger.warning(
+                        "Harmony did not accept the request for bbox %s. Skipping for now. "
+                        "You may re-run the command later to try again.",
+                        sbbox,
+                    )
+                    parts_failed += 1
+                    continue
 
             mod.run()
 

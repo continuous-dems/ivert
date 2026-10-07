@@ -17,6 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - `ivert validate` writes its results to the `ivert_results_subdir` setting when it is set in the user config (#151). It read the packaged default instead, so `ivert options set ivert_results_subdir ...` had no effect on where results went; `-o/--outdir` was unaffected.
 - A DEM that `validate_dem()` splits into pieces after running out of memory is split correctly when an earlier run left some of the pieces behind (#151). Those pieces were reused but not returned, so the run stopped with an `AssertionError`. Each piece also no longer logs an error saying it failed after it was written, and `split_dem.evenly_split()` no longer fails for sizes, such as 11 into 4, that leave more than one remainder.
+- When Harmony refuses `ivert database download`'s request for a part, that part is counted as failed and left for a rerun (#152). Before, fetchez went on to submit a job of its own, which IVERT did not record in its Harmony requests file, so a later run could not reuse it.
 - `packaging` and `pyogrio` are now declared as dependencies (#147). IVERT imports both directly, `packaging` to compare the IVERT version recorded in a run manifest and `pyogrio` to read landmask tiles, but they were only installed because other dependencies pull them in, so a change in one of those could have left `ivert validate` failing with `ModuleNotFoundError`.
 
 ## [0.7.0] - 2026-10-06
