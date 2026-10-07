@@ -21,6 +21,7 @@ if "NUMEXPR_MAX_THREADS" not in os.environ:
 import click
 
 from ivert import __version__ as ivert_version
+from ivert.utils.paths import absolute_path
 
 logger = logging.getLogger(__name__)
 
@@ -55,8 +56,8 @@ def ivert_cli(user_config, verbosity):
     Run 'ivert <command> --help' for detailed help on any command.
     """
     if user_config:
-        os.environ["IVERT_USER_CONFIG"] = os.path.abspath(
-            os.path.expanduser(user_config),
+        os.environ["IVERT_USER_CONFIG"] = str(
+            absolute_path(Path(user_config).expanduser()),
         )
 
     from ivert.utils import logging_config
@@ -94,7 +95,7 @@ _EARTHDATA_MACHINE = "urs.earthdata.nasa.gov"
 
 def _netrc_path():
     """Return the path to the user's .netrc file."""
-    return os.path.join(os.path.expanduser("~"), ".netrc")
+    return Path.home() / ".netrc"
 
 
 def _has_earthdata_credentials(netrc_path, machine=_EARTHDATA_MACHINE):
@@ -104,11 +105,12 @@ def _has_earthdata_credentials(netrc_path, machine=_EARTHDATA_MACHINE):
     module, which raises on files that are group/world-readable and does not
     tolerate some entries that are otherwise valid for our purposes.
     """
-    if not os.path.exists(netrc_path):
+    netrc_path = Path(netrc_path)
+    if not netrc_path.exists():
         return False
 
     try:
-        with open(netrc_path, encoding="utf-8") as f:
+        with netrc_path.open(encoding="utf-8") as f:
             tokens = f.read().split()
     except OSError:
         return False
@@ -149,20 +151,21 @@ def _append_earthdata_credentials(
     Existing content is preserved (the file is opened in append mode). The file
     permissions are tightened to owner-only, as .netrc requires.
     """
+    netrc_path = Path(netrc_path)
     prefix = ""
-    if os.path.exists(netrc_path):
-        with open(netrc_path, encoding="utf-8") as f:
+    if netrc_path.exists():
+        with netrc_path.open(encoding="utf-8") as f:
             existing = f.read()
         if existing and not existing.endswith("\n"):
             prefix = "\n"
 
     entry = f"machine {machine}\n    login {username}\n    password {password}\n"
-    with open(netrc_path, "a", encoding="utf-8") as f:
+    with netrc_path.open("a", encoding="utf-8") as f:
         f.write(prefix + entry)
 
     # .netrc must be readable only by its owner or tools (and netrc parsers) reject it.
     with contextlib.suppress(OSError):
-        Path(netrc_path).chmod(0o600)
+        netrc_path.chmod(0o600)
 
 
 def _stdin_is_interactive():
@@ -234,7 +237,7 @@ def _setup_earthdata_credentials(announce_if_present=True, prompt_note=None):
         )
         return False
 
-    if os.path.exists(netrc_path):
+    if netrc_path.exists():
         click.echo(f"No NASA Earthdata credentials were found in {netrc_path}.")
     else:
         click.echo(
@@ -335,7 +338,8 @@ def setup():
         )
         if not path:
             continue
-        dirs.append(path if key.endswith("_directory") else os.path.dirname(path))
+        path = Path(path)
+        dirs.append(path if key.endswith("_directory") else path.parent)
 
     # Dedupe while preserving order.
     unique_dirs = []
@@ -347,8 +351,8 @@ def setup():
 
     click.echo("Setting up IVERT data directories...")
     for d in unique_dirs:
-        existed = os.path.isdir(d)
-        os.makedirs(d, exist_ok=True)
+        existed = d.is_dir()
+        d.mkdir(parents=True, exist_ok=True)
         status = "exists" if existed else "created"
         click.echo(f"  [{status}] {d}")
 
@@ -551,9 +555,9 @@ def _options_set_values(assignments, assume_yes=False):
             raise click.UsageError(msg)
         parsed.append((key, value))
 
-    user_path = config.user_config_path
+    user_path = Path(config.user_config_path)
     user_config = _cp.ConfigParser()
-    if os.path.exists(user_path):
+    if user_path.exists():
         try:
             user_config.read(user_path)
         except _cp.Error as e:
@@ -590,8 +594,8 @@ def _options_set_values(assignments, assume_yes=False):
         if copied:
             click.echo(f"  Updated: {', '.join(copied)}")
 
-    os.makedirs(os.path.dirname(user_path), exist_ok=True)
-    with open(user_path, "w", encoding="utf-8") as f:
+    user_path.parent.mkdir(parents=True, exist_ok=True)
+    with user_path.open("w", encoding="utf-8") as f:
         user_config.write(f)
 
     click.echo(f"\nSaved to {user_path}")
@@ -721,7 +725,7 @@ def options_reset(yes):
     config = Config()
     user_path = config.user_config_path
 
-    if not user_path or not os.path.exists(user_path):
+    if not user_path or not Path(user_path).exists():
         click.echo("No user config file found — settings are already at defaults.")
         return
 
@@ -731,7 +735,7 @@ def options_reset(yes):
             abort=True,
         )
 
-    os.remove(user_path)
+    Path(user_path).unlink()
     click.echo(f"Deleted {user_path}. All settings reset to IVERT defaults.")
 
 
@@ -872,19 +876,17 @@ def database_delete(delete_all, yes):
     db = is2db_mod.IS2Database()
 
     # Collect what will actually be deleted before touching anything.
-    index_files = [f for f in (db.db_fname,) if os.path.exists(f)]
+    index_files = [f for f in (Path(db.db_fname),) if f.exists()]
 
+    granules_dir = Path(db.granules_dir)
     nc_files = []
-    if delete_all and os.path.isdir(db.granules_dir):
+    if delete_all and granules_dir.is_dir():
         # The index is itself a .nc file in granules_dir; don't list it twice.
-        index_realpaths = {os.path.realpath(f) for f in index_files}
+        index_realpaths = {f.resolve() for f in index_files}
         nc_files = sorted(
             fpath
-            for fpath in (
-                os.path.join(db.granules_dir, fn) for fn in os.listdir(db.granules_dir)
-            )
-            if os.path.splitext(fpath)[-1].lower() == ".nc"
-            and os.path.realpath(fpath) not in index_realpaths
+            for fpath in granules_dir.iterdir()
+            if fpath.suffix.lower() == ".nc" and fpath.resolve() not in index_realpaths
         )
 
     all_files = index_files + nc_files
@@ -893,23 +895,23 @@ def database_delete(delete_all, yes):
         click.echo("Nothing to delete — no database files found.")
         return
 
-    total_bytes = sum(os.path.getsize(f) for f in all_files)
+    total_bytes = sum(f.stat().st_size for f in all_files)
     click.echo(
         f"\n  {len(all_files)} file(s) totaling {sizeof_fmt(total_bytes)} will be deleted:",
     )
     for fpath in all_files:
-        click.echo(f"    {fpath}  ({sizeof_fmt(os.path.getsize(fpath))})")
+        click.echo(f"    {fpath}  ({sizeof_fmt(fpath.stat().st_size)})")
 
     if not yes:
         click.confirm("\nDelete these files?", default=False, abort=True)
 
     for fpath in index_files:
-        os.remove(fpath)
+        fpath.unlink()
         click.echo(f"Deleted {fpath}")
 
     if nc_files:
         for fpath in nc_files:
-            os.remove(fpath)
+            fpath.unlink()
         click.echo(
             f"Deleted {len(nc_files)} .nc granule file(s) from {db.granules_dir}",
         )
@@ -928,29 +930,28 @@ def database_size():
     rows = []
 
     # NetCDF index
-    if os.path.exists(db.db_fname):
+    index_path = Path(db.db_fname)
+    if index_path.exists():
         rows.append(
-            ("index", 1, sizeof_fmt(os.path.getsize(db.db_fname)), db.db_fname),
+            ("index", 1, sizeof_fmt(index_path.stat().st_size), db.db_fname),
         )
     else:
         rows.append(("index", 0, "—", db.db_fname))
 
     # .nc granule files (the index is also a .nc file in granules_dir)
-    index_realpath = os.path.realpath(db.db_fname)
+    index_realpath = index_path.resolve()
+    granules_dir = Path(db.granules_dir)
     nc_files = (
         [
             fpath
-            for fpath in (
-                os.path.join(db.granules_dir, fn) for fn in os.listdir(db.granules_dir)
-            )
-            if os.path.splitext(fpath)[-1].lower() == ".nc"
-            and os.path.realpath(fpath) != index_realpath
+            for fpath in granules_dir.iterdir()
+            if fpath.suffix.lower() == ".nc" and fpath.resolve() != index_realpath
         ]
-        if os.path.isdir(db.granules_dir)
+        if granules_dir.is_dir()
         else []
     )
     nc_count = len(nc_files)
-    nc_bytes = sum(os.path.getsize(f) for f in nc_files) if nc_files else 0
+    nc_bytes = sum(f.stat().st_size for f in nc_files) if nc_files else 0
     rows.append(
         (
             ".nc granules",
@@ -1190,11 +1191,12 @@ def database_download(
         # Treat tokens as file paths (glob-expand them).
         expanded = []
         for token in bbox_or_files:
+            # A user-supplied pattern, possibly absolute, which Path.glob rejects.
             matches = glob.glob(token)
             expanded.extend(matches or [token])
 
         missing = [
-            f for f in expanded if not os.path.exists(dem_source.dem_file_path(f))
+            f for f in expanded if not Path(dem_source.dem_file_path(f)).exists()
         ]
         if missing:
             raise click.ClickException(
@@ -1375,7 +1377,7 @@ def _region_from_file(path, variable=None, projection_horz=None):
     'projection_horz' (the horizontal part of -p/--projection) sets or overrides its
     CRS, as 'ivert validate' does. Both are ignored for vector files.
     """
-    ext = os.path.splitext(path)[1].lower()
+    ext = Path(path).suffix.lower()
     if ext in _REGION_VECTOR_EXTENSIONS:
         return _region_from_vector_file(path)
 
@@ -1485,12 +1487,12 @@ def _resolve_export_target(tokens, projection, wsen):
         raise click.ClickException(msg)
 
     path = tokens[0]
-    if not os.path.exists(path):
+    if not Path(path).exists():
         msg = f"'{path}' is neither a valid 4-value bounding box nor an existing file."
         raise click.ClickException(msg)
 
     # An IVERT .nc file is exported directly; which kind it is comes from its contents.
-    if os.path.splitext(path)[1].lower() == ".nc":
+    if Path(path).suffix.lower() == ".nc":
         from ivert import export_vector as ev
 
         kind = ev.detect_nc_kind(path)
@@ -1548,7 +1550,7 @@ def _export_database_index(index_path, fmt_keys, output, overwrite, filters_give
         msg = f"The database index is empty: {index_path}"
         raise click.ClickException(msg)
 
-    out_base = output or os.path.join(os.getcwd(), "ivert_database_index")
+    out_base = output or str(Path.cwd() / "ivert_database_index")
     written = ev.write_vector_multi(
         gdf,
         out_base,
@@ -1575,13 +1577,10 @@ def _export_single_granule(
         gdf = ev.subset_gdf_to_date_range(gdf, *delta_time_range)
 
     if len(gdf) == 0:
-        msg = f"No photons left to export from {os.path.basename(nc_path)} after filtering."
+        msg = f"No photons left to export from {Path(nc_path).name} after filtering."
         raise click.ClickException(msg)
 
-    out_base = output or os.path.join(
-        os.getcwd(),
-        os.path.splitext(os.path.basename(nc_path))[0],
-    )
+    out_base = output or str(Path.cwd() / Path(nc_path).stem)
     written = ev.write_vector_multi(gdf, out_base, fmt_keys, overwrite=overwrite)
     _echo_export_summary(written, len(gdf), "photons")
 
@@ -1850,8 +1849,8 @@ def database_convert(
 
     gdfs = []
     for i, (_, row) in enumerate(granule_rows.iterrows(), start=1):
-        fpath = os.path.join(db.granules_dir, row["filename"])
-        if not os.path.exists(fpath):
+        fpath = Path(db.granules_dir) / row["filename"]
+        if not fpath.exists():
             click.echo(f"  Skipping missing granule file: {row['filename']}", err=True)
             continue
 
@@ -1884,7 +1883,7 @@ def database_convert(
     )
 
     # --- Write the requested format(s). ---
-    out_base = output or os.path.join(os.getcwd(), "ivert_photons")
+    out_base = output or str(Path.cwd() / "ivert_photons")
     written = ev.write_vector_multi(merged, out_base, fmt_keys, overwrite=overwrite)
     _echo_export_summary(written, len(merged), "photons")
 
@@ -2068,13 +2067,15 @@ def database_dump(
         f"ivert_database_{datetime.datetime.now(datetime.UTC).strftime('%Y%m%d')}.zip"
     )
     if output is None:
-        output = os.path.join(os.getcwd(), default_name)
-    elif os.path.isdir(output):
-        output = os.path.join(output, default_name)
-    elif not os.path.splitext(output)[1]:
-        output += ".zip"
-    output = os.path.abspath(output)
-    if os.path.exists(output) and not overwrite:
+        output = Path.cwd() / default_name
+    else:
+        output = Path(output)
+        if output.is_dir():
+            output /= default_name
+        elif not output.suffix:
+            output = output.with_name(output.name + ".zip")
+    output = absolute_path(output)
+    if output.exists() and not overwrite:
         msg = f"{output} already exists. Use -ow/--overwrite to replace it."
         raise click.ClickException(msg)
 
@@ -2092,12 +2093,12 @@ def database_dump(
                 raise click.Abort
 
     try:
-        result = database_archive.dump(output, rects, date_range, db=db)
+        result = database_archive.dump(str(output), rects, date_range, db=db)
     except database_archive.ArchiveError as exc:
         raise click.ClickException(str(exc)) from exc
 
     logger.info("%s", result.summary)
-    size_mb = os.path.getsize(result.path) / 1e6
+    size_mb = Path(result.path).stat().st_size / 1e6
     click.echo(f"Wrote {result.path} ({size_mb:,.1f} MB).")
 
 
@@ -2208,7 +2209,7 @@ def database_restore(archive, on_overlap, dry_run):
         )
     parts.append(f"{result.landmasks_added:,} landmask tiles added")
     click.echo(
-        f"Restored {os.path.basename(archive)} ({mode}): {'; '.join(parts)}. "
+        f"Restored {Path(archive).name} ({mode}): {'; '.join(parts)}. "
         f"The database index now lists {result.n_index_records:,} granule files.",
     )
 
@@ -2222,7 +2223,7 @@ def _cache_dir():
     """Return the configured cache directory path."""
     from ivert.utils.configfile import Config
 
-    return Config().cache_directory
+    return Path(Config().cache_directory)
 
 
 def _fmt_size(nbytes):
@@ -2251,21 +2252,21 @@ def cache_list():
     import tabulate as tabulate_mod
 
     cache_dir = _cache_dir()
-    if not os.path.isdir(cache_dir):
+    if not cache_dir.is_dir():
         click.echo(f"Cache directory does not exist: {cache_dir}")
         return
 
     # Collect per-top-level-subdir stats, plus a bucket for loose root files.
     subdir_stats = {}  # name -> [file_count, total_bytes]
-    for entry in sorted(os.scandir(cache_dir), key=lambda e: e.name):
-        if entry.is_dir(follow_symlinks=False):
+    for entry in sorted(cache_dir.iterdir(), key=lambda e: e.name):
+        if entry.is_dir() and not entry.is_symlink():
             count, size = 0, 0
-            for dirpath, _, filenames in os.walk(entry.path):
+            for dirpath, _, filenames in entry.walk():
                 for fn in filenames:
                     count += 1
-                    size += os.path.getsize(os.path.join(dirpath, fn))
+                    size += (dirpath / fn).stat().st_size
             subdir_stats[entry.name] = [count, size]
-        elif entry.is_file(follow_symlinks=False):
+        elif entry.is_file() and not entry.is_symlink():
             subdir_stats.setdefault("(root)", [0, 0])
             subdir_stats["(root)"][0] += 1
             subdir_stats["(root)"][1] += entry.stat().st_size
@@ -2308,7 +2309,7 @@ def cache_delete(force):
     import shutil
 
     cache_dir = _cache_dir()
-    if not os.path.isdir(cache_dir):
+    if not cache_dir.is_dir():
         click.echo(f"Cache directory does not exist: {cache_dir}")
         return
 
@@ -2316,13 +2317,13 @@ def cache_delete(force):
         click.confirm(f"Delete all contents of {cache_dir}?", abort=True)
 
     deleted_files, deleted_dirs = 0, 0
-    for entry in os.scandir(cache_dir):
-        if entry.is_dir(follow_symlinks=False):
-            deleted_files += sum(len(files) for _, _, files in os.walk(entry.path))
-            shutil.rmtree(entry.path)
+    for entry in cache_dir.iterdir():
+        if entry.is_dir() and not entry.is_symlink():
+            deleted_files += sum(len(files) for _, _, files in entry.walk())
+            shutil.rmtree(entry)
             deleted_dirs += 1
         else:
-            os.remove(entry.path)
+            entry.unlink()
             deleted_files += 1
 
     click.echo(
@@ -2362,13 +2363,13 @@ def _parse_exclude_spec(value, wsen=False):
                 minx, maxx, miny, maxy = nums
             return (minx, miny, maxx, maxy)
 
-    if not os.path.exists(value):
+    if not Path(value).exists():
         msg = (
             f"Invalid --exclude value '{value}': not a 4-value bounding box "
             "and not an existing file path."
         )
         raise click.ClickException(msg)
-    ext = os.path.splitext(value)[1].lower()
+    ext = Path(value).suffix.lower()
     if ext not in _EXCLUDE_VECTOR_EXTENSIONS:
         msg = (
             f"Invalid --exclude file '{value}': expected one of "
@@ -2422,7 +2423,7 @@ def _write_run_manifest(path, options, inputs, outdir, num_reused=0, num_dems=1)
     """
     from ivert import manifest as manifest_module
 
-    if num_reused and os.path.exists(path):
+    if num_reused and Path(path).exists():
         old_options = manifest_module.read_manifest_options(path)
         new_options = {k: manifest_module.format_value(v) for k, v in options.items()}
         if old_options is not None and old_options != new_options:
@@ -2443,8 +2444,8 @@ def _write_run_manifest(path, options, inputs, outdir, num_reused=0, num_dems=1)
 
     run_info = {
         "command": shlex.join(["ivert", *sys.argv[1:]]),
-        "inputs": [os.path.abspath(f) for f in inputs],
-        "outdir": os.path.abspath(outdir),
+        "inputs": [str(absolute_path(f)) for f in inputs],
+        "outdir": str(absolute_path(outdir)),
     }
     manifest_module.write_manifest(path, ivert_version, options, run_info)
     logger.info("Wrote run manifest %s", path)
@@ -2559,6 +2560,7 @@ def _run_validate(
     # Expand any glob patterns the shell left unexpanded (e.g., quoted patterns).
     expanded = []
     for f in files_or_directory:
+        # A user-supplied pattern, possibly absolute, which Path.glob rejects.
         matches = glob.glob(f)
         expanded.extend(matches or [f])
 
@@ -2611,7 +2613,7 @@ def _run_validate(
 
     from ivert.utils import dem_source
 
-    if len(expanded) == 1 and os.path.isfile(dem_source.dem_file_path(expanded[0])):
+    if len(expanded) == 1 and Path(dem_source.dem_file_path(expanded[0])).is_file():
         # A multi-variable file (e.g. NetCDF) becomes the subdataset string of the
         # variable to validate. Raises DEMVariableError if there isn't one, and
         # DEMNotGeoreferencedError if GDAL finds no geotransform for it.
@@ -2619,10 +2621,9 @@ def _run_validate(
         dem_source.check_georeferenced(dem_name)
         # validate_dem uses output_dir as-is, so resolve any relative path against
         # the DEM's own directory rather than the current working directory.
-        if not os.path.isabs(outdir):
-            single_outdir = os.path.join(
-                os.path.dirname(os.path.abspath(dem_source.dem_file_path(dem_name))),
-                outdir,
+        if not Path(outdir).is_absolute():
+            single_outdir = str(
+                absolute_path(dem_source.dem_file_path(dem_name)).parent / outdir,
             )
         else:
             single_outdir = outdir
@@ -2669,18 +2670,14 @@ def _run_validate(
         vd_module.validate_dem(**kwargs)
     else:
         dem_input = expanded[0] if len(expanded) == 1 else expanded
-        if not os.path.isabs(outdir):
+        if not Path(outdir).is_absolute():
             if isinstance(dem_input, list):
-                dem_dir = os.path.dirname(
-                    os.path.abspath(dem_source.dem_file_path(dem_input[0])),
-                )
-            elif os.path.isdir(dem_input):
-                dem_dir = os.path.abspath(dem_input)
+                dem_dir = absolute_path(dem_source.dem_file_path(dem_input[0])).parent
+            elif Path(dem_input).is_dir():
+                dem_dir = absolute_path(dem_input)
             else:
-                dem_dir = os.path.dirname(
-                    os.path.abspath(dem_source.dem_file_path(dem_input)),
-                )
-            multi_outdir = os.path.join(dem_dir, outdir)
+                dem_dir = absolute_path(dem_source.dem_file_path(dem_input)).parent
+            multi_outdir = str(dem_dir / outdir)
         else:
             multi_outdir = outdir
         kwargs = {
@@ -3195,7 +3192,7 @@ def validate(
     )
     # Record exclusion files by absolute path so the manifest works from anywhere.
     option_values["exclude"] = tuple(
-        os.path.abspath(zone) if isinstance(zone, str) else value
+        str(absolute_path(zone)) if isinstance(zone, str) else value
         for value, zone in zip(exclude, exclude_zones or [], strict=True)
     )
 
@@ -3215,8 +3212,9 @@ def validate(
         )
     except ValueError as exc:
         raise click.UsageError(str(exc)) from exc
-    if bathy_filter_settings.ref_raster and not os.path.isfile(
-        bathy_filter_settings.ref_raster,
+    if (
+        bathy_filter_settings.ref_raster
+        and not Path(bathy_filter_settings.ref_raster).is_file()
     ):
         msg = (
             f"Bathymetry reference raster not found: {bathy_filter_settings.ref_raster}"
