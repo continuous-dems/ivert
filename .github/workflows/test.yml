@@ -14,38 +14,19 @@ concurrency:
 
 jobs:
   test:
-    name: "pytest (Python ${{ matrix.python-version }})"
+    name: "pytest (Python ${{ matrix.python-version }}, ${{ matrix.resolution }} dependencies)"
     runs-on: "ubuntu-latest"
     strategy:
       fail-fast: false
       matrix:
         python-version: ["3.12", "3.14"]
-
-    steps:
-      - name: "Checkout code"
-        uses: "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1"  # v7.0.1
-        with:
-          persist-credentials: false
-
-      - name: "Set up Python"
-        uses: "actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97"  # v7.0.0
-        with:
-          python-version: "${{ matrix.python-version }}"
-          cache: "pip"
-
-      - name: "Install IVERT and its test dependencies"
-        run: |
-          python -m pip install --upgrade pip  # --group needs pip >= 25.1
-          pip install --group test -e .
-
-      - name: "Run the test suite"
-        run: "pytest -v --cov=ivert --cov-report=term-missing"
-
-  # Installs each dependency at the lowest version pyproject.toml allows, so the
-  # suite fails if IVERT starts using something newer than a stated minimum.
-  test-minimum:
-    name: "pytest (minimum dependency versions, Python 3.12)"
-    runs-on: "ubuntu-latest"
+        resolution: ["highest"]
+        # Also install each dependency at the lowest version pyproject.toml
+        # allows, so the suite fails if IVERT starts using something newer
+        # than a stated minimum.
+        include:
+          - python-version: "3.12"
+            resolution: "lowest-direct"
 
     steps:
       - name: "Checkout code"
@@ -56,14 +37,16 @@ jobs:
       - name: "Set up uv and Python"
         uses: "astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7"  # v10.2.0
         with:
-          python-version: "3.12"
+          python-version: "${{ matrix.python-version }}"
           activate-environment: "true"
 
-      - name: "Install IVERT at its minimum dependency versions"
+      - name: "Install IVERT and its test dependencies"
+        env:
+          RESOLUTION: "${{ matrix.resolution }}"
         run: |
-          uv pip install --resolution lowest-direct -e .
-          uv pip install --group test  # pytest itself at its latest version
+          uv pip install --resolution "$RESOLUTION" -e .
+          uv pip install --group test
           uv pip list
 
       - name: "Run the test suite"
-        run: "pytest -v"
+        run: "pytest -v --cov=ivert --cov-report=term-missing"

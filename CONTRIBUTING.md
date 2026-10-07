@@ -113,9 +113,10 @@ the same `pytest` you do. There is no separate `pytest.ini` or `tox.ini`.
 ### Minimum dependency versions
 
 Every dependency in `pyproject.toml` has a minimum version, and CI checks it.
-Besides the usual runs on the newest versions, a `test-minimum` job installs
-each dependency at the lowest version `pyproject.toml` allows (with uv's
-`--resolution lowest-direct`) and runs the suite on Python 3.12. If it fails
+Besides the usual runs on the newest versions, the `test.yml` matrix has a
+`lowest-direct` run that installs each dependency at the lowest version
+`pyproject.toml` allows (with uv's `--resolution lowest-direct`) and runs the
+suite on Python 3.12. If it fails
 because your change uses something newer than a dependency's minimum, raise
 that minimum in `pyproject.toml` (and note it in the changelog) rather than
 working around it. To reproduce the job locally with
@@ -128,6 +129,11 @@ uv pip install --resolution lowest-direct -e .
 uv pip install --group test
 /tmp/ivert-min/bin/pytest
 ```
+
+Run this outside a conda environment, or first `unset PROJ_DATA GDAL_DATA
+GDAL_DRIVER_PATH`: conda sets those to its own PROJ and GDAL files, and the
+rasterio and pyproj wheels then fail with "proj.db ... comes from another PROJ
+installation".
 
 ### Markers
 
