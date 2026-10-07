@@ -8,7 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
-- `packaging` and `pyogrio` are now declared as dependencies (#PR). IVERT imports both directly, `packaging` to compare the IVERT version recorded in a run manifest and `pyogrio` to read landmask tiles, but they were only installed because other dependencies pull them in, so a change in one of those could have left `ivert validate` failing with `ModuleNotFoundError`.
+- `packaging` and `pyogrio` are now declared as dependencies (#147). IVERT imports both directly, `packaging` to compare the IVERT version recorded in a run manifest and `pyogrio` to read landmask tiles, but they were only installed because other dependencies pull them in, so a change in one of those could have left `ivert validate` failing with `ModuleNotFoundError`.
 
 ## [0.7.0] - 2026-10-06
 
