@@ -8,7 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- `CITATION.cff` gives IVERT's Zenodo concept DOI, [10.5281/zenodo.22132436](https://doi.org/10.5281/zenodo.22132436), so GitHub's "Cite this repository" entry and reference managers pick it up (#PR). The concept DOI always resolves to the latest archived release; Zenodo has archived each release since 0.6.10, and each also has a DOI of its own.
+- `CITATION.cff` gives IVERT's Zenodo concept DOI, [10.5281/zenodo.22132436](https://doi.org/10.5281/zenodo.22132436), so GitHub's "Cite this repository" entry and reference managers pick it up (#148). The concept DOI always resolves to the latest archived release; Zenodo has archived each release since 0.6.10, and each also has a DOI of its own.
 
 ### Fixed
 - `packaging` and `pyogrio` are now declared as dependencies (#147). IVERT imports both directly, `packaging` to compare the IVERT version recorded in a run manifest and `pyogrio` to read landmask tiles, but they were only installed because other dependencies pull them in, so a change in one of those could have left `ivert validate` failing with `ModuleNotFoundError`.
