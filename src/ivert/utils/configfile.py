@@ -11,13 +11,14 @@ import logging
 import math
 import os
 import re
+from pathlib import Path
 
 from ivert.utils import is_aws
 
 logger = logging.getLogger(__name__)
 
-ivert_default_configfile = str(
-    importlib.resources.files("ivert").joinpath("config", "ivert_defaults.ini"),
+ivert_default_configfile = Path(
+    str(importlib.resources.files("ivert").joinpath("config", "ivert_defaults.ini")),
 )
 
 # Keys whose values are intentionally kept as relative paths rather than being
@@ -56,7 +57,7 @@ def option_references(value) -> set[str]:
     return {name.strip().lower() for name in _INTERPOLATION_REF_RE.findall(value)}
 
 
-def parse_option_descriptions(configfile: str = ivert_default_configfile):
+def parse_option_descriptions(configfile: str | Path = ivert_default_configfile):
     """Extract the descriptive comments for each option in a config .ini file.
 
     configparser discards comments, so the human-readable descriptions written
@@ -73,7 +74,7 @@ def parse_option_descriptions(configfile: str = ivert_default_configfile):
     descriptions = {}
     comment_buffer = []
 
-    with open(configfile, encoding="utf-8") as f:
+    with Path(configfile).open(encoding="utf-8") as f:
         for raw_line in f:
             line = raw_line.strip()
 
@@ -106,6 +107,17 @@ def parse_option_descriptions(configfile: str = ivert_default_configfile):
     return descriptions
 
 
+def _absolute(path: str | Path) -> Path:
+    """Return 'path' as an absolute path, the way os.path.abspath does.
+
+    Relative paths are taken from the current directory, and "." and ".."
+    components are collapsed lexically. Unlike Path.resolve(), symlinks are not
+    followed, so the paths users see keep the names they wrote. pathlib has no
+    lexical normalization of its own, hence os.path.normpath.
+    """
+    return Path(os.path.normpath(Path(path).absolute()))
+
+
 def _is_absolute_path(value):
     r"""Return True if 'value' is an absolute filesystem path on any platform.
 
@@ -125,7 +137,7 @@ def _is_absolute_path(value):
 
 
 def comment_out_options(
-    configfile: str,
+    configfile: str | Path,
     keys,
     reason: str = "unrecognized setting name.",
 ) -> list[str]:
@@ -146,7 +158,8 @@ def comment_out_options(
     if not keys:
         return []
 
-    with open(configfile, encoding="utf-8") as f:
+    configfile = Path(configfile)
+    with configfile.open(encoding="utf-8") as f:
         lines = f.readlines()
 
     today = datetime.datetime.now().astimezone().strftime("%Y-%m-%d")
@@ -182,7 +195,7 @@ def comment_out_options(
         new_lines.append(line)
 
     if commented_out:
-        with open(configfile, "w", encoding="utf-8") as f:
+        with configfile.open("w", encoding="utf-8") as f:
             f.writelines(new_lines)
 
     return commented_out
@@ -219,10 +232,10 @@ class Config:
 
     def __init__(
         self,
-        configfile: str = ivert_default_configfile,
+        configfile: str | Path = ivert_default_configfile,
     ) -> None:
         """Initialize a new instance of the Config class."""
-        self._configfile = os.path.abspath(os.path.realpath(configfile))
+        self._configfile = Path(configfile).resolve()
         self._config = configparser.ConfigParser()
         self.is_aws = is_aws.is_aws()
         self._user_set_keys = set()
@@ -231,7 +244,7 @@ class Config:
         # read it through the 'path_options' property.
         self._path_keys: dict = {}
 
-        if not os.path.exists(configfile):
+        if not Path(configfile).exists():
             msg = f"Configfile {configfile} not found."
             raise FileNotFoundError(msg)
 
@@ -243,9 +256,7 @@ class Config:
         self._parse_config_into_attrs()
 
         # If loading the defaults config, overlay any user-local overrides on top.
-        if os.path.basename(self._configfile) == os.path.basename(
-            ivert_default_configfile,
-        ):
+        if self._configfile.name == ivert_default_configfile.name:
             self._apply_user_config()
 
         # Everything above sets attributes freely; from here on the object is
@@ -266,22 +277,13 @@ class Config:
             raise AttributeError(msg)
         object.__setattr__(self, name, value)
 
-    def _abspath(self, path, only_if_actual_path_doesnt_exist=False):
-        """Retreive the absolute path of a file path contained in the configfile.
+    def _abspath(self, path) -> Path:
+        """Return the absolute path of a relative path written in the configfile.
 
-        In this project, absolute paths are relative to the location of the
-        configfile. In this case. join them with the path to the Config file and
-        return an absolute path rather than a relative path.
+        Relative paths in a configfile are relative to the configfile's own
+        directory, not to the current directory.
         """
-        # If we've specified to do this only if the path doesn't exist in its current location,
-        # and the path does exist in its current location (either the filename, or the parent directory),
-        # then just return the path as-is
-        if only_if_actual_path_doesnt_exist and (
-            os.path.exists(path) or os.path.exists(os.path.split(path)[0])
-        ):
-            return path
-
-        return os.path.abspath(os.path.join(os.path.dirname(self._configfile), path))
+        return _absolute(self._configfile.parent / path)
 
     @property
     def user_config_path(self):
@@ -299,11 +301,11 @@ class Config:
         """
         env_override = os.environ.get("IVERT_USER_CONFIG", "").strip()
         if env_override:
-            return os.path.abspath(os.path.expanduser(env_override))
+            return str(_absolute(Path(env_override).expanduser()))
 
         configured = getattr(self, "user_configfile", None)
         if configured:
-            return os.path.abspath(os.path.expanduser(str(configured)))
+            return str(_absolute(Path(configured).expanduser()))
 
         return None
 
@@ -411,7 +413,7 @@ class Config:
     def _apply_user_config(self):
         """If the user config file exists, overlay its values on top of the defaults."""
         user_path = self.user_config_path
-        if user_path is None or not os.path.exists(user_path):
+        if user_path is None or not Path(user_path).exists():
             return
 
         user_config = configparser.ConfigParser()
@@ -448,7 +450,7 @@ class Config:
             sections.append("AWS")
 
         saved_configfile = self._configfile
-        self._configfile = user_path
+        self._configfile = Path(user_path)
         try:
             for section in sections:
                 for k in user_config[section]:
@@ -660,25 +662,19 @@ class Config:
             # contains a path separator. Both '/' and '\' are recognized regardless of
             # platform: config files are written with forward slashes (e.g. "~/.ivert"),
             # which are valid on Windows too, so path handling must not depend on
-            # sys.platform. os.path.expanduser resolves '~' cross-platform.
+            # sys.platform. Path.expanduser resolves '~' cross-platform.
             elif ("~" in value) or ("/" in value) or ("\\" in value):
                 # If it references the home directory, expand it on the local machine.
                 if "~" in value:
-                    setattr(self, key, os.path.abspath(os.path.expanduser(value)))
+                    setattr(self, key, str(_absolute(Path(value).expanduser())))
                 # If it's already an absolute path, just use it as-is. Recognize both
                 # Unix ("/...") and Windows ("C:\...", "C:/...", or UNC "\\...") roots
                 # so shared config files resolve correctly on either platform.
                 elif _is_absolute_path(value):
-                    setattr(self, key, os.path.abspath(value))
+                    setattr(self, key, str(_absolute(value)))
                 # If it's a relative path, make it relative to the _configfile's directory.
                 else:
-                    setattr(
-                        self,
-                        key,
-                        self._abspath(
-                            os.path.join(os.path.dirname(self._configfile), value),
-                        ),
-                    )
+                    setattr(self, key, str(self._abspath(value)))
                 # Record that this option names a local path, so callers such as
                 # "ivert setup" can find them without a hard-coded list.
                 self._path_keys[key] = None
