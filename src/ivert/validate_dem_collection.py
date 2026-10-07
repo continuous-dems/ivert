@@ -2,9 +2,9 @@
 
 import datetime
 import logging
-import os
 import re
 import traceback
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -14,6 +14,7 @@ import ivert.bathy_filters
 import ivert.icesat2_database_v2
 from ivert import plot_validation_results, validate_dem
 from ivert.utils import dem_source
+from ivert.utils.paths import absolute_path
 
 logger = logging.getLogger(__name__)
 
@@ -159,9 +160,10 @@ def _is_dem_raster(fname):
 
     IVERT's own results files ('*_results.h5', '*_photons.h5') don't count.
     """
-    if fname.lower().endswith(_IVERT_OUTPUT_SUFFIXES):
+    fname = Path(fname)
+    if fname.name.lower().endswith(_IVERT_OUTPUT_SUFFIXES):
         return False
-    return os.path.splitext(fname)[1].lower() in DEM_RASTER_EXTENSIONS
+    return fname.suffix.lower() in DEM_RASTER_EXTENSIONS
 
 
 def _log_failed_dems(failed_dems, num_dems):
@@ -200,14 +202,15 @@ def _resolve_dem_list(dem_list_or_dir, fname_filter, fname_omit):
                 ", ".join(DEM_RASTER_EXTENSIONS),
                 ", ".join(skipped),
             )
-    elif os.path.isdir(path):
+    elif Path(path).is_dir():
+        # DEM names stay strings: a NetCDF variable's name is a GDAL subdataset string.
         dem_list = sorted(
-            os.path.join(path, fname)
-            for fname in os.listdir(path)
-            if _is_dem_raster(fname) and os.path.isfile(os.path.join(path, fname))
+            str(fpath)
+            for fpath in Path(path).iterdir()
+            if _is_dem_raster(fpath) and fpath.is_file()
         )
     else:
-        if not os.path.exists(dem_source.dem_file_path(path)):
+        if not Path(dem_source.dem_file_path(path)).exists():
             msg = f"{path} does not exist."
             raise FileNotFoundError(msg)
         dem_list = [path]
@@ -232,13 +235,10 @@ def _dem_output_dir(dem_path, output_dir, dem_list):
     directory, and otherwise 'output_dir' taken relative to the first DEM's directory.
     """
     if output_dir is None:
-        return os.path.dirname(dem_source.dem_file_path(dem_path))
-    if os.path.isdir(output_dir):
-        return output_dir
-    return os.path.join(
-        os.path.dirname(dem_source.dem_file_path(dem_list[0])),
-        output_dir,
-    )
+        return Path(dem_source.dem_file_path(dem_path)).parent
+    if Path(output_dir).is_dir():
+        return Path(output_dir)
+    return Path(dem_source.dem_file_path(dem_list[0])).parent / output_dir
 
 
 # Marks a DEM that failed in a collection run, so later runs skip it until -ow is given.
@@ -248,7 +248,7 @@ ERROR_MARKER_SUFFIX = "_results_ERROR.txt"
 def _error_marker_paths(dem, dem_output_dir, variable=None):
     """Return every path the error marker of this DEM (as listed) could have."""
     return [
-        os.path.join(dem_output_dir, base + ERROR_MARKER_SUFFIX)
+        Path(dem_output_dir) / (base + ERROR_MARKER_SUFFIX)
         for base in dem_source.possible_base_names(dem, variable)
     ]
 
@@ -256,7 +256,7 @@ def _error_marker_paths(dem, dem_output_dir, variable=None):
 def _existing_error_marker(dem, dem_output_dir, variable=None):
     """Return the path of this DEM's error marker, or None if it has none."""
     for path in _error_marker_paths(dem, dem_output_dir, variable):
-        if os.path.exists(path):
+        if path.exists():
             return path
     return None
 
@@ -264,7 +264,7 @@ def _existing_error_marker(dem, dem_output_dir, variable=None):
 def _absolute_dem_name(dem):
     """Return a DEM path or subdataset string with its file path made absolute."""
     file_path = dem_source.dem_file_path(dem)
-    return dem.replace(file_path, os.path.abspath(file_path), 1)
+    return dem.replace(file_path, str(absolute_path(file_path)), 1)
 
 
 def _write_error_marker(path, dem, message, traceback_text=None):
@@ -273,8 +273,7 @@ def _write_error_marker(path, dem, message, traceback_text=None):
     text = f"DEM: {_absolute_dem_name(dem)}\nFailed: {failed_at} (IVERT {ivert.__version__})\nError: {message}\n"
     if traceback_text:
         text += "\n" + traceback_text
-    with open(path, "w", encoding="utf-8") as f:
-        f.write(text)
+    Path(path).write_text(text, encoding="utf-8")
 
 
 def _failed_earlier(dem, dem_output_dir, include_photons=False, variable=None):
@@ -344,9 +343,9 @@ def dems_needing_validation(
 
 
 def validate_list_of_dems(
-    dem_list_or_dir: str | list[str],
+    dem_list_or_dir: str | Path | list[str],
     classes: list[int] | tuple[int, ...] = (1, 6, 40),
-    output_dir: str | None = None,
+    output_dir: str | Path | None = None,
     fname_filter: str | None = None,
     fname_omit: str | None = None,
     band_num: int = 1,
@@ -380,13 +379,12 @@ def validate_list_of_dems(
     with no variable given, without a default elevation variable) is logged and skipped.
     'dem_projection' is the DEMs' CRS, as in validate_dem.validate_dem().
     """
+    single_input = isinstance(dem_list_or_dir, (str, Path))
     if output_dir is None:
-        if isinstance(dem_list_or_dir, str) and os.path.isdir(dem_list_or_dir):
-            stats_and_plots_dir = dem_list_or_dir
-        elif type(dem_list_or_dir) is str:
-            stats_and_plots_dir = os.path.dirname(
-                dem_source.dem_file_path(dem_list_or_dir),
-            )
+        if single_input and Path(dem_list_or_dir).is_dir():
+            stats_and_plots_dir = Path(dem_list_or_dir)
+        elif single_input:
+            stats_and_plots_dir = Path(dem_source.dem_file_path(dem_list_or_dir)).parent
         else:
             dem_list_fitting_filter = [
                 fn
@@ -394,24 +392,23 @@ def validate_list_of_dems(
                 if (
                     (
                         (fname_filter is None)
-                        or (re.search(fname_filter, os.path.split(fn)[1]) is not None)
+                        or (re.search(fname_filter, Path(fn).name) is not None)
                     )
                     and (
                         (fname_omit is None)
-                        or (re.search(fname_omit, os.path.split(fn)[1]) is None)
+                        or (re.search(fname_omit, Path(fn).name) is None)
                     )
                 )
             ]
-            stats_and_plots_dir = os.path.dirname(
+            stats_and_plots_dir = Path(
                 dem_source.dem_file_path(dem_list_fitting_filter[0]),
-            )
-    elif os.path.isdir(output_dir):
-        stats_and_plots_dir = output_dir
+            ).parent
+    elif Path(output_dir).is_dir():
+        stats_and_plots_dir = Path(output_dir)
     # If the output dir appears to be a relative path, then join it with the input dir.
-    elif type(dem_list_or_dir) is str:
-        stats_and_plots_dir = os.path.join(
-            os.path.dirname(dem_source.dem_file_path(dem_list_or_dir)),
-            output_dir,
+    elif single_input:
+        stats_and_plots_dir = (
+            Path(dem_source.dem_file_path(dem_list_or_dir)).parent / output_dir
         )
     else:
         dem_list_fitting_filter = [
@@ -420,17 +417,17 @@ def validate_list_of_dems(
             if (
                 (
                     (fname_filter is None)
-                    or (re.search(fname_filter, os.path.split(fn)[1]) is not None)
+                    or (re.search(fname_filter, Path(fn).name) is not None)
                 )
                 and (
                     (fname_omit is None)
-                    or (re.search(fname_omit, os.path.split(fn)[1]) is None)
+                    or (re.search(fname_omit, Path(fn).name) is None)
                 )
             )
         ]
-        stats_and_plots_dir = os.path.join(
-            os.path.dirname(dem_source.dem_file_path(dem_list_fitting_filter[0])),
-            output_dir,
+        stats_and_plots_dir = (
+            Path(dem_source.dem_file_path(dem_list_fitting_filter[0])).parent
+            / output_dir
         )
 
     stats_and_plots_base = _summary_results_base(place_name)
@@ -441,19 +438,10 @@ def validate_list_of_dems(
     # would have its own text rewritten mid-name as well.
     sibling_base = stats_and_plots_base.removesuffix("_results")
 
-    statsfile_name = os.path.join(
-        stats_and_plots_dir,
-        sibling_base + "_summary_stats.txt",
-    )
-    plot_file_name = os.path.join(
-        stats_and_plots_dir,
-        sibling_base + "_plot.png",
-    )
-    csv_name = os.path.join(
-        stats_and_plots_dir,
-        sibling_base + "_individual_results.csv",
-    )
-    results_h5 = os.path.join(stats_and_plots_dir, stats_and_plots_base + ".h5")
+    statsfile_name = stats_and_plots_dir / (sibling_base + "_summary_stats.txt")
+    plot_file_name = stats_and_plots_dir / (sibling_base + "_plot.png")
+    csv_name = stats_and_plots_dir / (sibling_base + "_individual_results.csv")
+    results_h5 = stats_and_plots_dir / (stats_and_plots_base + ".h5")
 
     dem_list = _resolve_dem_list(dem_list_or_dir, fname_filter, fname_omit)
 
@@ -465,7 +453,7 @@ def validate_list_of_dems(
         summary_files.append(csv_name)
     if (
         not overwrite
-        and all(os.path.exists(fn) for fn in summary_files)
+        and all(fn.exists() for fn in summary_files)
         and all(
             _dem_is_done(
                 dem,
@@ -484,7 +472,7 @@ def validate_list_of_dems(
             stats_and_plots_dir,
         )
         failed_earlier = [
-            os.path.basename(dem_source.dem_file_path(dem))
+            Path(dem_source.dem_file_path(dem)).name
             for dem in dem_list
             if _failed_earlier(
                 dem,
@@ -525,22 +513,20 @@ def validate_list_of_dems(
     for i, listed_dem in enumerate(dem_list):
         logger.info(
             "\n======= %s %s of %s =======",
-            os.path.split(listed_dem)[1],
+            Path(listed_dem).name,
             "(" + str(i + 1),
             str(len(dem_list)) + ")",
         )
 
-        dem_file = os.path.basename(dem_source.dem_file_path(listed_dem))
+        dem_file = Path(dem_source.dem_file_path(listed_dem)).name
         this_output_dir = _dem_output_dir(listed_dem, output_dir, dem_list)
-        # '' is the current directory, for a DEM given by a bare file name.
-        if this_output_dir and not os.path.exists(this_output_dir):
-            os.mkdir(this_output_dir)
+        if not this_output_dir.exists():
+            this_output_dir.mkdir()
 
         # A DEM that failed in an earlier run is left alone until -ow is given.
         if overwrite:
             for marker in _error_marker_paths(listed_dem, this_output_dir, variable):
-                if os.path.exists(marker):
-                    os.remove(marker)
+                marker.unlink(missing_ok=True)
         else:
             marker = _failed_earlier(
                 listed_dem,
@@ -566,22 +552,18 @@ def validate_list_of_dems(
             # Not logger.exception: the message names the file and what is wrong.
             logger.error("Skipping: %s", exc)  # noqa: TRY400
             _write_error_marker(
-                os.path.join(
-                    this_output_dir,
-                    dem_source.dem_base_name(listed_dem) + ERROR_MARKER_SUFFIX,
-                ),
+                this_output_dir
+                / (dem_source.dem_base_name(listed_dem) + ERROR_MARKER_SUFFIX),
                 listed_dem,
                 str(exc),
             )
             failed_dems.append(dem_file)
             continue
 
-        results_h5_file = os.path.join(
-            this_output_dir,
-            dem_source.dem_base_name(dem_path) + "_results.h5",
-        )
-        empty_fname = results_h5_file.removesuffix("_results.h5") + "_results_EMPTY.txt"
-        error_fname = results_h5_file.removesuffix("_results.h5") + ERROR_MARKER_SUFFIX
+        dem_base = dem_source.dem_base_name(dem_path)
+        results_h5_file = this_output_dir / (dem_base + "_results.h5")
+        empty_fname = this_output_dir / (dem_base + "_results_EMPTY.txt")
+        error_fname = this_output_dir / (dem_base + ERROR_MARKER_SUFFIX)
 
         try:
             shared_ret_values = {}
@@ -598,7 +580,7 @@ def validate_list_of_dems(
                 dem_vertical_datum=input_vdatum,
                 dem_projection=dem_projection,
                 dem_ndv=dem_ndv,
-                interim_data_dir=this_output_dir,
+                interim_data_dir=str(this_output_dir),
                 overwrite=overwrite,
                 write_summary_stats=create_individual_results,
                 include_photon_level_validation=include_photon_validation,
@@ -642,11 +624,11 @@ def validate_list_of_dems(
 
         files_to_export.extend(list(shared_ret_values.values()))
 
-        if os.path.exists(results_h5_file):
+        if results_h5_file.exists():
             list_of_results_dfs.append(results_h5_file)
             list_of_results_dems.append(dem_path)
 
-        elif os.path.exists(empty_fname):
+        elif empty_fname.exists():
             list_of_empty_dems.append(dem_source.dem_display_name(dem_path))
 
     # An extra newline is appreciated here just for readability's sake.
