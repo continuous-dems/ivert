@@ -303,7 +303,6 @@ def _dem_is_done(dem, dem_output_dir, include_photons=False, variable=None):
 def dems_needing_validation(
     dem_list_or_dir,
     output_dir,
-    place_name=None,
     include_photons=False,
     overwrite=False,
     fname_filter=None,
@@ -352,7 +351,6 @@ def validate_list_of_dems(
     overwrite: bool = False,
     place_name: str | None = None,
     create_individual_results: bool = True,
-    delete_datafiles: bool = False,
     include_photon_validation: bool = True,
     write_summary_csv: bool = True,
     measure_coverage: bool = False,
@@ -596,7 +594,6 @@ def validate_list_of_dems(
                 dem_ndv=dem_ndv,
                 interim_data_dir=this_output_dir,
                 overwrite=overwrite,
-                delete_datafiles=delete_datafiles,
                 write_summary_stats=create_individual_results,
                 include_photon_level_validation=include_photon_validation,
                 plot_results=create_individual_results,

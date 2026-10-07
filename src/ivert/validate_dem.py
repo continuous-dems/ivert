@@ -575,7 +575,6 @@ def validate_dem(
     dem_ndv: float | None = None,
     interim_data_dir: str | None = None,
     overwrite: bool = False,
-    delete_datafiles: bool = False,
     write_summary_stats: bool = True,
     outliers_sd_threshold: float | None = 2.5,
     include_photon_level_validation: bool = False,
@@ -636,7 +635,6 @@ def validate_dem(
             file header value, falling back to the config default (dem_default_ndv).
         interim_data_dir: Output directory for intermediate data. Defaults to the same as the output_dir.
         overwrite: Overwrite existing files.
-        delete_datafiles: Delete intermediate data files after validation is complete.
         write_summary_stats: Write summary statistics of results to a textfile.
         outliers_sd_threshold: Threshold for outlier detection in errors. Defaults to 2.5.
         include_photon_level_validation: Include photon level validation (not just cell-level validation).
@@ -706,7 +704,6 @@ def validate_dem(
         "dem_ndv": dem_ndv,
         "interim_data_dir": interim_data_dir,
         "overwrite": overwrite,
-        "delete_datafiles": delete_datafiles,
         "dates": dates,
         "classes": classes,
         "write_summary_stats": write_summary_stats,
@@ -808,7 +805,6 @@ def validate_dem(
                 dem_ndv=dem_ndv if dem_ndv is not None else parent_band_ndv,
                 interim_data_dir=interim_data_dir,
                 overwrite=overwrite,
-                delete_datafiles=delete_datafiles,
                 dates=dates,
                 classes=classes,
                 write_summary_stats=False,  # No need to write the summary stats file for subsets.
@@ -2172,7 +2168,6 @@ def validate_dem_parallel(
     dem_ndv: float | None = None,
     interim_data_dir: str | None = None,
     overwrite: bool = False,
-    delete_datafiles: bool = False,
     write_summary_stats: bool = True,
     outliers_sd_threshold: float = 2.5,
     include_photon_level_validation: bool = False,

@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Removed
 - The stand-alone command lines in `ivert.validate_dem` and `ivert.validate_dem_collection`, run as `python -m ivert.validate_dem` and `python -m ivert.validate_dem_collection`, are gone (#150). They predate the `ivert` command, whose `ivert validate` does everything they did, and had fallen behind it. `ivert.utils.query_yes_no`, used only by the collection's command line, is removed with them.
+- Parameters that were accepted but never used are removed (#150). `delete_datafiles`, taken by `validate_dem()`, `validate_dem_parallel()` and `validate_list_of_dems()`, never deleted anything. `empty_val` in `plot_validation_results.get_data_from_h5_or_list()`, `plot_histograms_and_line()` and `plot_histogram_and_error_stats_4_panels()` belonged to a filter that had long been commented out. `Config(ignore_errors=...)` and `dems_needing_validation(place_name=...)` had no effect either. Passing any of them now raises `TypeError`.
 
 ### Fixed
 - `packaging` and `pyogrio` are now declared as dependencies (#147). IVERT imports both directly, `packaging` to compare the IVERT version recorded in a run manifest and `pyogrio` to read landmask tiles, but they were only installed because other dependencies pull them in, so a change in one of those could have left `ivert validate` failing with `ModuleNotFoundError`.

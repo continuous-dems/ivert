@@ -106,7 +106,7 @@ def test_beam_names_may_be_str(tmp_path):
     assert is2db.IS2Database._along_track_of_photons(df, tables).tolist() == [1.0]
 
 
-def _records(h5_fn, delta_time):
+def _records(delta_time):
     """Return what globato yields for a granule: 3 kept photons on two beams."""
     return np.rec.fromarrays(
         [
@@ -137,7 +137,7 @@ def test_classified_photons_carry_along_track_m(tmp_path, monkeypatch):
     monkeypatch.setattr(
         is2db.globato,
         "read",
-        lambda *_a, **_k: iter([_records(h5, delta_time)]),
+        lambda *_a, **_k: iter([_records(delta_time)]),
     )
     config = SimpleNamespace(
         ivert_database_index=str(tmp_path / "db" / "_ivert_database_index.nc"),
@@ -173,7 +173,7 @@ def test_no_along_track_without_the_segment_columns(tmp_path, monkeypatch):
     h5 = _write_h5(tmp_path / "ATL03_test.h5")
     query_bbox = (-81.0, -79.0, 24.0, 26.0, 20220101, 20220201)
     delta_time = is2db._yyyymmdd_to_delta_time(20220115)
-    records = _records(h5, delta_time)
+    records = _records(delta_time)
     without = records[[n for n in records.dtype.names if n != "ph_index_within_seg"]]
     monkeypatch.setattr(is2db.globato, "read", lambda *_a, **_k: iter([without]))
     config = SimpleNamespace(
