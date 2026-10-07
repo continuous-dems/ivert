@@ -271,9 +271,15 @@ def get_wgs84_bounding_box(
         msg = "dem_horz_reference_frame could not be resolved."
         raise ValueError(msg)
 
-    assert isinstance(polygon, shapely.geometry.Polygon)
-    assert isinstance(dem_horz_reference_frame, pyproj.CRS)
-    assert not dem_horz_reference_frame.is_compound
+    if not isinstance(polygon, shapely.geometry.Polygon):
+        msg = f"Expected a shapely Polygon, got {type(polygon).__name__}."
+        raise TypeError(msg)
+    if not isinstance(dem_horz_reference_frame, pyproj.CRS):
+        msg = f"Expected a pyproj.CRS, got {type(dem_horz_reference_frame).__name__}."
+        raise TypeError(msg)
+    if dem_horz_reference_frame.is_compound:
+        msg = f"Expected a horizontal CRS, got the compound CRS {dem_horz_reference_frame.name}."
+        raise RuntimeError(msg)
 
     wgs84_crs = pyproj.CRS.from_user_input("EPSG:4326")
 

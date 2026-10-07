@@ -448,7 +448,7 @@ def _option_source_label(config, key):
     """Styled marker showing where a setting's current value came from."""
     if key == "user_configfile" and os.environ.get("IVERT_USER_CONFIG"):
         return click.style("[--config]", fg="yellow")
-    if key in config._user_set_keys:
+    if config.is_user_set(key):
         return click.style("[user]", fg="yellow")
     return click.style("[default]", fg="bright_black")
 
@@ -546,7 +546,7 @@ def _options_set_values(assignments, assume_yes=False):
                 f"  {_OPTIONS_READONLY_KEYS[key]}"
             )
             raise click.UsageError(msg)
-        if key not in config._config["DEFAULT"]:
+        if key not in config.option_names():
             msg = f"Unknown setting '{key}'. Run 'ivert options list' to see valid settings."
             raise click.UsageError(msg)
         parsed.append((key, value))
@@ -610,7 +610,7 @@ def options_list(details):
     from ivert.utils.configfile import Config, parse_option_descriptions
 
     config = Config()
-    keys = [k for k in config._config["DEFAULT"] if k not in _OPTIONS_EXCLUDED_KEYS]
+    keys = [k for k in config.option_names() if k not in _OPTIONS_EXCLUDED_KEYS]
 
     if not keys:
         click.echo("No configurable settings found.")
@@ -664,7 +664,7 @@ def options_info(option_name):
     config = Config()
     key = option_name.strip().lower()
 
-    if key in _OPTIONS_EXCLUDED_KEYS or key not in config._config["DEFAULT"]:
+    if key in _OPTIONS_EXCLUDED_KEYS or key not in config.option_names():
         msg = (
             f"Unknown setting '{option_name}'. "
             "Run 'ivert options list' to see valid settings."
@@ -672,8 +672,8 @@ def options_info(option_name):
         raise click.UsageError(msg)
 
     value = _option_display_value(config, key)
-    default_value = config._config["DEFAULT"].get(key, "")
-    is_user = key in config._user_set_keys
+    default_value = config.default_value(key)
+    is_user = config.is_user_set(key)
     descriptions = parse_option_descriptions()
 
     click.echo("")
@@ -795,7 +795,7 @@ def database_list(show_all, boxes):
             s = str(int(d))
             return f"{s[:4]}.{s[4:6]}.{s[6:]}"
 
-        qcols = list(db._bbox_cols("query_bbox"))
+        qcols = list(db.bbox_cols("query_bbox"))
         unique_boxes = sorted(
             {tuple(r) for r in gdf[qcols].itertuples(index=False)},
         )
@@ -2552,9 +2552,9 @@ def _run_validate(
     if outdir is None:
         from ivert.utils.configfile import Config
 
-        # Read the raw (unresolved) string so it stays relative to the DEM directory,
-        # not the config file's directory.
-        outdir = Config()._config["DEFAULT"]["ivert_results_subdir"]
+        # Config keeps this setting relative, so it resolves against each DEM's
+        # directory rather than the config file's.
+        outdir = Config().ivert_results_subdir
 
     # Expand any glob patterns the shell left unexpanded (e.g., quoted patterns).
     expanded = []
@@ -2595,7 +2595,7 @@ def _run_validate(
             "vdatum": None if vdatum == "NONE_PROVIDED" else vdatum,
             "classes": "/".join(str(c) for c in class_list),
             "export_formats": ",".join(
-                vd_module._normalize_export_formats(export_error_formats_resolved),
+                vd_module.normalize_export_formats(export_error_formats_resolved),
             )
             or "none",
         }

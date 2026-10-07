@@ -65,8 +65,8 @@ _CLASS_COUNTS = (
     ("numphotons_unclassified", "Unclassified (-1)"),
 )
 
-_QUERY_COLS = ivert.icesat2_database_v2.IS2Database._bbox_cols("query_bbox")
-_DATA_COLS = ivert.icesat2_database_v2.IS2Database._bbox_cols("data_bbox")
+_QUERY_COLS = ivert.icesat2_database_v2.IS2Database.bbox_cols("query_bbox")
+_DATA_COLS = ivert.icesat2_database_v2.IS2Database.bbox_cols("data_bbox")
 
 
 class ArchiveError(Exception):

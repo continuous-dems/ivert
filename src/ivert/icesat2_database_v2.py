@@ -289,7 +289,7 @@ def _start_classify_worker(config, nice: int) -> None:
 def _classify_in_worker(job: tuple) -> tuple:
     """Classify one subset in a worker; ``job`` is (granule index, kwargs)."""
     index, kwargs = job
-    return index, kwargs["h5_fn"], _WORKER_DB._process_h5_to_nc_tiles(**kwargs)
+    return index, kwargs["h5_fn"], _WORKER_DB._process_h5_to_nc_tiles(**kwargs)  # noqa: SLF001
 
 
 class DatabaseNotFoundError(Exception):
@@ -382,7 +382,7 @@ class IS2Database:
         return col
 
     @staticmethod
-    def _bbox_cols(base: str) -> tuple[str, ...]:
+    def bbox_cols(base: str) -> tuple[str, ...]:
         """Return the six scalar column names for a bbox base, in canonical order."""
         return (
             f"{base}_xmin",
@@ -396,7 +396,7 @@ class IS2Database:
     @classmethod
     def _bbox_to_cols(cls, base: str, bbox) -> dict:
         """Explode a 6-element [xmin, xmax, ymin, ymax, tmin, tmax] bbox to scalars."""
-        c = cls._bbox_cols(base)
+        c = cls.bbox_cols(base)
         return {
             c[0]: float(bbox[0]),
             c[1]: float(bbox[1]),
@@ -582,7 +582,7 @@ class IS2Database:
             "laser_name": ["all"],
         }
         for base in cls._BBOX_BASES:
-            for col in cls._bbox_cols(base):
+            for col in cls.bbox_cols(base):
                 d[col] = [0]
         d["zbounds_zmin"] = [0.0]
         d["zbounds_zmax"] = [0.0]
@@ -1675,9 +1675,9 @@ class IS2Database:
         df = df[df["class_code"].isin(photon_classes)]
 
         if subset_bbox is not None:
-            assert len(subset_bbox) == 6, (
-                "subset_bbox must have 6 values (xmin, xmax, ymin, ymax, tmin, tmax)."
-            )
+            if len(subset_bbox) != 6:
+                msg = "subset_bbox must have 6 values (xmin, xmax, ymin, ymax, tmin, tmax)."
+                raise ValueError(msg)
             x, y = df["x"], df["y"]
             df = df[
                 (x >= subset_bbox[0])
@@ -1731,9 +1731,9 @@ class IS2Database:
             If no photons are found, return None.
 
         """
-        assert len(bbox) == 6, (
-            "bbox must be a list or tuple of length 6 (xmin, ymin, xmax, ymax, tmin, tmax)."
-        )
+        if len(bbox) != 6:
+            msg = "bbox must be a list or tuple of length 6 (xmin, xmax, ymin, ymax, tmin, tmax)."
+            raise ValueError(msg)
 
         gdf_subset = self.query_granules(bbox)
         if gdf_subset is None or len(gdf_subset) == 0:
@@ -2423,7 +2423,7 @@ class IS2Database:
 
         # Build a (xmin, xmax, ymin, ymax, tmin, tmax) tuple per row from the
         # scalar bbox columns, keep the unique ones, and cast the dates to int.
-        cols = list(self._bbox_cols(base))
+        cols = list(self.bbox_cols(base))
         # Return it as a list of bbox tuples.
         return sorted(
             {
@@ -2668,7 +2668,9 @@ def split_bbox_into_parts(
     if len(bbox) == 6:
         tmin, tmax = bbox[4], bbox[5]
         bbox = bbox[:4]
-    assert len(bbox) == 4, "bbox must be a 4-tuple or 6-tuple."
+    if len(bbox) != 4:
+        msg = "bbox must be a 4-tuple or 6-tuple."
+        raise ValueError(msg)
 
     xmin, xmax, ymin, ymax = bbox
     max_deg_size = tile_size_deg * max_tile_scale_factor

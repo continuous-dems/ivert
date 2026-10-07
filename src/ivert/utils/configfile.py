@@ -332,6 +332,18 @@ class Config:
         """
         return self._config.get("DEFAULT", key, raw=True)
 
+    def default_value(self, key) -> str:
+        """Return the default of an option as IVERT reads it, before any user config."""
+        return self._config.get("DEFAULT", key)
+
+    def option_names(self) -> list[str]:
+        """Every [DEFAULT] option's name, in the order the configfile lists them."""
+        return list(self._config["DEFAULT"])
+
+    def is_user_set(self, key) -> bool:
+        """Return True if the user config sets the option, rather than leaving the default."""
+        return key in self._user_set_keys
+
     def _raw_defaults(self) -> dict:
         """Every [DEFAULT] option's raw value, in the order the configfile lists them."""
         return {k: self.raw_default(k) for k in self._config["DEFAULT"]}

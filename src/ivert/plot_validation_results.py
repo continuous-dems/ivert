@@ -37,7 +37,9 @@ def get_data_from_h5_or_list(
             if orig_filenames is None:
                 data["filename"] = os.path.basename(h5_name_or_list)
             else:
-                assert type(orig_filenames) is str
+                if not isinstance(orig_filenames, str):
+                    msg = "orig_filenames must be a string when h5_name_or_list is one."
+                    raise TypeError(msg)
                 data["filename"] = dem_source.dem_display_name(orig_filenames)
 
     elif is_iterable(h5_name_or_list):
@@ -59,7 +61,9 @@ def get_data_from_h5_or_list(
                     if orig_filenames is None:
                         temp_data["filename"] = os.path.basename(h5_file)
                     else:
-                        assert is_iterable(orig_filenames)
+                        if not is_iterable(orig_filenames):
+                            msg = "orig_filenames must be a list when h5_name_or_list is one."
+                            raise TypeError(msg)
                         temp_data["filename"] = dem_source.dem_display_name(
                             orig_filenames[i],
                         )

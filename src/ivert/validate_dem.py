@@ -55,7 +55,9 @@ def read_dataframe_file(df_filename: str) -> pd.DataFrame:
 
     (Can handle other formats by adding more "elif ..." statements in the function.)
     """
-    assert os.path.exists(df_filename)
+    if not os.path.exists(df_filename):
+        msg = f"{df_filename} does not exist."
+        raise FileNotFoundError(msg)
     ext = os.path.splitext(df_filename)[1]
     ext = ext.lower()
     if ext in (".h5", ".hdf"):
@@ -778,7 +780,9 @@ def validate_dem(
         )
 
         sub_shared_ret_values = [manager.dict() for i in range(len(sub_dem_names))]
-        assert len(sub_shared_ret_values) == len(sub_dem_names) == 4
+        if len(sub_dem_names) != 4:
+            msg = f"Splitting {dem_name} gave {len(sub_dem_names)} pieces, not 4."
+            raise RuntimeError(msg)
 
         # Pre-read the photon database. This is easier than reading it in 4 separate times.
         if icesat2_photon_database_obj is None:
@@ -876,7 +880,9 @@ def validate_dem(
             shared_results_df = pd.concat(output_dfs, ignore_index=False, axis=0)
             # After we've combined all the resutls, *then* filter out outliers if they exist.
             if outliers_sd_threshold is not None:
-                assert type(outliers_sd_threshold) in (int, float)
+                if not isinstance(outliers_sd_threshold, (int, float)):
+                    msg = "outliers_sd_threshold must be a number."
+                    raise TypeError(msg)
                 diff_mean = shared_results_df["diff_mean"]
                 meanval, stdval = diff_mean.mean(), diff_mean.std()
                 low_cutoff = meanval - (stdval * outliers_sd_threshold)
@@ -1726,12 +1732,14 @@ def _run_parallel_cell_validation(
     i_array_name = f"i_{proc_id}"
     j_array_name = f"j_{proc_id}"
     code_array_name = f"codes_{proc_id}"
-    assert (
+    if not (
         height_field.shape
         == photon_df.i.shape
         == photon_df.j.shape
         == photon_df.class_code.shape
-    )
+    ):
+        msg = "The photon heights, i, j and class codes are not all the same length."
+        raise RuntimeError(msg)
 
     height_smo = shared_memory.SharedMemory(
         size=height_field.nbytes,
@@ -1766,7 +1774,9 @@ def _run_parallel_cell_validation(
     code_dtype = photon_df.class_code.dtype
 
     if measure_coverage:
-        assert height_field.shape == photon_df.dem_x.shape == photon_df.dem_y.shape
+        if not (height_field.shape == photon_df.dem_x.shape == photon_df.dem_y.shape):
+            msg = "The photon heights, dem_x and dem_y are not all the same length."
+            raise RuntimeError(msg)
         dem_overlap_xmin, dem_overlap_xmax, dem_overlap_ymin, dem_overlap_ymax = (
             coverage_coords
         )
@@ -2068,7 +2078,9 @@ def _write_validation_outputs(
     )
 
     if outliers_sd_threshold is not None:
-        assert type(outliers_sd_threshold) in (int, float)
+        if not isinstance(outliers_sd_threshold, (int, float)):
+            msg = "outliers_sd_threshold must be a number."
+            raise TypeError(msg)
         diff_mean = results_dataframe["diff_mean"]
         meanval, stdval = diff_mean.mean(), diff_mean.std()
         low_cutoff = meanval - (stdval * outliers_sd_threshold)
@@ -2756,7 +2768,7 @@ def _export_errors_xyz(results_dataframe, dem_ds, out_fname):
     logger.debug("%s written.", out_fname)
 
 
-def _normalize_export_formats(formats):
+def normalize_export_formats(formats):
     """Normalize format names into a de-duplicated list of recognized names.
 
     Accepts a comma-separated string or an iterable. Names are lower-cased, and
@@ -2792,7 +2804,7 @@ def _error_export_filenames(results_dataframe_file, formats):
     base, _ = os.path.splitext(results_dataframe_file)
     base = base.removesuffix("_results")
     base = base + "_errors"
-    return [base + "." + fmt for fmt in _normalize_export_formats(formats)]
+    return [base + "." + fmt for fmt in normalize_export_formats(formats)]
 
 
 def export_error_results(
@@ -2826,7 +2838,7 @@ def export_error_results(
     if results_dataframe is None or len(results_dataframe) == 0:
         return exported
 
-    formats = _normalize_export_formats(formats)
+    formats = normalize_export_formats(formats)
     filenames = _error_export_filenames(results_dataframe_file, formats)
     if dem_crs is None:
         dem_crs = dem_ds.crs

@@ -560,7 +560,7 @@ def _to_egm2008(lon, lat, z, photon_src_epsg, cache_dir):
     if vert == "3855":
         return z
     return np.asarray(
-        ivert.transform_points._apply_vertical_transform(
+        ivert.transform_points.apply_vertical_transform(
             lon,
             lat,
             z,

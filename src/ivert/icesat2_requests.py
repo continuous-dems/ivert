@@ -115,7 +115,9 @@ class ICESat2RequestsCSV:
         if isinstance(query_bbox, str):
             query_bbox = ast.literal_eval(query_bbox)
         query_bbox = tuple(query_bbox)
-        assert len(query_bbox) == 6
+        if len(query_bbox) != 6:
+            msg = f"query_bbox must have 6 values (xmin, xmax, ymin, ymax, tmin, tmax), not {len(query_bbox)}."
+            raise ValueError(msg)
 
         if isinstance(json_dict, str):
             json_dict = self._read_json(json_dict)
