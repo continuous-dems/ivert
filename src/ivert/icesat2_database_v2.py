@@ -382,7 +382,7 @@ class IS2Database:
         return col
 
     @staticmethod
-    def _bbox_cols(base: str) -> tuple[str, ...]:
+    def bbox_cols(base: str) -> tuple[str, ...]:
         """Return the six scalar column names for a bbox base, in canonical order."""
         return (
             f"{base}_xmin",
@@ -396,7 +396,7 @@ class IS2Database:
     @classmethod
     def _bbox_to_cols(cls, base: str, bbox) -> dict:
         """Explode a 6-element [xmin, xmax, ymin, ymax, tmin, tmax] bbox to scalars."""
-        c = cls._bbox_cols(base)
+        c = cls.bbox_cols(base)
         return {
             c[0]: float(bbox[0]),
             c[1]: float(bbox[1]),
@@ -582,7 +582,7 @@ class IS2Database:
             "laser_name": ["all"],
         }
         for base in cls._BBOX_BASES:
-            for col in cls._bbox_cols(base):
+            for col in cls.bbox_cols(base):
                 d[col] = [0]
         d["zbounds_zmin"] = [0.0]
         d["zbounds_zmax"] = [0.0]
@@ -2423,7 +2423,7 @@ class IS2Database:
 
         # Build a (xmin, xmax, ymin, ymax, tmin, tmax) tuple per row from the
         # scalar bbox columns, keep the unique ones, and cast the dates to int.
-        cols = list(self._bbox_cols(base))
+        cols = list(self.bbox_cols(base))
         # Return it as a list of bbox tuples.
         return sorted(
             {

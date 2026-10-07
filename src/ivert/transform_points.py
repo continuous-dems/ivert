@@ -90,7 +90,7 @@ def transform_points(
 
     # Vertical datum shift
     if src_vert is not None and dst_vert is not None and src_vert != dst_vert:
-        trans_z = _apply_vertical_transform(
+        trans_z = apply_vertical_transform(
             x,
             y,
             z,
@@ -150,7 +150,7 @@ def _grid_covers_region(grid_fn: str, region_bounds: list[float], tol=1e-9) -> b
     )
 
 
-def _apply_vertical_transform(
+def apply_vertical_transform(
     x: np.ndarray,
     y: np.ndarray,
     z: np.ndarray,

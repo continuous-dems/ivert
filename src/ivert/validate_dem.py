@@ -2768,7 +2768,7 @@ def _export_errors_xyz(results_dataframe, dem_ds, out_fname):
     logger.debug("%s written.", out_fname)
 
 
-def _normalize_export_formats(formats):
+def normalize_export_formats(formats):
     """Normalize format names into a de-duplicated list of recognized names.
 
     Accepts a comma-separated string or an iterable. Names are lower-cased, and
@@ -2804,7 +2804,7 @@ def _error_export_filenames(results_dataframe_file, formats):
     base, _ = os.path.splitext(results_dataframe_file)
     base = base.removesuffix("_results")
     base = base + "_errors"
-    return [base + "." + fmt for fmt in _normalize_export_formats(formats)]
+    return [base + "." + fmt for fmt in normalize_export_formats(formats)]
 
 
 def export_error_results(
@@ -2838,7 +2838,7 @@ def export_error_results(
     if results_dataframe is None or len(results_dataframe) == 0:
         return exported
 
-    formats = _normalize_export_formats(formats)
+    formats = normalize_export_formats(formats)
     filenames = _error_export_filenames(results_dataframe_file, formats)
     if dem_crs is None:
         dem_crs = dem_ds.crs
