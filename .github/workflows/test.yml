@@ -40,3 +40,30 @@ jobs:
 
       - name: "Run the test suite"
         run: "pytest -v --cov=ivert --cov-report=term-missing"
+
+  # Installs each dependency at the lowest version pyproject.toml allows, so the
+  # suite fails if IVERT starts using something newer than a stated minimum.
+  test-minimum:
+    name: "pytest (minimum dependency versions, Python 3.12)"
+    runs-on: "ubuntu-latest"
+
+    steps:
+      - name: "Checkout code"
+        uses: "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1"  # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: "Set up uv and Python"
+        uses: "astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7"  # v10.2.0
+        with:
+          python-version: "3.12"
+          activate-environment: "true"
+
+      - name: "Install IVERT at its minimum dependency versions"
+        run: |
+          uv pip install --resolution lowest-direct -e .
+          uv pip install --group test  # pytest itself at its latest version
+          uv pip list
+
+      - name: "Run the test suite"
+        run: "pytest -v"

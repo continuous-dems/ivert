@@ -110,6 +110,25 @@ Configuration lives in `pyproject.toml` under `[tool.pytest.ini_options]`, and
 is the single source of truth for both a local run and CI — `test.yml` invokes
 the same `pytest` you do. There is no separate `pytest.ini` or `tox.ini`.
 
+### Minimum dependency versions
+
+Every dependency in `pyproject.toml` has a minimum version, and CI checks it.
+Besides the usual runs on the newest versions, a `test-minimum` job installs
+each dependency at the lowest version `pyproject.toml` allows (with uv's
+`--resolution lowest-direct`) and runs the suite on Python 3.12. If it fails
+because your change uses something newer than a dependency's minimum, raise
+that minimum in `pyproject.toml` (and note it in the changelog) rather than
+working around it. To reproduce the job locally with
+[uv](https://docs.astral.sh/uv/):
+
+```bash
+uv venv --python 3.12 /tmp/ivert-min
+export VIRTUAL_ENV=/tmp/ivert-min
+uv pip install --resolution lowest-direct -e .
+uv pip install --group test
+/tmp/ivert-min/bin/pytest
+```
+
 ### Markers
 
 Two markers describe tests that a bare `pytest` deliberately skips:
