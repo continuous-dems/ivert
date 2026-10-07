@@ -32,7 +32,9 @@ def write_summary_csv_file(
     if type(total_results_df_or_file) is str:
         total_df = pd.read_hdf(total_results_df_or_file)
     else:
-        assert isinstance(total_results_df_or_file, pd.DataFrame)
+        if not isinstance(total_results_df_or_file, pd.DataFrame):
+            msg = "total_results_df_or_file must be a DataFrame or a file name."
+            raise TypeError(msg)
         total_df = total_results_df_or_file
 
     if "filename" not in total_df.columns:
@@ -61,7 +63,9 @@ def write_summary_csv_file(
 
         else:
             # For files with no results, just list n/a for this.
-            assert fname in list_of_empty_dems
+            if fname not in list_of_empty_dems:
+                msg = f"{fname} has no results and is not listed as empty."
+                raise RuntimeError(msg)
             means[i] = np.nan
             stds[i] = np.nan
             rmses[i] = np.nan
@@ -203,7 +207,9 @@ def _resolve_dem_list(dem_list_or_dir, fname_filter, fname_omit):
             if _is_dem_raster(fname) and os.path.isfile(os.path.join(path, fname))
         )
     else:
-        assert os.path.exists(dem_source.dem_file_path(path))
+        if not os.path.exists(dem_source.dem_file_path(path)):
+            msg = f"{path} does not exist."
+            raise FileNotFoundError(msg)
         dem_list = [path]
 
     # Filter for needed strings in filenames, such as "_wgs84"

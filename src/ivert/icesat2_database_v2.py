@@ -1675,9 +1675,9 @@ class IS2Database:
         df = df[df["class_code"].isin(photon_classes)]
 
         if subset_bbox is not None:
-            assert len(subset_bbox) == 6, (
-                "subset_bbox must have 6 values (xmin, xmax, ymin, ymax, tmin, tmax)."
-            )
+            if len(subset_bbox) != 6:
+                msg = "subset_bbox must have 6 values (xmin, xmax, ymin, ymax, tmin, tmax)."
+                raise ValueError(msg)
             x, y = df["x"], df["y"]
             df = df[
                 (x >= subset_bbox[0])
@@ -1731,9 +1731,9 @@ class IS2Database:
             If no photons are found, return None.
 
         """
-        assert len(bbox) == 6, (
-            "bbox must be a list or tuple of length 6 (xmin, ymin, xmax, ymax, tmin, tmax)."
-        )
+        if len(bbox) != 6:
+            msg = "bbox must be a list or tuple of length 6 (xmin, xmax, ymin, ymax, tmin, tmax)."
+            raise ValueError(msg)
 
         gdf_subset = self.query_granules(bbox)
         if gdf_subset is None or len(gdf_subset) == 0:
@@ -2668,7 +2668,9 @@ def split_bbox_into_parts(
     if len(bbox) == 6:
         tmin, tmax = bbox[4], bbox[5]
         bbox = bbox[:4]
-    assert len(bbox) == 4, "bbox must be a 4-tuple or 6-tuple."
+    if len(bbox) != 4:
+        msg = "bbox must be a 4-tuple or 6-tuple."
+        raise ValueError(msg)
 
     xmin, xmax, ymin, ymax = bbox
     max_deg_size = tile_size_deg * max_tile_scale_factor
