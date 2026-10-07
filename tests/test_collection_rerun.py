@@ -98,6 +98,7 @@ def _run(tmp_path, out, overwrite=False):
 def test_rerun_validates_a_dem_missing_results_although_the_summaries_exist(
     collection,
 ):
+    """A rerun once stopped as soon as the summary existed, so DEMs added later were never validated."""
     tmp_path, out, dems, validated, _ = collection
     _touch(out, _SUMMARY_FILES)
 
@@ -108,6 +109,7 @@ def test_rerun_validates_a_dem_missing_results_although_the_summaries_exist(
 
 
 def test_rerun_stops_when_every_dem_and_summary_is_done(collection):
+    """The early stop still happens when nothing is left; an empty marker counts as done."""
     tmp_path, out, _, validated, _ = collection
     _touch(out, ("b_results_EMPTY.txt", *_SUMMARY_FILES))
 
@@ -117,6 +119,7 @@ def test_rerun_stops_when_every_dem_and_summary_is_done(collection):
 
 
 def test_rerun_rewrites_a_missing_summary(collection):
+    """One missing summary file is enough to go round again; validate_dem() reuses finished DEMs."""
     tmp_path, out, dems, validated, _ = collection
     _touch(out, ("b_results_EMPTY.txt", *_SUMMARY_FILES[:-1]))
 
@@ -126,6 +129,7 @@ def test_rerun_rewrites_a_missing_summary(collection):
 
 
 def test_dems_needing_validation_ignores_the_summary_files(tmp_path):
+    """The collection's own summary_results.h5 must not be taken for a DEM's results."""
     dems = [_make_tif(tmp_path / "a.tif"), _make_tif(tmp_path / "b.tif")]
     out = tmp_path / "out"
     out.mkdir()
@@ -138,6 +142,11 @@ def test_dems_needing_validation_ignores_the_summary_files(tmp_path):
 
 
 def test_a_failed_dem_gets_an_error_marker_and_is_not_retried(collection, caplog):
+    """Without the marker a failing DEM is retried, and fails again, on every rerun.
+
+    The marker records the error and traceback, and each rerun names the DEM
+    as an error so the failure isn't forgotten.
+    """
     tmp_path, out, dems, validated, failing = collection
     failing.add("b.tif")
 
@@ -160,6 +169,7 @@ def test_a_failed_dem_gets_an_error_marker_and_is_not_retried(collection, caplog
 
 
 def test_overwrite_deletes_the_error_marker_and_retries(collection):
+    """-ow/--overwrite is how a failed DEM gets tried again."""
     tmp_path, out, dems, validated, _ = collection
     _touch(out, ["b_results_ERROR.txt"])
 
@@ -170,6 +180,7 @@ def test_overwrite_deletes_the_error_marker_and_retries(collection):
 
 
 def test_rerun_stops_with_a_failed_dem_and_reports_it(collection, caplog):
+    """A failed DEM counts as done for the early stop, but the run still ends by naming it."""
     tmp_path, out, _, validated, _ = collection
     _touch(out, ("b_results_ERROR.txt", *_SUMMARY_FILES))
 
@@ -186,6 +197,7 @@ def test_rerun_stops_with_a_failed_dem_and_reports_it(collection, caplog):
 
 
 def test_a_dem_that_cant_be_read_gets_an_error_marker(collection):
+    """A DEM refused before validation starts gets a marker too, not only one that fails partway."""
     tmp_path, out, _, _, _ = collection
     with h5py.File(tmp_path / "c.h5", "w") as f:
         f["elev"] = np.zeros((4, 5), dtype="f4")
@@ -197,6 +209,7 @@ def test_a_dem_that_cant_be_read_gets_an_error_marker(collection):
 
 
 def test_overwrite_deletes_an_empty_marker(tmp_path):
+    """An old _results_EMPTY.txt used to be left beside new results, contradicting them."""
     results = tmp_path / "dem_results.h5"
     empty = tmp_path / "dem_results_EMPTY.txt"
     empty.write_text("")

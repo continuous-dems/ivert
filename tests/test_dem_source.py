@@ -30,6 +30,7 @@ def _make_netcdf(path, variables: list[str]):
 
 
 def test_single_variable_file_is_used_as_is(tmp_path):
+    """GDAL opens a one-variable file directly, so it isn't made a subdataset string."""
     path = _make_netcdf(tmp_path / "one.nc", ["Band1"])
 
     assert dem_source.resolve_dem_source(path) == path
@@ -44,6 +45,7 @@ def test_single_variable_file_is_used_as_is(tmp_path):
     ],
 )
 def test_default_names_are_tried_in_order(tmp_path, variables, expected):
+    """A file that also holds an uncertainty grid still has its elevations picked."""
     path = _make_netcdf(tmp_path / "multi.nc", variables)
 
     resolved = dem_source.resolve_dem_source(path)
@@ -52,6 +54,7 @@ def test_default_names_are_tried_in_order(tmp_path, variables, expected):
 
 
 def test_multi_variable_file_without_a_default_name_is_an_error(tmp_path):
+    """Guessing could validate the wrong grid, so the error asks for --variable."""
     path = _make_netcdf(tmp_path / "multi.nc", ["a", "b"])
 
     with pytest.raises(dem_source.DEMVariableError, match="--variable"):
@@ -59,12 +62,14 @@ def test_multi_variable_file_without_a_default_name_is_an_error(tmp_path):
 
 
 def test_named_variable_is_used(tmp_path):
+    """--variable picks even a variable the default names would pass over."""
     path = _make_netcdf(tmp_path / "multi.nc", ["elev", "uncert"])
 
     assert dem_source.resolve_dem_source(path, "uncert") == f'NETCDF:"{path}":uncert'
 
 
 def test_named_variable_that_is_missing_is_an_error(tmp_path):
+    """The error lists the variables the file has, so the user can pick one."""
     path = _make_netcdf(tmp_path / "multi.nc", ["elev", "uncert"])
 
     with pytest.raises(dem_source.DEMVariableError, match="elev, uncert"):
@@ -72,6 +77,7 @@ def test_named_variable_that_is_missing_is_an_error(tmp_path):
 
 
 def test_named_variable_matching_a_single_variable_file(tmp_path):
+    """Naming the only variable is fine; naming another is still an error."""
     path = _make_netcdf(tmp_path / "one.nc", ["Band1"])
 
     assert dem_source.resolve_dem_source(path, "Band1") == path
@@ -80,6 +86,7 @@ def test_named_variable_matching_a_single_variable_file(tmp_path):
 
 
 def test_resolved_subdataset_opens_as_a_one_band_raster(tmp_path):
+    """The subdataset opens north-up with one band, as validate_dem expects."""
     path = _make_netcdf(tmp_path / "multi.nc", ["elev", "uncert"])
 
     with rasterio.open(dem_source.resolve_dem_source(path)) as ds:
@@ -88,6 +95,7 @@ def test_resolved_subdataset_opens_as_a_one_band_raster(tmp_path):
 
 
 def test_file_path_and_base_name_of_a_subdataset():
+    """Output names include the variable, so two variables of one file don't overwrite each other."""
     sds = 'NETCDF:"/data/dems/coast.nc":elev'
 
     assert dem_source.dem_file_path(sds) == "/data/dems/coast.nc"
@@ -105,6 +113,7 @@ def test_collection_listing_opens_no_files(tmp_path):
 
 
 def test_possible_base_names():
+    """Before a file is opened, its results may be under any of these names."""
     assert dem_source.possible_base_names("/d/coast.tif") == ["coast"]
     assert dem_source.possible_base_names("/d/coast.nc") == [
         "coast",
@@ -120,6 +129,7 @@ def test_possible_base_names():
 
 
 def test_needs_validation_checks_names_without_opening_the_file(tmp_path):
+    """Collections find what is left without opening every DEM; another --variable is not done yet."""
     dem = tmp_path / "coast.nc"
     dem.write_bytes(b"not a netcdf file")
     out = tmp_path / "out"
@@ -132,6 +142,7 @@ def test_needs_validation_checks_names_without_opening_the_file(tmp_path):
 
 
 def test_collection_logs_no_errors_when_every_dem_runs(tmp_path, monkeypatch, caplog):
+    """The closing ERROR that counts the DEMs that didn't run is logged only when some didn't."""
     _make_netcdf(tmp_path / "a.nc", ["elev", "uncert"])
     _make_netcdf(tmp_path / "b.nc", ["Band1"])
 
@@ -163,6 +174,7 @@ def test_collection_skips_a_file_without_an_elevation_variable(
     monkeypatch,
     caplog,
 ):
+    """One bad file is skipped and named, then and again at the end, without stopping the run."""
     good = _make_netcdf(tmp_path / "a.nc", ["elev", "uncert"])
     _make_netcdf(tmp_path / "b.nc", ["a", "b"])
     validated = []
@@ -204,12 +216,14 @@ def _make_hdf5(path, datasets: list[str]):
 
 
 def test_hdf5_default_name_is_found(tmp_path):
+    """HDF5 files get the same default names as NetCDF."""
     path = _make_hdf5(tmp_path / "dem.h5", ["uncert", "z", "elevation"])
 
     assert dem_source.resolve_dem_source(path) == f'HDF5:"{path}"://elevation'
 
 
 def test_hdf5_dataset_in_a_group_is_found_by_name_or_path(tmp_path):
+    """HDF5 DEMs often keep their grids in groups; the last part of the path is enough if unique."""
     path = _make_hdf5(tmp_path / "dem.h5", ["grid/elev", "grid/uncert"])
     expected = f'HDF5:"{path}"://grid/elev'
 
@@ -220,6 +234,7 @@ def test_hdf5_dataset_in_a_group_is_found_by_name_or_path(tmp_path):
 
 
 def test_hdf5_name_in_several_groups_needs_the_full_path(tmp_path):
+    """A short name found in two groups is ambiguous, so the error lists both paths."""
     path = _make_hdf5(tmp_path / "dem.h5", ["a/elev", "b/elev"])
 
     with pytest.raises(dem_source.DEMVariableError, match="a/elev, b/elev"):
@@ -228,6 +243,7 @@ def test_hdf5_name_in_several_groups_needs_the_full_path(tmp_path):
 
 
 def test_hdf5_missing_variable_is_an_error(tmp_path):
+    """As with NetCDF, the error lists what the file has."""
     path = _make_hdf5(tmp_path / "dem.h5", ["elev", "uncert"])
 
     with pytest.raises(dem_source.DEMVariableError, match="elev, uncert"):
@@ -235,6 +251,7 @@ def test_hdf5_missing_variable_is_an_error(tmp_path):
 
 
 def test_single_dataset_hdf5_file(tmp_path):
+    """Like a one-variable NetCDF file, it opens directly unless a dataset is named."""
     path = _make_hdf5(tmp_path / "dem.h5", ["height"])
 
     assert dem_source.resolve_dem_source(path) == path
@@ -244,6 +261,10 @@ def test_single_dataset_hdf5_file(tmp_path):
 
 
 def test_hdf5_subdataset_base_name_and_possible_names(tmp_path):
+    """In 'grid/elev', the slash between HDF5 group and dataset becomes an underscore.
+
+    Kept as a slash, it would put every output file under a subdirectory.
+    """
     sds = 'HDF5:"/d/dem.h5"://grid/elev'
 
     assert dem_source.dem_file_path(sds) == "/d/dem.h5"
@@ -265,6 +286,7 @@ def test_hdf5_subdataset_base_name_and_possible_names(tmp_path):
     ],
 )
 def test_dem_display_name(dem_name, expected):
+    """The name in logs and the collection CSV, without GDAL's driver prefix and quotes."""
     assert dem_source.dem_display_name(dem_name) == expected
 
 
@@ -308,6 +330,7 @@ def test_netcdf4_file_named_h5_opens_through_the_netcdf_driver(tmp_path):
 
 
 def test_plain_hdf5_stays_hdf5_and_is_not_georeferenced(tmp_path):
+    """A bare HDF5 array has no coordinates, so it is refused rather than validated at 0, 0."""
     path = _make_hdf5(tmp_path / "dem.h5", ["grid/elev", "grid/uncert"])
     sds = dem_source.resolve_dem_source(path)
 
@@ -325,6 +348,7 @@ def test_validate_dem_refuses_an_ungeoreferenced_dem(tmp_path):
 
 
 def test_collection_skips_an_ungeoreferenced_dem(tmp_path, monkeypatch, caplog):
+    """In a collection it is skipped and named, like any DEM that can't run, without stopping the run."""
     good = _make_netcdf(tmp_path / "a.nc", ["elev", "uncert"])
     _make_hdf5(tmp_path / "b.h5", ["elev", "uncert"])
     validated = []
@@ -356,6 +380,7 @@ def test_collection_skips_an_ungeoreferenced_dem(tmp_path, monkeypatch, caplog):
 
 
 def test_collection_lists_hdf5_dems_but_not_ivert_results(tmp_path):
+    """IVERT writes its results and photons as .h5, which a rerun must not take for DEMs."""
     for name in ("a.h5", "b.HDF5", "a_results.h5", "a_photons.h5", "run_results.h5"):
         (tmp_path / name).write_bytes(b"")
 

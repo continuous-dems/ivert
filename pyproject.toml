@@ -93,7 +93,6 @@ ignore = [
     "ARG002",   # unused-method-argument
     "C901",     # complex-structure
     "CPY001",   # missing-copyright-notice
-    "D103",     # undocumented-public-function
     "E501",     # line-too-long
     "FBT001",   # boolean-type-hint-positional-argument
     "FBT002",   # boolean-default-value-positional-argument

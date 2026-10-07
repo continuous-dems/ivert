@@ -7,9 +7,8 @@ name the second part would read the first part's subset, clip it to its own
 box, and lose those granules' photons. The subsets are therefore renamed with
 the query suffix before anything is fetched.
 
-Self-contained on purpose: no conftest or pytest configuration is needed, so
-this runs today and folds under the shared scaffold when that lands. Nothing
-here touches the developer's real ~/.ivert.
+The database is built on a stand-in config in tmp_path and fetchez is faked, so
+nothing here touches the developer's real ~/.ivert or the network.
 """
 
 import os
@@ -36,6 +35,7 @@ SUFFIX_1 = "_W121.00000_W116.50000_N32.00000_N33.00000_20211101_20241101"
 
 
 def test_a_subset_is_named_after_its_granule_and_its_box():
+    """Harmony names a granule's subsets alike whatever their box; this name keeps them apart."""
     assert (
         is2db.IS2Database._subset_cache_filename(GRANULE, PART_1)
         == STEM + SUFFIX_1 + ".h5"
@@ -48,6 +48,7 @@ def test_a_subset_is_named_after_its_granule_and_its_box():
 
 
 def test_two_boxes_give_the_same_granule_two_names():
+    """Under one name, the second part of a request read the first part's subset."""
     names = {
         is2db.IS2Database._subset_cache_filename(GRANULE, b) for b in (PART_1, PART_2)
     }
@@ -70,6 +71,7 @@ def test_the_granule_id_fields_stay_in_front_of_the_suffix():
 
 
 def test_the_source_granule_is_still_recovered_from_the_nc_name():
+    """Code that maps a tile back to its granule reads the .nc name, so the suffix must strip off."""
     nc = is2db.IS2Database._nc_filename(STEM + SUFFIX_1 + ".h5", PART_1)
 
     assert is2db.IS2Database._source_granule_from_filename(nc) == STEM
@@ -150,6 +152,7 @@ def _photons(xs, y=32.5):
 
 @pytest.fixture
 def db(tmp_path, monkeypatch):
+    """An IS2Database rooted in tmp_path, with fetchez, the requests cache and the prefetch faked."""
     config = SimpleNamespace(
         ivert_database_index=str(tmp_path / "db" / "_ivert_database_index.nc"),
         ivert_database_directory=str(tmp_path / "db"),
@@ -189,6 +192,10 @@ def test_a_plain_box_and_the_same_box_as_a_geometry_make_the_same_request(
     db,
     monkeypatch,
 ):
+    """A box and a geometry share one path, so a rectangle is one Harmony request either way.
+
+    One large subset of a granule costs Harmony less than several small ones.
+    """
     monkeypatch.setattr(db, "_classify_h5", lambda *_a, **_k: None)
     box = (-121.0, -116.5, 32.0, 33.0, 20230101, 20230201)
 
@@ -235,6 +242,7 @@ def test_a_subset_is_classified_once_and_stored_per_tile(db, monkeypatch):
 
 
 def test_a_tile_with_no_photons_gets_no_file(db, monkeypatch):
+    """Tiles a granule crosses without photons would otherwise fill the database with empty files."""
     monkeypatch.setattr(
         db,
         "_classify_h5",
@@ -271,6 +279,7 @@ def test_low_confidence_bathy_floor_photons_are_not_stored(db, monkeypatch):
 
 
 def test_each_part_fetches_and_reads_its_own_copy_of_a_shared_granule(db, monkeypatch):
+    """The case in the module docstring: adjacent parts share a granule, and each reads its own subset."""
     read = []
 
     def fake_classify(h5_fn, query_bbox, **kwargs: object):
