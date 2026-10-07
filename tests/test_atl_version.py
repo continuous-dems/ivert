@@ -150,7 +150,7 @@ class _FakeFetchezIceSat2:
         self.subset_job_id = None
         self.results = []
 
-    def harmony_ping_for_status(self, job_id):
+    def harmony_ping_for_status(self, _job_id):
         return None
 
     def harmony_make_request(self):
@@ -170,13 +170,13 @@ class _FakeRequestsCSV:
     def __init__(self, config: object = None) -> None:
         self.configs.append(config)
 
-    def find_matching_request(self, *args: object, **kwargs: object):
+    def find_matching_request(self, *_args: object, **kwargs: object):
         self.lookups.append(kwargs)
 
-    def add_record(self, *args: object, **kwargs: object):
+    def add_record(self, *_args: object, **kwargs: object):
         self.records.append(kwargs)
 
-    def update_record(self, *args: object, **kwargs: object):
+    def update_record(self, *_args: object, **_kwargs: object):
         pass
 
 
@@ -217,7 +217,7 @@ def _download(db, monkeypatch, granule_names):
 
     processed = []
 
-    def fake_classify(files_to_process, query_bbox, **kwargs: object):
+    def fake_classify(files_to_process, _query_bbox, **_kwargs: object):
         processed.extend(os.path.basename(h5_fn) for h5_fn, _ in files_to_process)
         return []
 
@@ -273,7 +273,7 @@ def test_globato_is_told_which_release_to_classify(db, tmp_path, monkeypatch):
     """The version is normalised for globato, which checks the release too, even from an int."""
     seen = {}
 
-    def fake_read(*args: object, **kwargs: object):
+    def fake_read(*_args: object, **kwargs: object):
         seen.update(kwargs)
         return iter([])
 

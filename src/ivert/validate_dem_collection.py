@@ -1,21 +1,17 @@
 """Validate and summarize an entire list or directory of DEMs."""
 
-import ast
 import datetime
 import logging
-import multiprocessing as mp
 import os
 import re
 import traceback
 
-import click
 import numpy as np
 import pandas as pd
 
 import ivert
 import ivert.bathy_filters
 import ivert.icesat2_database_v2
-import ivert.utils.query_yes_no as yes_no
 from ivert import plot_validation_results, validate_dem
 from ivert.utils import dem_source
 
@@ -307,7 +303,6 @@ def _dem_is_done(dem, dem_output_dir, include_photons=False, variable=None):
 def dems_needing_validation(
     dem_list_or_dir,
     output_dir,
-    place_name=None,
     include_photons=False,
     overwrite=False,
     fname_filter=None,
@@ -356,7 +351,6 @@ def validate_list_of_dems(
     overwrite: bool = False,
     place_name: str | None = None,
     create_individual_results: bool = True,
-    delete_datafiles: bool = False,
     include_photon_validation: bool = True,
     write_summary_csv: bool = True,
     measure_coverage: bool = False,
@@ -600,7 +594,6 @@ def validate_list_of_dems(
                 dem_ndv=dem_ndv,
                 interim_data_dir=this_output_dir,
                 overwrite=overwrite,
-                delete_datafiles=delete_datafiles,
                 write_summary_stats=create_individual_results,
                 include_photon_level_validation=include_photon_validation,
                 plot_results=create_individual_results,
@@ -705,228 +698,3 @@ def validate_list_of_dems(
     validate_dem.log_written_files(files_to_export[num_tile_files:])
     _log_failed_dems(failed_dems, len(dem_list))
     return files_to_export
-
-
-@click.command(
-    help="Tool for validating a list or directory of DEMs against ICESat-2 photon data.",
-)
-@click.argument("directory_or_files", type=str, nargs=-1, required=True)
-@click.option(
-    "--fname_filter",
-    "-ff",
-    type=str,
-    default=None,
-    help="A regex string to search for in all DEM file names, to use as a filter. Only files "
-    "with a recognized raster extension (.tif, .tiff, .vrt, .nc, .nc4, .img, .asc, .bag, .grd, "
-    ".flt, .h5, .hdf5) are considered in any case.",
-)
-@click.option(
-    "--fname_omit",
-    "-fo",
-    type=str,
-    default=None,
-    help="A regex string to search for and OMIT if it contains a match in the file name. Useful "
-    "for avoiding derived datasets (such as converted DEMs) in the folder.",
-)
-@click.option(
-    "--output_dir",
-    "-od",
-    type=str,
-    default=None,
-    help="Directory to output results. Default to the a sub-directory named 'icesat2' within the "
-    "input directory.",
-)
-@click.option(
-    "--input_vdatum",
-    "-ivd",
-    default="egm2008",
-    help="The vertical datum of the input DEMs. Default: 'egm2008'",
-)
-@click.option(
-    "--place_name",
-    "-name",
-    type=str,
-    default=None,
-    help="Readable name of the location being validated. Will be used in output summary plots and "
-    "validation report.",
-)
-@click.option(
-    "--overwrite",
-    "-o",
-    is_flag=True,
-    default=False,
-    help="Overwrite all files, including intermittent data files. Default: False "
-    "(skips re-computing already-computed reseults.",
-)
-@click.option(
-    "-cf",
-    "--create_folders",
-    type=yes_no.interpret_yes_no,
-    default=True,
-    help="Create folders specified in -output_dir and -data_dir, as well as the full path to "
-    "-photon_h5, if they do not already exist. Otherwise will raise errors if directories "
-    "don't already exist. Default: True.",
-)
-@click.option(
-    "-ind",
-    "--individual_results",
-    type=yes_no.interpret_yes_no,
-    default=True,
-    help="By default, a summary plot and text file are generated for the dataset. If this is "
-    "selected, they will be generated for each individual DEM as well. Files will be placed "
-    "in the -output_dir directory. Default: True",
-)
-@click.option(
-    "--include_photon_validation",
-    "-ph",
-    is_flag=True,
-    default=False,
-    help="Produce a photon database (stored in '*_photon_level_results.h5') with errors on a "
-    "photon-level (not cell-level) scale. Useful for identifying bad ICESat-2 granules.",
-)
-@click.option(
-    "--delete_datafiles",
-    "-del",
-    is_flag=True,
-    default=False,
-    help="By default, all data files generted in this process are kept. If this option is chosen, "
-    "delete them.",
-)
-@click.option(
-    "--outlier_sd_threshold",
-    default="2.5",
-    help="Number of standard-deviations away from the mean to omit outliers. Default 2.5. "
-    "May choose 'None' if no filtering is requested.",
-)
-@click.option(
-    "--measure_coverage",
-    "-mc",
-    is_flag=True,
-    default=False,
-    help="Measure the coverage %age of icesat-2 data in each of the output DEM cells.",
-)
-@click.option(
-    "--minimum_coverage_pct",
-    "-mcp",
-    type=float,
-    default=None,
-    help="Only validate DEM grid cells whose measured coverage is at or above this "
-    "percentage (0-100). Requires the -mc/--measure_coverage flag.",
-)
-@click.option(
-    "-wsc",
-    "--write_summary_csv",
-    type=yes_no.interpret_yes_no,
-    default=True,
-    help="Write a CSV with summary results of each individual DEM.",
-)
-@click.option(
-    "--projection",
-    "-p",
-    type=str,
-    default=None,
-    help="The CRS of the DEM(s): horizontal ('EPSG:26910') or compound ('EPSG:6893', "
-    "'EPSG:4326+3855', 'EPSG:4326+vdatum:mllw'). Required for a DEM with no CRS of its "
-    "own; overrides the file's CRS, with a warning, if it differs. A vertical datum "
-    "given separately overrides its vertical part.",
-)
-@click.option(
-    "--variable",
-    type=str,
-    default=None,
-    help="The variable to validate in NetCDF or HDF5 DEM files: a name ('elev') or, "
-    "for HDF5, a path within the file ('grid/elev'). Defaults to each file's only "
-    "variable, or else the first of 'elev', 'elevation' or 'z' found.",
-)
-@click.option("--quiet", "-q", is_flag=True, default=False, help="Suppress output.")
-def main(
-    directory_or_files,
-    fname_filter,
-    fname_omit,
-    output_dir,
-    input_vdatum,
-    place_name,
-    overwrite,
-    create_folders,
-    individual_results,
-    include_photon_validation,
-    delete_datafiles,
-    outlier_sd_threshold,
-    measure_coverage,
-    minimum_coverage_pct,
-    write_summary_csv,
-    variable,
-    projection,
-    quiet,
-):
-    """Validate a list or directory of DEMs against ICESat-2 photon data.
-
-    DIRECTORY_OR_FILES is a directory path, or a list of individual DEM tiles.
-    """
-    if minimum_coverage_pct is not None and not measure_coverage:
-        msg = (
-            "--minimum_coverage_pct requires the -mc/--measure_coverage flag "
-            "(coverage must be measured before it can be filtered on)."
-        )
-        raise click.UsageError(msg)
-
-    directory_or_files = list(directory_or_files)
-
-    if output_dir is None:
-        # Default to data dir or directory of first data file, in the 'icesat2' sub-directory.
-        path = directory_or_files[0]
-        if type(path) is str and os.path.isdir(path):
-            output_dir = os.path.join(path, "icesat2")
-        else:
-            output_dir = os.path.join(os.path.split(path)[0], "icesat2")
-
-        assert type(output_dir) is str
-
-    if (type(fname_filter) in (list, tuple)) and (len(fname_filter) == 1):
-        fname_filter = fname_filter[0]
-
-    # Check for the existence of appropriate output & data directories.
-
-    output_dir_abs = os.path.abspath(output_dir)
-    if not os.path.exists(output_dir_abs):
-        if create_folders:
-            os.makedirs(output_dir_abs)
-        else:
-            msg = (
-                f"Output directory '{output_dir}' does not exist. "
-                "Create directory or use the --create_folders flag upon execution."
-            )
-            raise FileNotFoundError(msg)
-
-    # NOTE: This code assumes that if we create the directory here, it will
-    # not be erased before the code gets to putting files there later. Seems
-    # like a generally safe assumption, and behavior is okay if another process
-    # or the user manually deletes directories during execution, it will cause
-    # the program to crash when it tries to write files there. That's a user error.
-
-    # Set up multiprocessing. 'spawn' is the slowest but the most reliable. Otherwise, file handlers are fucking us up.
-    # force=True avoids a RuntimeError if the start method was already set in this process.
-    mp.set_start_method("spawn", force=True)
-
-    validate_list_of_dems(
-        directory_or_files,
-        fname_filter=fname_filter,
-        fname_omit=fname_omit,
-        output_dir=output_dir,
-        variable=variable,
-        input_vdatum=input_vdatum,
-        dem_projection=projection,
-        overwrite=overwrite,
-        place_name=place_name,
-        create_individual_results=individual_results,
-        delete_datafiles=delete_datafiles,
-        include_photon_validation=include_photon_validation,
-        measure_coverage=measure_coverage,
-        min_coverage_pct=minimum_coverage_pct,
-        write_summary_csv=write_summary_csv,
-        outliers_sd_threshold=ast.literal_eval(outlier_sd_threshold),
-    )
-
-
-if __name__ == "__main__":
-    main()

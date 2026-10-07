@@ -220,7 +220,6 @@ class Config:
     def __init__(
         self,
         configfile: str = ivert_default_configfile,
-        ignore_errors: bool = False,
     ) -> None:
         """Initialize a new instance of the Config class."""
         self._configfile = os.path.abspath(os.path.realpath(configfile))

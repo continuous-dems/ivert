@@ -260,7 +260,7 @@ def test_single_dataset_hdf5_file(tmp_path):
         dem_source.resolve_dem_source(path, "elev")
 
 
-def test_hdf5_subdataset_base_name_and_possible_names(tmp_path):
+def test_hdf5_subdataset_base_name_and_possible_names():
     """In 'grid/elev', the slash between HDF5 group and dataset becomes an underscore.
 
     Kept as a slash, it would put every output file under a subdirectory.

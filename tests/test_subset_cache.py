@@ -93,7 +93,7 @@ class _FakeFetchezIceSat2:
         self.subset_job_id = None
         self.results = []
 
-    def harmony_ping_for_status(self, job_id):
+    def harmony_ping_for_status(self, _job_id):
         return None
 
     def harmony_make_request(self):
@@ -112,13 +112,13 @@ class _FakeRequestsCSV:
     def __init__(self, config: object = None) -> None:
         pass
 
-    def find_matching_request(self, *args: object, **kwargs: object):
+    def find_matching_request(self, *_args: object, **_kwargs: object):
         return None
 
-    def add_record(self, *args: object, **kwargs: object):
+    def add_record(self, *_args: object, **_kwargs: object):
         pass
 
-    def update_record(self, *args: object, **kwargs: object):
+    def update_record(self, *_args: object, **_kwargs: object):
         pass
 
 
@@ -212,7 +212,7 @@ def test_a_subset_is_classified_once_and_stored_per_tile(db, monkeypatch):
     """A 4.5-degree rectangle is one download but two storage tiles."""
     calls = []
 
-    def fake_classify(h5_fn, query_bbox, **kwargs: object):
+    def fake_classify(h5_fn, query_bbox, **_kwargs: object):
         calls.append((os.path.basename(h5_fn), query_bbox))
         return _photons([-120.5, -118.0, -117.0]), "EPSG:4979"
 
@@ -282,7 +282,7 @@ def test_each_part_fetches_and_reads_its_own_copy_of_a_shared_granule(db, monkey
     """The case in the module docstring: adjacent parts share a granule, and each reads its own subset."""
     read = []
 
-    def fake_classify(h5_fn, query_bbox, **kwargs: object):
+    def fake_classify(h5_fn, _query_bbox, **_kwargs: object):
         read.append(os.path.basename(h5_fn))
 
     monkeypatch.setattr(db, "_classify_h5", fake_classify)

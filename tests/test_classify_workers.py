@@ -39,7 +39,7 @@ def _auto(tmp_path, sizes=(100 << 20, 448 << 20), **machine: object):
     return is2db.classify_worker_count("auto", _files(tmp_path, *sizes), **machine)
 
 
-def test_an_integer_setting_is_taken_as_given(tmp_path):
+def test_an_integer_setting_is_taken_as_given():
     """A number overrides auto, as an int or as the string a config file gives; 0 still means one."""
     assert is2db.classify_worker_count(3, [], cpu_count=1)[0] == 3
     assert is2db.classify_worker_count("3", [], cpu_count=1)[0] == 3
@@ -114,7 +114,7 @@ class _RecordingReader:
     asked: ClassVar[list] = []
     delay: ClassVar[dict] = {}
 
-    def __init__(self, h5_fn, cache_dir=None, **kwargs: object) -> None:
+    def __init__(self, _h5_fn, cache_dir=None, **_kwargs: object) -> None:
         self.cache_dir = cache_dir
 
     def fetch_atlxx(self, h5_fn, short_name):
@@ -134,7 +134,7 @@ def fake_globato(monkeypatch):
     return _RecordingReader
 
 
-def _fake_classify(self, h5_fn, query_bbox, tiles, **kwargs: object):
+def _fake_classify(_self, h5_fn, **kwargs: object):
     """Stands in for _process_h5_to_nc_tiles: says which process did the work."""
     if "empty" in h5_fn:
         return []
@@ -232,8 +232,9 @@ def test_granules_are_classified_as_their_aux_files_arrive(
     assert first["pid"] == os.getpid()
 
 
+@pytest.mark.usefixtures("fake_globato")
 @forks
-def test_one_worker_means_everything_runs_here(tmp_path, monkeypatch, fake_globato):
+def test_one_worker_means_everything_runs_here(tmp_path, monkeypatch):
     """A setting of 1 is the old one-granule-at-a-time path, with no worker processes."""
     monkeypatch.setattr(is2db.IS2Database, "_process_h5_to_nc_tiles", _fake_classify)
     monkeypatch.setattr(is2db, "classify_worker_count", lambda *_a, **_k: (1, "test"))
@@ -273,8 +274,9 @@ def test_prefetch_asks_globato_for_both_aux_products(tmp_path, caplog, fake_glob
     assert "Aux granules ready for 2 subsets: 2 ATL08, 0 ATL24." in caplog.text
 
 
+@pytest.mark.usefixtures("fake_globato")
 @forks
-def test_prefetch_runs_in_a_child_that_reports_each_subset(tmp_path, fake_globato):
+def test_prefetch_runs_in_a_child_that_reports_each_subset(tmp_path):
     """The forked child reports every subset on the queue and exits cleanly when done."""
     files = _files(tmp_path, 1 << 20, 3 << 20, 2 << 20)
 
@@ -293,7 +295,6 @@ def test_prefetch_has_nothing_to_do_without_files(tmp_path):
 
 
 def test_subsets_the_prefetch_never_reported_are_still_classified(
-    tmp_path,
     monkeypatch,
     caplog,
 ):

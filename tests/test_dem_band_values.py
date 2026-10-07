@@ -118,19 +118,22 @@ EGM2008 = pyproj.CRS("EPSG:3855")
 NAVD88 = pyproj.CRS("EPSG:5703")
 
 
-def test_missing_crs_without_projection_is_an_error(no_transformez_check):
+@pytest.mark.usefixtures("no_transformez_check")
+def test_missing_crs_without_projection_is_an_error():
     """A DEM with no CRS once failed with an AttributeError; now the message points to -p."""
     with pytest.raises(ValueError, match="-p/--projection"):
         validate_dem._resolve_dem_crs("dem.nc", None, EGM2008)
 
 
-def test_missing_vertical_datum_is_an_error(no_transformez_check):
+@pytest.mark.usefixtures("no_transformez_check")
+def test_missing_vertical_datum_is_an_error():
     """With no vertical datum from -V, -p or the file, there is nothing to shift photons to."""
     with pytest.raises(ValueError, match="-V/--vdatum"):
         validate_dem._resolve_dem_crs("dem.tif", WGS84, None)
 
 
-def test_file_crs_is_used_when_nothing_is_given(no_transformez_check, caplog):
+@pytest.mark.usefixtures("no_transformez_check")
+def test_file_crs_is_used_when_nothing_is_given(caplog):
     """The common case stays quiet: no flags, the file's CRS, no warnings."""
     horz, vert = validate_dem._resolve_dem_crs("dem.tif", WGS84, EGM2008)
 
@@ -139,7 +142,8 @@ def test_file_crs_is_used_when_nothing_is_given(no_transformez_check, caplog):
     assert not caplog.records
 
 
-def test_projection_fills_in_a_missing_crs(no_transformez_check, caplog):
+@pytest.mark.usefixtures("no_transformez_check")
+def test_projection_fills_in_a_missing_crs(caplog):
     """Filling a gap isn't an override, so there is no warning."""
     horz, _ = validate_dem._resolve_dem_crs("dem.nc", None, EGM2008, "EPSG:26910")
 
@@ -147,7 +151,8 @@ def test_projection_fills_in_a_missing_crs(no_transformez_check, caplog):
     assert not caplog.records
 
 
-def test_projection_overrides_the_file_crs_with_a_warning(no_transformez_check, caplog):
+@pytest.mark.usefixtures("no_transformez_check")
+def test_projection_overrides_the_file_crs_with_a_warning(caplog):
     """-p wins over the file's CRS, with a warning in case the difference wasn't intended."""
     with caplog.at_level(logging.WARNING):
         horz, _ = validate_dem._resolve_dem_crs("dem.tif", WGS84, EGM2008, "EPSG:26910")
@@ -156,7 +161,8 @@ def test_projection_overrides_the_file_crs_with_a_warning(no_transformez_check, 
     assert "in place of the CRS in the file" in caplog.text
 
 
-def test_matching_projection_logs_no_warning(no_transformez_check, caplog):
+@pytest.mark.usefixtures("no_transformez_check")
+def test_matching_projection_logs_no_warning(caplog):
     """The file's own CRS, spelled another way, isn't an override."""
     with caplog.at_level(logging.WARNING):
         validate_dem._resolve_dem_crs("dem.tif", WGS84, EGM2008, "4326")
@@ -164,6 +170,7 @@ def test_matching_projection_logs_no_warning(no_transformez_check, caplog):
     assert not caplog.records
 
 
+@pytest.mark.usefixtures("no_transformez_check")
 @pytest.mark.parametrize(
     ("projection", "expected_horz", "expected_vert"),
     [
@@ -173,7 +180,6 @@ def test_matching_projection_logs_no_warning(no_transformez_check, caplog):
     ],
 )
 def test_compound_projection_gives_the_vertical_datum(
-    no_transformez_check,
     projection,
     expected_horz,
     expected_vert,
@@ -185,7 +191,8 @@ def test_compound_projection_gives_the_vertical_datum(
     assert vert.to_epsg() == expected_vert
 
 
-def test_projection_with_a_transformez_tidal_datum(no_transformez_check):
+@pytest.mark.usefixtures("no_transformez_check")
+def test_projection_with_a_transformez_tidal_datum():
     """A tidal datum has no EPSG code, so its transformez reference is kept as a string."""
     horz, vert = validate_dem._resolve_dem_crs(
         "dem.nc",
@@ -198,8 +205,8 @@ def test_projection_with_a_transformez_tidal_datum(no_transformez_check):
     assert vert == "vdatum:mllw"
 
 
+@pytest.mark.usefixtures("no_transformez_check")
 def test_vdatum_overrides_the_projection_vertical_with_a_warning(
-    no_transformez_check,
     caplog,
 ):
     """-V outranks the vertical part of -p, and says so when they differ."""
@@ -216,8 +223,8 @@ def test_vdatum_overrides_the_projection_vertical_with_a_warning(
     assert "in place of the vertical datum in -p/--projection" in caplog.text
 
 
+@pytest.mark.usefixtures("no_transformez_check")
 def test_vdatum_matching_the_projection_vertical_logs_no_warning(
-    no_transformez_check,
     caplog,
 ):
     """'egm2008' and EPSG:3855 are the same datum, so this isn't an override."""
@@ -227,6 +234,7 @@ def test_vdatum_matching_the_projection_vertical_logs_no_warning(
     assert not caplog.records
 
 
+@pytest.mark.usefixtures("no_transformez_check")
 @pytest.mark.parametrize(
     ("projection", "vdatum", "flag"),
     [
@@ -235,7 +243,6 @@ def test_vdatum_matching_the_projection_vertical_logs_no_warning(
     ],
 )
 def test_command_line_vertical_overrides_the_file_with_a_warning(
-    no_transformez_check,
     caplog,
     projection,
     vdatum,
@@ -258,7 +265,8 @@ def test_command_line_vertical_overrides_the_file_with_a_warning(
     )
 
 
-def test_projection_without_a_horizontal_crs_is_an_error(no_transformez_check):
+@pytest.mark.usefixtures("no_transformez_check")
+def test_projection_without_a_horizontal_crs_is_an_error():
     """A vertical-only code given to -p can't place the DEM horizontally."""
     with pytest.raises(ValueError, match="no horizontal CRS"):
         validate_dem._resolve_dem_crs("dem.tif", WGS84, EGM2008, "EPSG:5703")

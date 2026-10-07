@@ -28,7 +28,6 @@ def is_iterable(obj):
 def get_data_from_h5_or_list(
     h5_name_or_list: str | list[str],
     orig_filenames: str | list[str] | None = None,
-    empty_val: float | None = None,
     include_filenames: bool = False,
 ) -> pd.DataFrame:
     """Return the data either from a single hdf5 results file, or a list of them. Filter out empty (bad data) values."""
@@ -83,7 +82,6 @@ def get_data_from_h5_or_list(
 def plot_histograms_and_line(
     results_h5_or_list_or_df,
     output_figure_name,
-    empty_val=None,
     place_name=None,
     figsize=(10.0, 4.0),  # Width/height, in inches
     labels_uppercase=True,
@@ -107,7 +105,7 @@ def plot_histograms_and_line(
     if type(results_h5_or_list_or_df) is pd.DataFrame:
         data = results_h5_or_list_or_df
     else:
-        data = get_data_from_h5_or_list(results_h5_or_list_or_df, empty_val=empty_val)
+        data = get_data_from_h5_or_list(results_h5_or_list_or_df)
 
     meandiff = data["diff_mean"]
     numphotons_bathy = data["numphotons_bathy"]
@@ -436,7 +434,6 @@ def plot_histograms_and_line(
 def plot_histogram_and_error_stats_4_panels(
     results_h5_or_list_or_df,
     output_figure_name,
-    empty_val=None,
     place_name=None,
     figsize=None,
     labels_uppercase=True,
@@ -461,7 +458,7 @@ def plot_histogram_and_error_stats_4_panels(
     if type(results_h5_or_list_or_df) is pd.DataFrame:
         data = results_h5_or_list_or_df
     else:
-        data = get_data_from_h5_or_list(results_h5_or_list_or_df, empty_val=empty_val)
+        data = get_data_from_h5_or_list(results_h5_or_list_or_df)
 
     meandiff = data["diff_mean"]
     numphotons_intd = data["numphotons_intd"]

@@ -89,8 +89,6 @@ ignore = [
     "ANN001",   # missing-type-function-argument
     "ANN201",   # missing-return-type-undocumented-public-function
     "ANN202",   # missing-return-type-private-function
-    "ARG001",   # unused-function-argument
-    "ARG002",   # unused-method-argument
     "C901",     # complex-structure
     "CPY001",   # missing-copyright-notice
     "E501",     # line-too-long

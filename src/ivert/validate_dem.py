@@ -10,7 +10,6 @@ Created on Tue Jun 22 16:06:21 2021
 @author: mmacferrin
 """
 
-import ast
 import contextlib
 import logging
 import multiprocessing as mp
@@ -21,7 +20,6 @@ import sys
 import time
 from multiprocessing import shared_memory
 
-import click
 import geopandas
 import numexpr
 import numpy as np
@@ -577,7 +575,6 @@ def validate_dem(
     dem_ndv: float | None = None,
     interim_data_dir: str | None = None,
     overwrite: bool = False,
-    delete_datafiles: bool = False,
     write_summary_stats: bool = True,
     outliers_sd_threshold: float | None = 2.5,
     include_photon_level_validation: bool = False,
@@ -638,7 +635,6 @@ def validate_dem(
             file header value, falling back to the config default (dem_default_ndv).
         interim_data_dir: Output directory for intermediate data. Defaults to the same as the output_dir.
         overwrite: Overwrite existing files.
-        delete_datafiles: Delete intermediate data files after validation is complete.
         write_summary_stats: Write summary statistics of results to a textfile.
         outliers_sd_threshold: Threshold for outlier detection in errors. Defaults to 2.5.
         include_photon_level_validation: Include photon level validation (not just cell-level validation).
@@ -708,7 +704,6 @@ def validate_dem(
         "dem_ndv": dem_ndv,
         "interim_data_dir": interim_data_dir,
         "overwrite": overwrite,
-        "delete_datafiles": delete_datafiles,
         "dates": dates,
         "classes": classes,
         "write_summary_stats": write_summary_stats,
@@ -810,7 +805,6 @@ def validate_dem(
                 dem_ndv=dem_ndv if dem_ndv is not None else parent_band_ndv,
                 interim_data_dir=interim_data_dir,
                 overwrite=overwrite,
-                delete_datafiles=delete_datafiles,
                 dates=dates,
                 classes=classes,
                 write_summary_stats=False,  # No need to write the summary stats file for subsets.
@@ -2174,7 +2168,6 @@ def validate_dem_parallel(
     dem_ndv: float | None = None,
     interim_data_dir: str | None = None,
     overwrite: bool = False,
-    delete_datafiles: bool = False,
     write_summary_stats: bool = True,
     outliers_sd_threshold: float = 2.5,
     include_photon_level_validation: bool = False,
@@ -2859,196 +2852,3 @@ def export_error_results(
         exported.append(out_fname)
 
     return exported
-
-
-@click.command(
-    help="Use ICESat-2 photon data to validate a DEM and generate statistics.",
-)
-@click.argument("input_dem", type=str)
-@click.argument("output_dir", type=str, required=False, default="")
-@click.option(
-    "--classes",
-    "-c",
-    type=str,
-    default="1/6/40",
-    help="ICESat-2 photon classes to include in validation, separated by slashes. Photons in any "
-    "other class are excluded before statistics are computed. Default '1/6/40', which are "
-    "'ground', 'land_ice', and 'bathy_floor'.",
-)
-@click.option(
-    "--input_vdatum",
-    "-ivd",
-    type=str,
-    default="egm2008",
-    help="Input DEM vertical datum, as a string or 'EPSG:code'. (Default: 'egm2008')",
-)
-@click.option(
-    "--datadir",
-    type=str,
-    default="",
-    help="A scratch directory to write interim data files. Useful if user would like to save temp files elsewhere. Defaults to the output_dir directory.",
-)
-@click.option(
-    "--band_num",
-    type=int,
-    default=1,
-    help="The band number (1-indexed) of the input_dem. (Default: 1)",
-)
-@click.option(
-    "--projection",
-    "-p",
-    type=str,
-    default=None,
-    help="The CRS of the DEM(s): horizontal ('EPSG:26910') or compound ('EPSG:6893', "
-    "'EPSG:4326+3855', 'EPSG:4326+vdatum:mllw'). Required for a DEM with no CRS of its "
-    "own; overrides the file's CRS, with a warning, if it differs. A vertical datum "
-    "given separately overrides its vertical part.",
-)
-@click.option(
-    "--variable",
-    type=str,
-    default=None,
-    help="The variable to validate in a NetCDF or HDF5 DEM file: a name ('elev') or, "
-    "for HDF5, a path within the file ('grid/elev'). Defaults to the file's only "
-    "variable, or else the first of 'elev', 'elevation' or 'z' found.",
-)
-@click.option(
-    "--place_name",
-    "-name",
-    type=str,
-    default=None,
-    help="A text name of the location, to put in the title of the plot (if --plot_results is selected)",
-)
-@click.option(
-    "--numprocs",
-    "-np",
-    type=int,
-    default=parallel_funcs.physical_cpu_count(),
-    help="The number of sub-processes to run for this validation. Default to the maximum physical CPU count on this machine.",
-)
-@click.option(
-    "--delete_datafiles",
-    is_flag=True,
-    default=False,
-    help="Delete the interim data files generated. Reduces storage requirements. (Default: keep them all.)",
-)
-@click.option(
-    "--measure_coverage",
-    "-mc",
-    is_flag=True,
-    default=False,
-    help="Measure the coverage %age of icesat-2 data in each of the output DEM cells.",
-)
-@click.option(
-    "--minimum_coverage_pct",
-    "-mcp",
-    type=float,
-    default=None,
-    help="Only validate DEM grid cells whose measured coverage is at or above this "
-    "percentage (0-100). Requires the -mc/--measure_coverage flag.",
-)
-@click.option(
-    "--outlier_sd_threshold",
-    default="2.5",
-    help="Number of standard-deviations away from the mean to omit outliers. Default 2.5 (standard deviations). Choose 'None' if no outlier filtering is requested.",
-)
-@click.option(
-    "--plot_results",
-    is_flag=True,
-    default=False,
-    help="Make summary plots of the validation statistics.",
-)
-@click.option(
-    "--overwrite",
-    is_flag=True,
-    default=False,
-    help="Overwrite all interim and output files, even if they already exist. Default: Use interim files to compute results, saving time.",
-)
-@click.option(
-    "--quiet",
-    is_flag=True,
-    default=False,
-    help="Suppress output messaging, including error messages (just fail quietly without errors, return status 1).",
-)
-def main(
-    input_dem,
-    output_dir,
-    classes,
-    input_vdatum,
-    datadir,
-    band_num,
-    variable,
-    projection,
-    place_name,
-    numprocs,
-    delete_datafiles,
-    measure_coverage,
-    minimum_coverage_pct,
-    outlier_sd_threshold,
-    plot_results,
-    overwrite,
-    quiet,
-):
-    """Use ICESat-2 photon data to validate a DEM and generate statistics.
-
-    INPUT_DEM is the input DEM. OUTPUT_DIR is the directory to write output
-    results; defaults to the same directory as the input filename.
-    """
-    if minimum_coverage_pct is not None and not measure_coverage:
-        msg = (
-            "--minimum_coverage_pct requires the -mc/--measure_coverage flag "
-            "(coverage must be measured before it can be filtered on)."
-        )
-        raise click.UsageError(msg)
-
-    # The output directory defaults to the input directory.
-    if not output_dir:
-        output_dir = os.path.dirname(input_dem)
-
-    # The data directory defaults to the output directory.
-    if not datadir:
-        datadir = output_dir
-
-    try:
-        classes_list = [int(c) for c in classes.split("/")]
-    except ValueError:
-        # Not logger.exception: this is a malformed command-line value, and the
-        # traceback would tell the user nothing the message does not.
-        logger.error(  # noqa: TRY400
-            "'classes' must be a list of integer values separated by forward-slashes (/)",
-        )
-        sys.exit(1)
-
-    # Set up multiprocessing. 'spawn' is the slowest but the most reliable. Otherwise, file handlers are fucking us up.
-    # force=True avoids a RuntimeError if the start method was already set in this process.
-    mp.set_start_method("spawn", force=True)
-
-    try:
-        input_dem = dem_source.resolve_dem_source(input_dem, variable)
-        dem_source.check_georeferenced(input_dem)
-    except dem_source.DEMSourceError as exc:
-        logger.error(str(exc))  # noqa: TRY400
-        sys.exit(1)
-
-    # Run the validation
-    validate_dem(
-        input_dem,
-        output_dir=output_dir,
-        classes=classes_list,
-        dem_vertical_datum=input_vdatum,
-        dem_projection=projection,
-        interim_data_dir=(datadir or None),
-        overwrite=overwrite,
-        delete_datafiles=delete_datafiles,
-        plot_results=plot_results,
-        location_name=place_name,
-        outliers_sd_threshold=ast.literal_eval(outlier_sd_threshold),
-        measure_coverage=measure_coverage,
-        min_coverage_pct=minimum_coverage_pct,
-        numprocs=numprocs,
-        band_num=band_num,
-    )
-
-
-if __name__ == "__main__":
-    main()

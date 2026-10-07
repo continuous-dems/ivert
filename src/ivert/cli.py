@@ -49,8 +49,7 @@ logger = logging.getLogger(__name__)
         "Change the persistent default with 'ivert options verbosity=<level>'."
     ),
 )
-@click.pass_context
-def ivert_cli(ctx, user_config, verbosity):
+def ivert_cli(user_config, verbosity):
     """IVERT: ICESat-2 Validation of Elevations Reporting Tool.
 
     Run 'ivert <command> --help' for detailed help on any command.
@@ -2717,7 +2716,6 @@ def _run_validate(
             to_validate, reused = vdc_module.dems_needing_validation(
                 dem_input,
                 multi_outdir,
-                place_name=region_name,
                 include_photons=include_photons,
                 overwrite=overwrite,
                 variable=variable,
