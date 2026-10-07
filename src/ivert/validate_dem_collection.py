@@ -580,7 +580,7 @@ def validate_list_of_dems(
                 dem_vertical_datum=input_vdatum,
                 dem_projection=dem_projection,
                 dem_ndv=dem_ndv,
-                interim_data_dir=str(this_output_dir),
+                interim_data_dir=this_output_dir,
                 overwrite=overwrite,
                 write_summary_stats=create_individual_results,
                 include_photon_level_validation=include_photon_validation,

@@ -2622,8 +2622,8 @@ def _run_validate(
         # validate_dem uses output_dir as-is, so resolve any relative path against
         # the DEM's own directory rather than the current working directory.
         if not Path(outdir).is_absolute():
-            single_outdir = str(
-                absolute_path(dem_source.dem_file_path(dem_name)).parent / outdir,
+            single_outdir = (
+                absolute_path(dem_source.dem_file_path(dem_name)).parent / outdir
             )
         else:
             single_outdir = outdir
@@ -2677,7 +2677,7 @@ def _run_validate(
                 dem_dir = absolute_path(dem_input)
             else:
                 dem_dir = absolute_path(dem_source.dem_file_path(dem_input)).parent
-            multi_outdir = str(dem_dir / outdir)
+            multi_outdir = dem_dir / outdir
         else:
             multi_outdir = outdir
         kwargs = {
