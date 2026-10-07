@@ -248,7 +248,7 @@ def test_one_worker_means_everything_runs_here(tmp_path, monkeypatch):
 
 
 def test_no_files_means_no_records(tmp_path):
-    """A repeat download, its tiles all in the database already, must not crash on an empty list."""
+    """An empty list must return at once; without the guard, next() raises StopIteration."""
     assert _db(tmp_path)._classify_files([], BBOX) == []
 
 

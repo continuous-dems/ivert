@@ -118,8 +118,6 @@ ignore = [
     "PTH202",   # os-path-getsize
     "PTH207",   # glob
     "PTH208",   # os-listdir
-    "S101",     # assert
-    "SLF001",   # private-member-access
     # Permanent: TRY003 wants a custom exception class for every multi-word message.
     # Most of ours are one-off argument checks or click exceptions, whose message
     # is what the user sees, so a class per message would add nothing.
@@ -131,5 +129,6 @@ convention = "google"
 
 [tool.ruff.lint.per-file-ignores]
 "conf.py" = ["A001"]
-# tests/ is deliberately not a package, which INP001 forbids.
-"tests/**" = ["INP001"]
+# tests/ is deliberately not a package, which INP001 forbids. pytest checks with
+# assert (S101), and unit tests call the private helpers they test (SLF001).
+"tests/**" = ["INP001", "S101", "SLF001"]

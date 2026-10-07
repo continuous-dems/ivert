@@ -289,7 +289,7 @@ def _start_classify_worker(config, nice: int) -> None:
 def _classify_in_worker(job: tuple) -> tuple:
     """Classify one subset in a worker; ``job`` is (granule index, kwargs)."""
     index, kwargs = job
-    return index, kwargs["h5_fn"], _WORKER_DB._process_h5_to_nc_tiles(**kwargs)
+    return index, kwargs["h5_fn"], _WORKER_DB._process_h5_to_nc_tiles(**kwargs)  # noqa: SLF001
 
 
 class DatabaseNotFoundError(Exception):
