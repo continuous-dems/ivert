@@ -2552,9 +2552,9 @@ def _run_validate(
     if outdir is None:
         from ivert.utils.configfile import Config
 
-        # Read the raw (unresolved) string so it stays relative to the DEM directory,
-        # not the config file's directory.
-        outdir = Config()._config["DEFAULT"]["ivert_results_subdir"]
+        # Config keeps this setting relative, so it resolves against each DEM's
+        # directory rather than the config file's.
+        outdir = Config().ivert_results_subdir
 
     # Expand any glob patterns the shell left unexpanded (e.g., quoted patterns).
     expanded = []

@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Parameters that were accepted but never used are removed (#150). `delete_datafiles`, taken by `validate_dem()`, `validate_dem_parallel()` and `validate_list_of_dems()`, never deleted anything. `empty_val` in `plot_validation_results.get_data_from_h5_or_list()`, `plot_histograms_and_line()` and `plot_histogram_and_error_stats_4_panels()` belonged to a filter that had long been commented out. `Config(ignore_errors=...)` and `dems_needing_validation(place_name=...)` had no effect either. Passing any of them now raises `TypeError`.
 
 ### Fixed
+- `ivert validate` writes its results to the `ivert_results_subdir` setting when it is set in the user config (#151). It read the packaged default instead, so `ivert options set ivert_results_subdir ...` had no effect on where results went; `-o/--outdir` was unaffected.
 - `packaging` and `pyogrio` are now declared as dependencies (#147). IVERT imports both directly, `packaging` to compare the IVERT version recorded in a run manifest and `pyogrio` to read landmask tiles, but they were only installed because other dependencies pull them in, so a change in one of those could have left `ivert validate` failing with `ModuleNotFoundError`.
 
 ## [0.7.0] - 2026-10-06
