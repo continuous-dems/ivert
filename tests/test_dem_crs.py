@@ -34,6 +34,7 @@ def _write_tif(path, crs="EPSG:4326"):
 
 
 def test_ogc_crs84_reads_as_epsg_4326():
+    """OGC:CRS84 with an EPSG vertical datum failed: the datums' authorities must match."""
     horz = dem_geom.get_dem_reference_frame_from_user_input("OGC:CRS84", "horz")
 
     assert horz.equals(pyproj.CRS("EPSG:4326"))
@@ -51,6 +52,7 @@ def test_ascii_grid_crs_pairs_with_an_epsg_vertical_datum(tmp_path):
 
 
 def test_split_srs_string_reads_ogc_crs84_as_epsg_4326():
+    """The same reading applies to an SRS string, including one with a transformez datum."""
     horz, vert = dem_geom.split_srs_string("OGC:CRS84+vdatum:mllw")
 
     assert horz.equals(pyproj.CRS("EPSG:4326"))
@@ -58,6 +60,7 @@ def test_split_srs_string_reads_ogc_crs84_as_epsg_4326():
 
 
 def test_download_region_from_a_dem(tmp_path):
+    """'ivert database download' given a DEM file fetches photons for the DEM's extent."""
     bbox, geometry = _region_from_file(_write_tif(tmp_path / "dem.tif"))
 
     np.testing.assert_allclose(bbox, (-105.0, -104.5, 39.9, 40.3))
@@ -65,6 +68,7 @@ def test_download_region_from_a_dem(tmp_path):
 
 
 def test_download_region_from_a_dem_without_a_crs_needs_projection(tmp_path):
+    """A DEM with no CRS once failed with an AttributeError; now the message points to -p."""
     path = _write_tif(tmp_path / "dem.tif", crs=None)
 
     with pytest.raises(ValueError, match="-p/--projection"):
@@ -74,6 +78,7 @@ def test_download_region_from_a_dem_without_a_crs_needs_projection(tmp_path):
 
 
 def test_download_projection_overrides_the_dem_crs_with_a_warning(tmp_path, caplog):
+    """-p wins over the file's CRS, with a warning in case the difference wasn't intended."""
     path = _write_tif(tmp_path / "dem.tif", crs="EPSG:4269")
 
     with caplog.at_level(logging.WARNING):

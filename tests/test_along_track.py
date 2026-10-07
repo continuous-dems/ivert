@@ -56,6 +56,7 @@ def _expected(beam, segment_id, idx):
 
 
 def test_tables_cover_every_beam_and_photon(tmp_path):
+    """A beam missing from the file is skipped, and an empty segment still adds its length."""
     h5 = _write_h5(tmp_path / "ATL03_test.h5")
 
     tables = is2db.IS2Database._h5_along_track_m(h5, ["gt1l", "gt3r", "gt2l"])
@@ -68,6 +69,11 @@ def test_tables_cover_every_beam_and_photon(tmp_path):
 
 
 def test_photons_are_looked_up_by_beam_segment_and_place(tmp_path):
+    """Photons are matched by their row in the file, not by their coordinates.
+
+    ATL24 replaces a bathymetry photon's coordinates with its own, so a
+    coordinate match would miss those photons.
+    """
     h5 = _write_h5(tmp_path / "ATL03_test.h5")
     tables = is2db.IS2Database._h5_along_track_m(h5, list(BEAMS))
     df = pd.DataFrame(
@@ -91,6 +97,7 @@ def test_photons_are_looked_up_by_beam_segment_and_place(tmp_path):
 
 
 def test_beam_names_may_be_str(tmp_path):
+    """Beam names come from globato as bytes, but a str name must find the same table."""
     h5 = _write_h5(tmp_path / "ATL03_test.h5")
     tables = is2db.IS2Database._h5_along_track_m(h5, list(BEAMS))
     df = pd.DataFrame(
@@ -119,6 +126,11 @@ def _records(h5_fn, delta_time):
 
 
 def test_classified_photons_carry_along_track_m(tmp_path, monkeypatch):
+    """The column reaches the stored tile.
+
+    It was once never written: the beam name arrived as bytes, built a wrong
+    HDF5 path, the lookup failed quietly for every beam, and no tile had it.
+    """
     h5 = _write_h5(tmp_path / "ATL03_test.h5")
     query_bbox = (-81.0, -79.0, 24.0, 26.0, 20220101, 20220201)
     delta_time = is2db._yyyymmdd_to_delta_time(20220115)
@@ -157,6 +169,7 @@ def test_classified_photons_carry_along_track_m(tmp_path, monkeypatch):
 
 
 def test_no_along_track_without_the_segment_columns(tmp_path, monkeypatch):
+    """Without globato's segment columns the granule is still classified, just without the column."""
     h5 = _write_h5(tmp_path / "ATL03_test.h5")
     query_bbox = (-81.0, -79.0, 24.0, 26.0, 20220101, 20220201)
     delta_time = is2db._yyyymmdd_to_delta_time(20220115)

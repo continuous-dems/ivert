@@ -13,12 +13,14 @@ from ivert.utils import configfile
 
 
 def test_there_is_no_module_level_config():
+    """A shared module-level Config let one caller's change reach every other (removed in #125)."""
     configfile.Config()
 
     assert not hasattr(configfile, "ivert_config")
 
 
 def test_a_built_config_is_read_only():
+    """Neither settings nor new attributes can be set, so every holder of a Config sees the same one."""
     config = configfile.Config()
 
     with pytest.raises(AttributeError, match="read-only"):
@@ -46,6 +48,7 @@ def test_a_config_survives_pickling():
     ["ivert.validate_dem", "ivert.plot_validation_results"],
 )
 def test_importing_a_module_reads_no_config(module_name, monkeypatch):
+    """These modules once built a Config at import, reading the user's config before any command ran."""
     module = importlib.import_module(module_name)
     built = []
     original_init = configfile.Config.__init__

@@ -27,6 +27,12 @@ def _reconcile(
 
 
 def test_missing_options_warn_only_when_they_fall_back_to_defaults(caplog):
+    """A manifest from before an option existed still replays.
+
+    The option takes its command-line value quietly, or its default with a
+    warning. Adding -p and --variable once made every older manifest
+    incompatible.
+    """
     options = _reconcile(
         {"band_num": "2"},
         current_values={"band_num": 1, "projection": "EPSG:4326", "variable": None},
@@ -44,11 +50,13 @@ def test_missing_options_warn_only_when_they_fall_back_to_defaults(caplog):
 
 
 def test_unrecognized_options_stop_without_a_terminal():
+    """Dropping an option IVERT doesn't recognize could change results, so a run that can't ask stops."""
     with pytest.raises(click.ClickException, match="doesn't recognize"):
         _reconcile({"band_num": "1", "projection": "", "variable": "", "old": "x"})
 
 
 def test_unrecognized_options_are_dropped_if_the_user_agrees(monkeypatch):
+    """At a terminal the user is asked, and agreeing replays the manifest without them."""
     monkeypatch.setattr(click, "confirm", lambda *_args, **_kwargs: True)
 
     options = _reconcile(

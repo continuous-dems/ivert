@@ -1,11 +1,8 @@
 """Tests for the nsidc_atl_version plumbing.
 
-Self-contained on purpose. The shared conftest and pytest configuration arrive
-with the test scaffold (PR #102); this file needs neither, so it runs today
-with ``python -m pytest tests/test_atl_version.py`` and simply falls under the
-autouse isolation fixture once the scaffold lands. Nothing here touches the
-developer's real ~/.ivert: every IS2Database and ICESat2RequestsCSV is built on
-a stand-in config that points into tmp_path, and the network is stubbed out.
+Nothing here touches the developer's real ~/.ivert: every IS2Database and
+ICESat2RequestsCSV is built on a stand-in config that points into tmp_path, and
+the network is stubbed out.
 """
 
 import os
@@ -45,11 +42,13 @@ def test_the_version_is_normalised_to_three_digits(value, expected):
 
 @pytest.mark.parametrize("value", ["abc", "0007", "", "7.0", "-7", "7 1", None])
 def test_a_value_that_is_not_a_version_is_rejected(value):
+    """A bad setting stops here, naming it, not later as a release that never matches."""
     with pytest.raises(ValueError, match="nsidc_atl_version"):
         is2db._normalize_atl_version(value)
 
 
 def test_the_release_is_read_from_the_granule_filename():
+    """The check that leaves out other releases' granules reads this field."""
     assert is2db._atl_release_from_filename(V007_GRANULE) == "007"
     # A directory prefix must not confuse the split on underscores.
     assert is2db._atl_release_from_filename(f"/some/dir_x/{V006_GRANULE}") == "006"
@@ -57,6 +56,7 @@ def test_the_release_is_read_from_the_granule_filename():
 
 @pytest.mark.parametrize("name", ["granule.h5", "ATL03_20241107_0805.h5"])
 def test_a_name_without_a_release_field_gives_none(name):
+    """A name without the field isn't an error here; the caller decides what to do."""
     assert is2db._atl_release_from_filename(name) is None
 
 
@@ -80,6 +80,10 @@ def _harmony_job(job_id):
 
 
 def test_a_cached_job_is_found_only_for_the_version_it_asked_for(tmp_path):
+    """Changing nsidc_atl_version must not reuse a Harmony job made for another release.
+
+    A lookup with no version still matches, as before the column existed.
+    """
     csv = _requests_csv(tmp_path)
     csv.add_record("ATL03", BBOX, _harmony_job("job-007"), atl_version="007")
 
@@ -223,6 +227,7 @@ def _download(db, monkeypatch, granule_names):
 
 
 def test_the_configured_version_is_requested_and_recorded(db, monkeypatch):
+    """The setting reaches the fetchez request, the cache lookup and the cache record."""
     _download(db, monkeypatch, [V007_GRANULE])
 
     assert [m["version"] for m in _FakeFetchezIceSat2.built_with] == ["007"]
@@ -251,6 +256,7 @@ def test_granules_of_another_release_are_left_out(db, monkeypatch):
 
 
 def test_a_part_with_only_wrong_release_granules_fails(db, monkeypatch):
+    """A part left with nothing to classify counts as failed, not as an empty success."""
     summary, processed = _download(db, monkeypatch, [V006_GRANULE])
 
     assert processed == []
@@ -264,6 +270,7 @@ def test_a_part_with_only_wrong_release_granules_fails(db, monkeypatch):
 
 
 def test_globato_is_told_which_release_to_classify(db, tmp_path, monkeypatch):
+    """The version is normalised for globato, which checks the release too, even from an int."""
     seen = {}
 
     def fake_read(*args: object, **kwargs: object):
