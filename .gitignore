@@ -161,7 +161,6 @@ cython_debug/
 .idea/
 data/*
 scratch_data/*
-src/tests/
 src/tests_old/
 
 # Any project-specific Claude Code helper files.
