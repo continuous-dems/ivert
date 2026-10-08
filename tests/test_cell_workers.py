@@ -18,7 +18,7 @@ import pytest
 
 from ivert import validate_dem
 
-ARRAY_NAMES = ("heights", "i", "j", "codes")
+ARRAY_NAMES = ("heights", "codes")
 
 
 def _is_gone(pid):
@@ -60,10 +60,6 @@ def _coordinator(pid_queue):
             names[0],
             dtype,
             names[1],
-            dtype,
-            names[2],
-            dtype,
-            names[3],
             dtype,
             values.shape,
         )

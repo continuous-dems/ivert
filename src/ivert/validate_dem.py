@@ -13,6 +13,7 @@ Created on Tue Jun 22 16:06:21 2021
 import contextlib
 import logging
 import multiprocessing as mp
+import multiprocessing.connection
 import os
 import signal
 import sys
@@ -21,7 +22,6 @@ from multiprocessing import shared_memory
 from pathlib import Path
 
 import geopandas
-import numexpr
 import numpy as np
 import pandas as pd
 import psutil
@@ -50,6 +50,52 @@ logger = logging.getLogger(__name__)
 # computed. Below this count there are too few photons to distinguish an outlier from
 # the signal, so every photon in the cell is used instead.
 INTERDECILE_MIN_PHOTONS = 5
+
+# Longest (s) the coordinating loop waits for a worker's result or exit before looking
+# round again. Results and exits wake it at once; this is only a safety net.
+_COORDINATOR_WAIT_S = 1.0
+
+# How the cells are divided into the chunks handed to the cell-validation workers.
+_CHUNKS_PER_WORKER = 4
+_MIN_CHUNK_CELLS = 20
+_MAX_CHUNK_CELLS = 2000
+_MIN_CELLS_PER_WORKER = 1000
+
+
+# The percentages pandas' Series.describe(percentiles=[0.10, 0.90]) hands to
+# np.percentile. Computed the same way so the 10th and 90th percentiles match it
+# to the last bit.
+_PERCENTILES = np.array([0.10, 0.90]) * 100.0
+
+
+def _pandas_mean(values):
+    """Return values.mean() exactly as pandas' Series.mean() computes it (no NaNs).
+
+    A float array is summed in its own dtype and divided by a count of that dtype;
+    anything else is summed in float64. The per-cell statistics were computed with
+    pandas, and matching it exactly keeps validation results unchanged.
+    """
+    if values.dtype.kind == "f":
+        return values.sum(dtype=values.dtype) / values.dtype.type(len(values))
+    return values.sum(dtype=np.float64) / np.float64(len(values))
+
+
+def _pandas_std(values):
+    """Return values.std() (ddof=1) exactly as pandas' Series.std() computes it (no NaNs).
+
+    The variance is accumulated in float64 and, for a float array, cast back to
+    its dtype before the square root. One value gives NaN.
+    """
+    n = len(values)
+    nan = values.dtype.type(np.nan) if values.dtype.kind == "f" else np.nan
+    if n < 2:
+        return nan
+    avg = values.sum(dtype=np.float64) / n
+    var = ((avg - values) ** 2).sum(dtype=np.float64) / (n - 1)
+    if values.dtype.kind == "f":
+        var = values.dtype.type(var)
+    return np.sqrt(var)
+
 
 # The text of the "<dem>_results_EMPTY.txt" marker for a DEM with no results.
 _EMPTY_RESULTS_TEXT = "No ICESat-2 data overlapping this DEM to validate."
@@ -138,7 +184,7 @@ def _check_cell_validation_params(photon_limit, min_photons, num_subdivisions):
         raise ValueError(msg)
 
 
-def _check_chunk_payload(dem_i_list, dem_j_list, dem_elev_list, bbox_lists):
+def _check_chunk_payload(dem_i_list, dem_j_list, dem_elev_list, bbox_lists, ph_ranges):
     """Raise if the arrays in one work chunk disagree in length.
 
     The validation loop indexes all of these with a single counter, so a short
@@ -150,8 +196,8 @@ def _check_chunk_payload(dem_i_list, dem_j_list, dem_elev_list, bbox_lists):
         "dem_j_list": len(dem_j_list),
         "dem_elev_list": len(dem_elev_list),
     }
-    bbox_names = ("cell_xmin", "cell_xmax", "cell_ymin", "cell_ymax")
-    for name, arr in zip(bbox_names, bbox_lists, strict=True):
+    names = ("cell_xmin", "cell_xmax", "cell_ymin", "cell_ymax", "ph_start", "ph_end")
+    for name, arr in zip(names, (*bbox_lists, *ph_ranges), strict=True):
         if arr is not None:
             lengths[f"{name}_list"] = len(arr)
 
@@ -165,10 +211,6 @@ def _check_chunk_payload(dem_i_list, dem_j_list, dem_elev_list, bbox_lists):
 def validate_dem_child_process(
     height_array_name,
     height_dtype,
-    i_array_name,
-    i_dtype,
-    j_array_name,
-    j_dtype,
     code_array_name,
     code_dtype,
     array_shape,
@@ -186,10 +228,12 @@ def validate_dem_child_process(
 ):
     """Run DEM validation as a child process, one of several in parallel.
 
-    It takes the input_height (m) and the dem_indices (flattened), as well
-    as a duplexed multiprocessing.connection.Connection object (i.e. an open pipe)
-    for processing it. It reads the arrays into local memory, then uses the connection
-    to pass data back and forth until getting a "STOP" command over the connection.
+    It reads the photon heights and class codes (and, with 'measure_coverage', their x
+    and y) from shared memory, sorted by grid cell, and takes a duplexed
+    multiprocessing.connection.Connection object (i.e. an open pipe) to work through.
+    Each chunk sent over the connection lists cells and the [start, end) range of each
+    cell's photons in the shared arrays; it sends back the cells' results, until it
+    gets a "STOP" command over the connection.
 
     'measure_coverage' is a boolean parameter to measure how well a given pixel is covered by ICESat-2 photons.
     We'll measure a couple of different measures (centrality and coverage), and insert those parameters in the output.
@@ -218,20 +262,6 @@ def validate_dem_child_process(
     # Define shared memory arrays here.
     h_shm = shared_memory.SharedMemory(name=height_array_name)
     heights = np.ndarray(array_shape, dtype=height_dtype, buffer=h_shm.buf)
-
-    pi_shm = shared_memory.SharedMemory(name=i_array_name)
-    photon_i = np.ndarray(  # noqa: F841 (used by name inside numexpr.evaluate() below)
-        array_shape,
-        dtype=i_dtype,
-        buffer=pi_shm.buf,
-    )
-
-    pj_shm = shared_memory.SharedMemory(name=j_array_name)
-    photon_j = np.ndarray(  # noqa: F841 (used by name inside numexpr.evaluate() below)
-        array_shape,
-        dtype=j_dtype,
-        buffer=pj_shm.buf,
-    )
 
     pc_shm = shared_memory.SharedMemory(name=code_array_name)
     ph_codes = np.ndarray(array_shape, dtype=code_dtype, buffer=pc_shm.buf)
@@ -262,10 +292,14 @@ def validate_dem_child_process(
                     cell_xmax_list,
                     cell_ymin_list,
                     cell_ymax_list,
+                    ph_start_list,
+                    ph_end_list,
                 ) = connection.recv()
 
             else:
-                dem_i_list, dem_j_list, dem_elev_list = connection.recv()
+                dem_i_list, dem_j_list, dem_elev_list, ph_start_list, ph_end_list = (
+                    connection.recv()
+                )
 
                 cell_xmin_list = None
                 cell_ymin_list = None
@@ -275,8 +309,6 @@ def validate_dem_child_process(
             # Upon the "STOP" mesage, break the loop, close the shared memory objects, and return.
             if (type(dem_i_list) is str) and (dem_i_list == "STOP"):
                 h_shm.close()
-                pi_shm.close()
-                pj_shm.close()
                 pc_shm.close()
                 if measure_coverage:
                     x_shm.close()
@@ -288,6 +320,7 @@ def validate_dem_child_process(
                 dem_j_list,
                 dem_elev_list,
                 (cell_xmin_list, cell_xmax_list, cell_ymin_list, cell_ymax_list),
+                (ph_start_list, ph_end_list),
             )
             n = len(dem_i_list)
 
@@ -308,28 +341,15 @@ def validate_dem_child_process(
             r_mean_diff = np.zeros((n,), dtype=float)
             r_coverage_frac = np.zeros((n,), dtype=float) if measure_coverage else None
 
-            # 'i' and 'j' look unused, but numexpr.evaluate() resolves the names in
-            # its expression string against this frame's locals, so they are read
-            # below and must keep these names.
-            for counter, (i, j) in enumerate(  # noqa: B007
-                zip(dem_i_list, dem_j_list, strict=True),
-            ):
-                # Using numexpr.evaluate here is far more memory-and-time efficient than just doing it with the numpy arrays.
-                ph_subset_mask = numexpr.evaluate("(photon_i == i) & (photon_j == j)")
-                # Generate a small pandas dataframe from the subset
-                subset_df = pd.DataFrame(
-                    {
-                        "height": heights[ph_subset_mask],
-                        "ph_code": ph_codes[ph_subset_mask],
-                    },
-                )
+            for counter in range(n):
+                # The parent sorted the photons by grid cell, so this cell's photons
+                # are one contiguous run of the shared arrays, in their original order.
+                cell = slice(ph_start_list[counter], ph_end_list[counter])
+                cell_heights = heights[cell]
+                cell_codes = ph_codes[cell]
 
                 # Define and compute measures of centrality & coverage here.
                 if measure_coverage:
-                    # Add the x and y coords to the dataframe
-                    subset_df["xcoord"] = ph_x[ph_subset_mask]
-                    subset_df["ycoord"] = ph_y[ph_subset_mask]
-
                     cell_xmin = cell_xmin_list[counter]
                     cell_xmax = cell_xmax_list[counter]
                     cell_ymin = cell_ymin_list[counter]
@@ -343,29 +363,29 @@ def validate_dem_child_process(
                     # Equal to the geotransform, the y-value starts at the top (max) and iterate downward (negative step.)
                     cell_ystep = (cell_ymin - cell_ymax) / num_subdivisions
 
-                    subset_df["subset_i"] = np.floor(
-                        (subset_df.ycoord - cell_ymax) / cell_ystep,
-                    ).astype(int)
-                    subset_df["subset_j"] = np.floor(
-                        (subset_df.xcoord - cell_xmin) / cell_xstep,
-                    ).astype(int)
-
+                    subset_i = np.floor((ph_y[cell] - cell_ymax) / cell_ystep).astype(
+                        int,
+                    )
+                    subset_j = np.floor((ph_x[cell] - cell_xmin) / cell_xstep).astype(
+                        int,
+                    )
                     # By taking i * (number_of_rows) + j, we come up with unique single values for the sub-cell this is in.
-                    subset_df["subset_ij"] = (
-                        subset_df.subset_i * num_subdivisions
-                    ) + subset_df.subset_j
+                    subset_ij = (subset_i * num_subdivisions) + subset_j
                     # Count how many unique subset-cells are covered and divide by the number of total sub-cells.
-                    cell_fraction_covered = len(subset_df.subset_ij.unique()) / (
+                    r_coverage_frac[counter] = len(np.unique(subset_ij)) / (
                         num_subdivisions**2
                     )
-                    r_coverage_frac[counter] = cell_fraction_covered
 
                 # After calculating the coverage, if we want to limit the number of photons we're dealing with total,
                 # do it here.
-                if photon_limit is not None and len(subset_df) > photon_limit:
-                    subset_df = subset_df.sample(n=photon_limit)
+                if photon_limit is not None and len(cell_heights) > photon_limit:
+                    sample = pd.DataFrame(
+                        {"height": cell_heights, "ph_code": cell_codes},
+                    ).sample(n=photon_limit)
+                    cell_heights = sample.height.to_numpy()
+                    cell_codes = sample.ph_code.to_numpy()
 
-                n_photons = len(subset_df)
+                n_photons = len(cell_heights)
 
                 # Cells without enough photons to validate are omitted from the
                 # results entirely. Leaving r_keep False drops them below.
@@ -378,23 +398,19 @@ def validate_dem_child_process(
                 r_keep[counter] = True
                 r_numphotons[counter] = n_photons
                 r_dem_elev[counter] = dem_elev_list[counter]
-                r_numphotons_bathy[counter] = np.count_nonzero(
-                    subset_df.ph_code == 40,
-                )
-                r_range[counter] = subset_df.height.max() - subset_df.height.min()
+                r_numphotons_bathy[counter] = np.count_nonzero(cell_codes == 40)
+                r_range[counter] = cell_heights.max() - cell_heights.min()
 
                 if n_photons >= INTERDECILE_MIN_PHOTONS:
                     # Enough photons to tell signal from outliers: keep only those
                     # within the interdecile range and compute the stats on those.
-                    height_desc = subset_df.height.describe(
-                        percentiles=[0.10, 0.90],
+                    zp10, zp90 = (
+                        np.float64(z) for z in np.percentile(cell_heights, _PERCENTILES)
                     )
-                    zp10 = height_desc["10%"]
-                    zp90 = height_desc["90%"]
                     r_10p[counter], r_90p[counter] = zp10, zp90
                     r_interdecile[counter] = zp90 - zp10
-                    heights_used = subset_df.height[
-                        (subset_df.height >= zp10) & (subset_df.height <= zp90)
+                    heights_used = cell_heights[
+                        (cell_heights >= zp10) & (cell_heights <= zp90)
                     ]
                 else:
                     # Too few photons for an interdecile range to mean anything, so
@@ -403,12 +419,12 @@ def validate_dem_child_process(
                     r_10p[counter] = empty_val
                     r_90p[counter] = empty_val
                     r_interdecile[counter] = empty_val
-                    heights_used = subset_df.height
+                    heights_used = cell_heights
 
                 r_numphotons_intd[counter] = len(heights_used)
-                r_mean[counter] = heights_used.mean()
-                # A single photon has no spread to measure; pandas returns NaN here.
-                r_std[counter] = heights_used.std()
+                r_mean[counter] = _pandas_mean(heights_used)
+                # A single photon has no spread to measure; this is NaN, as in pandas.
+                r_std[counter] = _pandas_std(heights_used)
                 r_mean_diff[counter] = dem_elev_list[counter] - r_mean[counter]
 
             # Generate a little dataframe of the outputs for the grid cells that had
@@ -438,7 +454,7 @@ def validate_dem_child_process(
             connection.send(results_df)
 
         elif coordinator is not None and not _is_running(coordinator):
-            for shm in (h_shm, pi_shm, pj_shm, pc_shm, x_shm, y_shm):
+            for shm in (h_shm, pc_shm, x_shm, y_shm):
                 if shm is not None:
                     shm.close()
             return
@@ -498,10 +514,6 @@ def clean_procs_and_pipes(procs, pipes1, pipes2, memory_objs):
 def kick_off_new_child_process(
     height_array_name,
     height_dtype,
-    i_array_name,
-    i_dtype,
-    j_array_name,
-    j_dtype,
     code_array_name,
     code_dtype,
     array_shape,
@@ -522,10 +534,6 @@ def kick_off_new_child_process(
         args=(
             height_array_name,
             height_dtype,
-            i_array_name,
-            i_dtype,
-            j_array_name,
-            j_dtype,
             code_array_name,
             code_dtype,
             array_shape,
@@ -1772,11 +1780,11 @@ def _run_parallel_cell_validation(
     results_dataframes_list = []
     t_start = time.perf_counter()
 
-    cpu_count = numprocs
+    # Starting a worker costs a few tens of milliseconds, more than a few hundred
+    # cells take to validate, so a small DEM gets fewer workers.
+    cpu_count = max(1, min(numprocs, -(-n // _MIN_CELLS_PER_WORKER)))
     proc_id = os.getpid()
     height_array_name = f"heights_{proc_id}"
-    i_array_name = f"i_{proc_id}"
-    j_array_name = f"j_{proc_id}"
     code_array_name = f"codes_{proc_id}"
     if not (
         height_field.shape
@@ -1787,36 +1795,33 @@ def _run_parallel_cell_validation(
         msg = "The photon heights, i, j and class codes are not all the same length."
         raise RuntimeError(msg)
 
+    # Sort the photons by grid cell with a stable sort, which keeps their order within
+    # each cell, so a worker reads a cell's photons as one slice rather than searching
+    # all of them for every cell. Each cell gets the same photons in the same order.
+    ph_i = photon_df.i.to_numpy()
+    ph_j = photon_df.j.to_numpy()
+    ncols = int(max(ph_j.max(initial=0), np.max(dem_overlap_j, initial=0))) + 1
+    ph_keys = ph_i.astype(np.int64) * ncols + ph_j
+    ph_order = np.argsort(ph_keys, kind="stable")
+    ph_keys = ph_keys[ph_order]
+    cell_keys = np.asarray(dem_overlap_i, dtype=np.int64) * ncols + dem_overlap_j
+    ph_starts = np.searchsorted(ph_keys, cell_keys, side="left")
+    ph_ends = np.searchsorted(ph_keys, cell_keys, side="right")
+
     height_smo = shared_memory.SharedMemory(
         size=height_field.nbytes,
         name=height_array_name,
         create=True,
     )
-    height_smo.buf[:] = height_field.to_numpy().tobytes()
+    height_smo.buf[:] = height_field.to_numpy()[ph_order].tobytes()
     height_dtype = height_field.dtype
-
-    i_smo = shared_memory.SharedMemory(
-        size=photon_df.i.nbytes,
-        name=i_array_name,
-        create=True,
-    )
-    i_smo.buf[:] = photon_df.i.to_numpy().tobytes()
-    i_dtype = photon_df.i.dtype
-
-    j_smo = shared_memory.SharedMemory(
-        size=photon_df.j.nbytes,
-        name=j_array_name,
-        create=True,
-    )
-    j_smo.buf[:] = photon_df.j.to_numpy().tobytes()
-    j_dtype = photon_df.j.dtype
 
     code_smo = shared_memory.SharedMemory(
         size=photon_df.class_code.nbytes,
         name=code_array_name,
         create=True,
     )
-    code_smo.buf[:] = photon_df.class_code.to_numpy().tobytes()
+    code_smo.buf[:] = photon_df.class_code.to_numpy()[ph_order].tobytes()
     code_dtype = photon_df.class_code.dtype
 
     if measure_coverage:
@@ -1832,7 +1837,7 @@ def _run_parallel_cell_validation(
             name=x_array_name,
             create=True,
         )
-        x_smo.buf[:] = photon_df.dem_x.to_numpy().tobytes()
+        x_smo.buf[:] = photon_df.dem_x.to_numpy()[ph_order].tobytes()
         x_dtype = photon_df.dem_x.dtype
 
         y_array_name = f"y_{proc_id}"
@@ -1841,7 +1846,7 @@ def _run_parallel_cell_validation(
             name=y_array_name,
             create=True,
         )
-        y_smo.buf[:] = photon_df.dem_y.to_numpy().tobytes()
+        y_smo.buf[:] = photon_df.dem_y.to_numpy()[ph_order].tobytes()
         y_dtype = photon_df.dem_y.dtype
     else:
         dem_overlap_xmin = dem_overlap_xmax = dem_overlap_ymin = dem_overlap_ymax = None
@@ -1850,9 +1855,25 @@ def _run_parallel_cell_validation(
         x_dtype = y_dtype = None
 
     if measure_coverage:
-        memory_objs = [height_smo, i_smo, j_smo, code_smo, x_smo, y_smo]
+        memory_objs = [height_smo, code_smo, x_smo, y_smo]
     else:
-        memory_objs = [height_smo, i_smo, j_smo, code_smo]
+        memory_objs = [height_smo, code_smo]
+
+    def _chunk(start, end):
+        """Return the work message for cells start:end."""
+        cells = (
+            dem_overlap_i[start:end],
+            dem_overlap_j[start:end],
+            dem_overlap_elevs[start:end],
+        )
+        if measure_coverage:
+            cells += (
+                dem_overlap_xmin[start:end],
+                dem_overlap_xmax[start:end],
+                dem_overlap_ymin[start:end],
+                dem_overlap_ymax[start:end],
+            )
+        return (*cells, ph_starts[start:end], ph_ends[start:end])
 
     running_procs = [None] * cpu_count
     open_pipes_parent = [None] * cpu_count
@@ -1868,7 +1889,14 @@ def _run_parallel_cell_validation(
     counter_finished = 0
     num_chunks_started = 0
     num_chunks_finished = 0
-    items_per_process_chunk = 20
+    # About _CHUNKS_PER_WORKER chunks per worker: few enough that handing out chunks
+    # and collecting results costs little, enough that workers finishing early can
+    # take up the slack. Clamped so a small DEM still splits and a large one still
+    # moves the progress bar.
+    items_per_process_chunk = min(
+        max(-(-n // (cpu_count * _CHUNKS_PER_WORKER)), _MIN_CHUNK_CELLS),
+        _MAX_CHUNK_CELLS,
+    )
 
     # 'disable=None' tells tqdm to draw the bar only when attached to a terminal, and
     # stay silent when the output is redirected to a file or a pipe.
@@ -1892,10 +1920,6 @@ def _run_parallel_cell_validation(
                 kick_off_new_child_process(
                     height_array_name,
                     height_dtype,
-                    i_array_name,
-                    i_dtype,
-                    j_array_name,
-                    j_dtype,
                     code_array_name,
                     code_dtype,
                     height_field.shape,
@@ -1911,36 +1935,34 @@ def _run_parallel_cell_validation(
             )
 
             counter_chunk_end = min(counter_started + items_per_process_chunk, n)
-            if measure_coverage:
-                open_pipes_parent[i].send(
-                    (
-                        dem_overlap_i[counter_started:counter_chunk_end],
-                        dem_overlap_j[counter_started:counter_chunk_end],
-                        dem_overlap_elevs[counter_started:counter_chunk_end],
-                        dem_overlap_xmin[counter_started:counter_chunk_end],
-                        dem_overlap_xmax[counter_started:counter_chunk_end],
-                        dem_overlap_ymin[counter_started:counter_chunk_end],
-                        dem_overlap_ymax[counter_started:counter_chunk_end],
-                    ),
-                )
-            else:
-                open_pipes_parent[i].send(
-                    (
-                        dem_overlap_i[counter_started:counter_chunk_end],
-                        dem_overlap_j[counter_started:counter_chunk_end],
-                        dem_overlap_elevs[counter_started:counter_chunk_end],
-                    ),
-                )
+            open_pipes_parent[i].send(_chunk(counter_started, counter_chunk_end))
             chunk_sizes[i] = counter_chunk_end - counter_started
             counter_started = counter_chunk_end
             num_chunks_started += 1
 
         while num_chunks_finished < num_chunks_started:
+            # Sleep until some worker has sent a result or exited, rather than poll
+            # every pipe in a tight loop, which kept this process at 100% CPU.
+            ready = set(
+                mp.connection.wait(
+                    [
+                        waitable
+                        for proc, pipe in zip(
+                            running_procs,
+                            open_pipes_parent,
+                            strict=True,
+                        )
+                        if proc is not None
+                        for waitable in (pipe, proc.sentinel)
+                    ],
+                    timeout=_COORDINATOR_WAIT_S,
+                ),
+            )
             for i, procs_and_pipes in enumerate(
                 zip(running_procs, open_pipes_parent, open_pipes_child, strict=True),
             ):
                 proc, pipe, pipe_child = procs_and_pipes
-                if proc is None:
+                if proc is None or (pipe not in ready and proc.sentinel not in ready):
                     continue
 
                 if not proc.is_alive():
@@ -1954,10 +1976,6 @@ def _run_parallel_cell_validation(
                     proc, pipe, pipe_child = kick_off_new_child_process(
                         height_array_name,
                         height_dtype,
-                        i_array_name,
-                        i_dtype,
-                        j_array_name,
-                        j_dtype,
                         code_array_name,
                         code_dtype,
                         height_field.shape,
@@ -1994,38 +2012,12 @@ def _run_parallel_cell_validation(
                             counter_started + items_per_process_chunk,
                             n,
                         )
-                        if measure_coverage:
-                            pipe.send(
-                                (
-                                    dem_overlap_i[counter_started:counter_chunk_end],
-                                    dem_overlap_j[counter_started:counter_chunk_end],
-                                    dem_overlap_elevs[
-                                        counter_started:counter_chunk_end
-                                    ],
-                                    dem_overlap_xmin[counter_started:counter_chunk_end],
-                                    dem_overlap_xmax[counter_started:counter_chunk_end],
-                                    dem_overlap_ymin[counter_started:counter_chunk_end],
-                                    dem_overlap_ymax[counter_started:counter_chunk_end],
-                                ),
-                            )
-                        else:
-                            pipe.send(
-                                (
-                                    dem_overlap_i[counter_started:counter_chunk_end],
-                                    dem_overlap_j[counter_started:counter_chunk_end],
-                                    dem_overlap_elevs[
-                                        counter_started:counter_chunk_end
-                                    ],
-                                ),
-                            )
+                        pipe.send(_chunk(counter_started, counter_chunk_end))
                         chunk_sizes[i] = counter_chunk_end - counter_started
                         counter_started = counter_chunk_end
                         num_chunks_started += 1
                     else:
-                        if measure_coverage:
-                            pipe.send(("STOP", None, None, None, None, None, None))
-                        else:
-                            pipe.send(("STOP", None, None))
+                        pipe.send(("STOP", *[None] * (8 if measure_coverage else 4)))
                         proc.join()
                         pipe.close()
                         pipe_child.close()

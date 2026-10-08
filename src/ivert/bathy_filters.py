@@ -596,6 +596,22 @@ def _buffered_bounds(lon, lat, buffer_m):
     )
 
 
+def preload_reference_fetcher(settings):
+    """Load what fetching the ETOPO reference needs, if these settings will fetch it.
+
+    fetchez loads its whole module registry, every data source and plugin, the first
+    time it fetches anything, which takes a second or two. A process that forks one
+    child per DEM calls this first, so the children inherit it instead of each
+    loading it again.
+    """
+    if not settings.needs_reference or settings.ref_raster:
+        return
+    from fetchez.registry import HookRegistry, ModuleRegistry
+
+    ModuleRegistry.load_all()
+    HookRegistry.load_all()
+
+
 def _load_reference(ref_raster, bounds, cache_dir):
     """Read the reference bathymetry over bounds as (float64 array, transform).
 

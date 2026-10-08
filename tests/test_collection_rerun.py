@@ -71,6 +71,7 @@ def collection(tmp_path, monkeypatch):
         (validate_dem_collection.plot_validation_results, "plot_histograms_and_line"),
         (validate_dem_collection.ivert.bathy_filters, "read_report_from_h5"),
         (validate_dem_collection.ivert.bathy_filters, "write_report_to_h5"),
+        (validate_dem_collection.ivert.bathy_filters, "preload_reference_fetcher"),
         (validate_dem_collection.ivert.bathy_filters.BathyFilterReport, "combine"),
     ):
         monkeypatch.setattr(module, name, lambda *_args, **_kwargs: None)

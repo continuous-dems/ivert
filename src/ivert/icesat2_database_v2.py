@@ -10,6 +10,7 @@ import netCDF4  # noqa: F401
 
 import contextlib
 import datetime
+import functools
 import itertools
 import logging
 import multiprocessing
@@ -21,7 +22,6 @@ from collections.abc import Iterator
 from pathlib import Path
 from typing import ClassVar, NamedTuple
 
-import dateparser
 import fetchez
 import fetchez.core
 import fetchez.spatial
@@ -80,6 +80,31 @@ def _yyyymmdd_to_delta_time(yyyymmdd: int | str) -> float:
         )
         - _ICESAT2_EPOCH
     ).total_seconds()
+
+
+# Granule files read at once by query_photons(). Each is opened and decoded on its
+# own, so a handful of processes reads many granules several times faster.
+_READ_MAX_WORKERS = 8
+# Fewer granules than this are read in this process: starting workers costs more.
+_READ_MIN_GRANULES_FOR_POOL = 4
+
+
+def _read_granules(paths, subset_bbox=None, photon_classes=None):
+    """Return IS2Database.read_granule() for each path, in the order given.
+
+    Many files are read by a pool of forked worker processes. Pool.map keeps the
+    order, so the photons come back exactly as a one-at-a-time read gives them.
+    """
+    read = functools.partial(
+        IS2Database.read_granule,
+        subset_bbox=subset_bbox,
+        photon_classes=photon_classes,
+    )
+    workers = min(len(paths), _READ_MAX_WORKERS, os.cpu_count() or 1)
+    if len(paths) < _READ_MIN_GRANULES_FOR_POOL or workers < 2:
+        return [read(path) for path in paths]
+    with multiprocessing.get_context("fork").Pool(workers) as pool:
+        return pool.map(read, paths)
 
 
 def _atl_release_from_filename(filename: str) -> str | None:
@@ -1728,16 +1753,11 @@ class IS2Database:
             f"{gdf_subset['numphotons_bathy_floor'].sum():,}",
         )
 
-        granule_dfs = []
-        for _idx, granule_line in gdf_subset.iterrows():
-            fpath = granules_dir / granule_line["filename"]
-            granule_dfs.append(
-                self.read_granule(
-                    fpath,
-                    subset_bbox=bbox,
-                    photon_classes=photon_classes,
-                ),
-            )
+        granule_dfs = _read_granules(
+            [granules_dir / fn for fn in gdf_subset["filename"]],
+            subset_bbox=bbox,
+            photon_classes=photon_classes,
+        )
 
         if len(granule_dfs) == 0:
             return None
@@ -1813,7 +1833,10 @@ class IS2Database:
                 date_int = int(date)
                 return self.convert_date_to_yyyymmdd(date_int)
             except ValueError:
-                # If it isn't a YYYYMMDD string, parse it with dateparser.
+                # If it isn't a YYYYMMDD string, parse it with dateparser, imported
+                # only here because it is slow to import and rarely needed.
+                import dateparser
+
                 parsed = dateparser.parse(date)
                 if parsed is None:
                     msg = f"{date!r} is not a recognizable date."
