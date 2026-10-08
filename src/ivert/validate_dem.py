@@ -24,6 +24,7 @@ import geopandas
 import numexpr
 import numpy as np
 import pandas as pd
+import psutil
 import pyproj
 import rasterio
 import rasterio.crs
@@ -52,6 +53,11 @@ INTERDECILE_MIN_PHOTONS = 5
 
 # The text of the "<dem>_results_EMPTY.txt" marker for a DEM with no results.
 _EMPTY_RESULTS_TEXT = "No ICESat-2 data overlapping this DEM to validate."
+
+# How long (s) a cell-validation worker waits for its next chunk before checking that
+# the process handing out chunks still exists. A chunk is picked up as soon as it
+# arrives, so this sets only how quickly an orphaned worker notices and exits.
+_WORKER_WAIT_S = 1.0
 
 
 def read_dataframe_file(df_filename: str | Path) -> pd.DataFrame:
@@ -176,6 +182,7 @@ def validate_dem_child_process(
     y_dtype=None,
     num_subdivisions=15,
     empty_val=None,
+    coordinator_pid=None,
 ):
     """Run DEM validation as a child process, one of several in parallel.
 
@@ -193,11 +200,20 @@ def validate_dem_child_process(
     Cells with at least INTERDECILE_MIN_PHOTONS photons have their outliers trimmed to the interdecile range
     before their statistics are computed. Cells below that use every photon they contain.
 
+    'coordinator_pid' is the process that hands out the chunks. If it disappears
+    without sending "STOP" (killed for running out of memory, say), this process exits
+    rather than wait forever. A forked child holds copies of the parent's pipe ends, so
+    it can't rely on seeing its pipe close.
+
     Raises ValueError on unusable parameters or a malformed work chunk. The parent
     validates the same parameters before spawning, so reaching either here means a
     caller drove this function directly.
     """
     _check_cell_validation_params(photon_limit, min_photons, num_subdivisions)
+
+    coordinator = _process_or_none(coordinator_pid)
+    if coordinator_pid is not None and coordinator is None:
+        return
 
     # Define shared memory arrays here.
     h_shm = shared_memory.SharedMemory(name=height_array_name)
@@ -235,7 +251,7 @@ def validate_dem_child_process(
     # Just keep looping and checking the connection pipe. When we get
     # a stop command, return from the function.
     while True:
-        if connection.poll():
+        if connection.poll(_WORKER_WAIT_S):
             if measure_coverage:
                 # If we're measuring the coverage, also give us the bounding boxes of the grid cells
                 (
@@ -421,18 +437,48 @@ def validate_dem_child_process(
 
             connection.send(results_df)
 
+        elif coordinator is not None and not _is_running(coordinator):
+            for shm in (h_shm, pi_shm, pj_shm, pc_shm, x_shm, y_shm):
+                if shm is not None:
+                    shm.close()
+            return
+
+
+def _process_or_none(pid):
+    """Return a psutil.Process for pid, or None if pid is None or already gone."""
+    if pid is None:
+        return None
+    try:
+        return psutil.Process(pid)
+    except psutil.NoSuchProcess:
+        return None
+
+
+def _is_running(process):
+    """Return True while a psutil.Process is still running (not exited, reaped or a zombie).
+
+    psutil also checks the process's start time, so a reused PID doesn't count.
+    """
+    try:
+        return process.is_running() and process.status() != psutil.STATUS_ZOMBIE
+    except psutil.NoSuchProcess:
+        return False
+
 
 def clean_procs_and_pipes(procs, pipes1, pipes2, memory_objs):
     """Join all processes and close all pipes.
 
     Useful for cleaning up after multiprocessing.
     """
-    # Close up all processes.
+    # Close up all processes. A failure with one must not leave the rest running.
     for pr in procs:
         if isinstance(pr, mp.Process):
-            if pr.is_alive():
-                pr.kill()
-            pr.join()
+            try:
+                if pr.is_alive():
+                    pr.kill()
+                pr.join()
+            except Exception:
+                logger.exception("Could not stop cell-validation worker %s.", pr.pid)
 
     # Close all pipes.
     for p1 in pipes1:
@@ -495,6 +541,7 @@ def kick_off_new_child_process(
             "min_photons": min_photons,
             "num_subdivisions": num_subdivisions,
             "empty_val": empty_val,
+            "coordinator_pid": os.getpid(),
         },
     )
     proc.start()
@@ -2003,18 +2050,19 @@ def _run_parallel_cell_validation(
         logger.exception(
             "\nException encountered in ICESat-2 processing loop. Exiting.",
         )
-        clean_procs_and_pipes(
-            running_procs,
-            open_pipes_parent,
-            open_pipes_child,
-            memory_objs,
-        )
         # Re-raise rather than hand back the cells finished so far, which the caller
         # would write out as the DEM's complete results.
         raise
 
     finally:
         progress.close()
+        # Also on KeyboardInterrupt: workers left running keep this process from exiting.
+        clean_procs_and_pipes(
+            running_procs,
+            open_pipes_parent,
+            open_pipes_child,
+            memory_objs,
+        )
 
     t_end = time.perf_counter()
     total_time_s = t_end - t_start
@@ -2035,12 +2083,6 @@ def _run_parallel_cell_validation(
             f"{(total_time_s / n) if n > 0 else 0:0.4f}",
         )
 
-    clean_procs_and_pipes(
-        running_procs,
-        open_pipes_parent,
-        open_pipes_child,
-        memory_objs,
-    )
     return results_dataframes_list
 
 
