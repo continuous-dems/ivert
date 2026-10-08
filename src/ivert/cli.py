@@ -1192,7 +1192,7 @@ def database_download(
         expanded = []
         for token in bbox_or_files:
             # A user-supplied pattern, possibly absolute, which Path.glob rejects.
-            matches = glob.glob(token)
+            matches = glob.glob(token)  # noqa: PTH207
             expanded.extend(matches or [token])
 
         missing = [
@@ -2561,7 +2561,7 @@ def _run_validate(
     expanded = []
     for f in files_or_directory:
         # A user-supplied pattern, possibly absolute, which Path.glob rejects.
-        matches = glob.glob(f)
+        matches = glob.glob(f)  # noqa: PTH207
         expanded.extend(matches or [f])
 
     if not expanded:

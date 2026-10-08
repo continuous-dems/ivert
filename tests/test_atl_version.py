@@ -5,7 +5,7 @@ ICESat2RequestsCSV is built on a stand-in config that points into tmp_path, and
 the network is stubbed out.
 """
 
-import os
+from pathlib import Path
 from types import SimpleNamespace
 from typing import ClassVar
 
@@ -206,19 +206,19 @@ def _download(db, monkeypatch, granule_names):
     Returns the DownloadSummary and the granules that reached classification.
     """
     cache_dir = db.icesat2_download_dir
-    os.makedirs(cache_dir, exist_ok=True)
+    cache_dir.mkdir(parents=True, exist_ok=True)
     results = []
     for name in granule_names:
-        path = os.path.join(cache_dir, name)
-        with open(path, "wb"):
-            pass
-        results.append((None, {"status": 0, "dst_fn": path}))
+        path = cache_dir / name
+        path.touch()
+        # fetchez's result entries hold strings.
+        results.append((None, {"status": 0, "dst_fn": str(path)}))
     monkeypatch.setattr(is2db.fetchez.core, "run_fetchez", lambda _mods: results)
 
     processed = []
 
     def fake_classify(files_to_process, _query_bbox, **_kwargs: object):
-        processed.extend(os.path.basename(h5_fn) for h5_fn, _ in files_to_process)
+        processed.extend(Path(h5_fn).name for h5_fn, _ in files_to_process)
         return []
 
     monkeypatch.setattr(db, "_classify_files", fake_classify)

@@ -1,6 +1,6 @@
 """Tests for when re-running a collection validation skips, and what it redoes."""
 
-import os
+from pathlib import Path
 
 import h5py
 import numpy as np
@@ -47,7 +47,7 @@ def collection(tmp_path, monkeypatch):
 
     def _fake_validate_dem(dem_path, *_args: object, **_kwargs: object):
         validated.append(dem_path)
-        if os.path.basename(dem_path) in failing:
+        if Path(dem_path).name in failing:
             msg = f"{dem_path} broke"
             raise ValueError(msg)
 

@@ -100,24 +100,6 @@ ignore = [
     "PLR0915",  # too-many-statements
     "PLR0917",  # too-many-positional-arguments
     "PLR2004",  # magic-value-comparison
-    "PTH100",   # os-path-abspath
-    "PTH102",   # os-mkdir
-    "PTH103",   # os-makedirs
-    "PTH107",   # os-remove
-    "PTH109",   # os-getcwd
-    "PTH110",   # os-path-exists
-    "PTH111",   # os-path-expanduser
-    "PTH112",   # os-path-isdir
-    "PTH113",   # os-path-isfile
-    "PTH117",   # os-path-isabs
-    "PTH118",   # os-path-join
-    "PTH119",   # os-path-basename
-    "PTH120",   # os-path-dirname
-    "PTH122",   # os-path-splitext
-    "PTH123",   # builtin-open
-    "PTH202",   # os-path-getsize
-    "PTH207",   # glob
-    "PTH208",   # os-listdir
     # Permanent: TRY003 wants a custom exception class for every multi-word message.
     # Most of ours are one-off argument checks or click exceptions, whose message
     # is what the user sees, so a class per message would add nothing.

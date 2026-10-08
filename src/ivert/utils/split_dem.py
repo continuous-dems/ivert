@@ -50,7 +50,7 @@ def split(
     for dname in dem_name:
         if contains_glob_flags(dname):
             # A user-supplied pattern, possibly absolute, which Path.glob rejects.
-            infiles.extend(glob.glob(dname))
+            infiles.extend(glob.glob(dname))  # noqa: PTH207
         else:
             infiles.append(dname)
 

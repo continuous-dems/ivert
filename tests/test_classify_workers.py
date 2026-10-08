@@ -8,6 +8,7 @@ import os
 import queue
 import sys
 import time
+from pathlib import Path
 from types import SimpleNamespace
 from typing import ClassVar
 
@@ -23,7 +24,7 @@ def _files(tmp_path, *sizes: int):
     paths = []
     for i, size in enumerate(sizes):
         path = tmp_path / f"ATL03_{i}_subsetted.h5"
-        with open(path, "wb") as f:
+        with path.open("wb") as f:
             f.truncate(size)
         paths.append(str(path))
     return paths
@@ -118,8 +119,8 @@ class _RecordingReader:
         self.cache_dir = cache_dir
 
     def fetch_atlxx(self, h5_fn, short_name):
-        time.sleep(self.delay.get(os.path.basename(h5_fn), 0.0))
-        type(self).asked.append((os.path.basename(h5_fn), short_name, self.cache_dir))
+        time.sleep(self.delay.get(Path(h5_fn).name, 0.0))
+        type(self).asked.append((Path(h5_fn).name, short_name, self.cache_dir))
         return None if short_name == "ATL24" else f"{short_name}_for_{h5_fn}"
 
 
@@ -140,7 +141,7 @@ def _fake_classify(_self, h5_fn, **kwargs: object):
         return []
     return [
         {
-            "filename": os.path.basename(h5_fn),
+            "filename": Path(h5_fn).name,
             "pid": os.getpid(),
             "granule_num": kwargs["granule_num"],
             "total_granules": kwargs["total_granules"],
@@ -184,14 +185,14 @@ def test_granules_are_classified_by_forked_workers(
     monkeypatch.setattr(is2db, "classify_worker_count", lambda *_a, **_k: (3, "test"))
     files = _files(tmp_path, 5 << 20, 9 << 20, 1 << 20, 3 << 20, 7 << 20)
     files.append(str(tmp_path / "ATL03_empty_subsetted.h5"))
-    open(files[-1], "wb").close()
+    Path(files[-1]).touch()
 
     with caplog.at_level(logging.INFO):
         records = _db(tmp_path)._classify_files(_work(files), BBOX)
 
     # Every file with photons gave one record, each with its own number out of 6.
     by_name = {r["filename"]: r for r in records}
-    assert sorted(by_name) == sorted(os.path.basename(f) for f in files[:-1])
+    assert sorted(by_name) == sorted(Path(f).name for f in files[:-1])
     numbers = sorted(r["granule_num"] for r in records)
     assert len(set(numbers)) == 5
     assert set(numbers) <= set(range(1, 7))
@@ -264,7 +265,7 @@ def test_prefetch_asks_globato_for_both_aux_products(tmp_path, caplog, fake_glob
         is2db._prefetch_aux_granules(files, str(tmp_path / "cache"), 2, ready)
 
     assert sorted(fake_globato.asked) == sorted(
-        (os.path.basename(f), name, str(tmp_path / "cache"))
+        (Path(f).name, name, str(tmp_path / "cache"))
         for f in files
         for name in ("ATL08", "ATL24")
     )
