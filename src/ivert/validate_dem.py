@@ -625,7 +625,6 @@ def validate_dem(
     dem_vertical_datum: str | int | None = None,
     dem_projection: str | int | None = None,
     dem_ndv: float | None = None,
-    interim_data_dir: str | Path | None = None,
     overwrite: bool = False,
     write_summary_stats: bool = True,
     outliers_sd_threshold: float | None = 2.5,
@@ -685,7 +684,6 @@ def validate_dem(
         dem_ndv: No-data value to exclude from the DEM pixels before validation.
             Overrides any no-data value in the DEM file header. Defaults to None, which uses the
             file header value, falling back to the config default (dem_default_ndv).
-        interim_data_dir: Output directory for intermediate data. Defaults to the same as the output_dir.
         overwrite: Overwrite existing files.
         write_summary_stats: Write summary statistics of results to a textfile.
         outliers_sd_threshold: Threshold for outlier detection in errors. Defaults to 2.5.
@@ -758,7 +756,6 @@ def validate_dem(
         "dem_vertical_datum": dem_vertical_datum,
         "dem_projection": dem_projection,
         "dem_ndv": dem_ndv,
-        "interim_data_dir": interim_data_dir,
         "overwrite": overwrite,
         "dates": dates,
         "classes": classes,
@@ -861,7 +858,6 @@ def validate_dem(
                 # The sub-DEMs are GeoTIFFs, which keep only one nodata value for all
                 # bands, so hand them this band's own value.
                 dem_ndv=dem_ndv if dem_ndv is not None else parent_band_ndv,
-                interim_data_dir=interim_data_dir,
                 overwrite=overwrite,
                 dates=dates,
                 classes=classes,
@@ -1121,15 +1117,14 @@ def dem_needs_validation(
 def _setup_output_paths(
     dem_name,
     output_dir,
-    interim_data_dir,
     mark_empty_results,
     write_summary_stats,
     plot_results,
 ):
     """Create output directories and derive all output filenames.
 
-    Returns (output_dir, interim_data_dir, results_dataframe_file,
-             empty_results_filename, summary_stats_filename, plot_filename).
+    Returns (output_dir, results_dataframe_file, empty_results_filename,
+             summary_stats_filename, plot_filename).
     The last three are None when that output isn't wanted.
     """
     output_dir = _default_output_dir(dem_name, output_dir)
@@ -1138,13 +1133,6 @@ def _setup_output_paths(
         output_dir.mkdir(parents=True)
 
     results_dataframe_file = _results_dataframe_filename(dem_name, output_dir)
-
-    interim_data_dir = (
-        output_dir if interim_data_dir is None else Path(interim_data_dir)
-    )
-    if not interim_data_dir.exists():
-        logger.info("Creating interim data directory %s", interim_data_dir)
-        interim_data_dir.mkdir(parents=True)
 
     empty_results_filename = None
     if mark_empty_results:
@@ -1164,7 +1152,6 @@ def _setup_output_paths(
 
     return (
         output_dir,
-        interim_data_dir,
         results_dataframe_file,
         empty_results_filename,
         summary_stats_filename,
@@ -2230,7 +2217,6 @@ def validate_dem_parallel(
     dem_vertical_datum: str | int | None = None,
     dem_projection: str | int | None = None,
     dem_ndv: float | None = None,
-    interim_data_dir: str | Path | None = None,
     overwrite: bool = False,
     write_summary_stats: bool = True,
     outliers_sd_threshold: float = 2.5,
@@ -2279,7 +2265,6 @@ def validate_dem_parallel(
 
     (
         output_dir,
-        interim_data_dir,
         results_dataframe_file,
         empty_results_filename,
         summary_stats_filename,
@@ -2287,7 +2272,6 @@ def validate_dem_parallel(
     ) = _setup_output_paths(
         dem_name,
         output_dir,
-        interim_data_dir,
         mark_empty_results,
         write_summary_stats,
         plot_results,

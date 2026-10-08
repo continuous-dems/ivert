@@ -16,7 +16,6 @@ import multiprocessing
 import os
 import queue
 import re
-import shutil
 import sys
 from collections.abc import Iterator
 from pathlib import Path
@@ -2431,40 +2430,6 @@ class IS2Database:
             },
         )
 
-    def delete_cache(
-        self,
-        delete_everything: bool = False,
-        delete_cmr: bool = True,
-        delete_already_processed_txt: bool = True,
-        delete_cudem_cache: bool = True,
-        cache_subdir: str | None = None,
-    ) -> None:
-        """Delete the icesat-2 data downloads and clears the cache directory."""
-        # If we only want to get rid of previous ICESat-2 downloads, clearing the CMR sub-directory will do that.
-        cache_dir = self.icesat2_download_dir
-        if cache_subdir is not None:
-            cache_dir /= cache_subdir
-
-        if delete_everything and cache_dir.exists():
-            for path in list(cache_dir.iterdir()):
-                shutil.rmtree(path)
-
-        else:
-            if delete_cmr:
-                if (cache_dir / "cmr").exists():
-                    shutil.rmtree(cache_dir / "cmr")
-                if (cache_dir / ".cudem_cache" / "cmr").exists():
-                    shutil.rmtree(cache_dir / ".cudem_cache" / "cmr")
-
-            if (
-                delete_already_processed_txt
-                and (cache_dir / "already_processed.txt").exists()
-            ):
-                (cache_dir / "already_processed.txt").unlink()
-
-            if delete_cudem_cache and (cache_dir / ".cudem_cache").exists():
-                shutil.rmtree(cache_dir / ".cudem_cache")
-
     @staticmethod
     def bbox_valid(bbox: list | tuple) -> bool:
         """Validate a bounding box. Make sure all min-max values are correctly ordered.
@@ -2717,112 +2682,3 @@ def split_bbox_into_parts(
         ]
 
     return bboxes
-
-
-def _cmd_list():
-    """Implement the 'list' subcommand."""
-    import tabulate as tabulate_mod
-
-    db = IS2Database()
-    gdf = db.open_gdf()
-
-    if gdf is None or len(gdf) == 0:
-        logger.info("No granules in database.")
-        return
-
-    rows = []
-    for _, row in gdf.iterrows():
-        rows.append(
-            [
-                row["filename"],
-                row["numphotons"],
-                row["numphotons_ground"],
-                row["numphotons_bathy_floor"],
-                row["numphotons_bathy_surface"],
-            ],
-        )
-
-    headers = ["File", "Total", "Ground", "BathyFloor", "BathySurf"]
-    # Formatted table output for a person reading the terminal, not a log record:
-    # keep it on stdout so it can be piped, and unadorned by any level prefix.
-    print(  # noqa: T201
-        tabulate_mod.tabulate(rows, headers=headers, tablefmt="simple", intfmt=","),
-    )
-    logger.info("\n%s granule(s)  —  db: %s", len(gdf), db.db_fname)
-
-
-def _cmd_delete(delete_all):
-    """Implement the 'delete' subcommand."""
-    db = IS2Database()
-
-    if Path(db.db_fname).exists():
-        Path(db.db_fname).unlink()
-        logger.info("Deleted %s", db.db_fname)
-    else:
-        logger.info("Not found (skipping): %s", db.db_fname)
-
-    if delete_all:
-        granules_dir = Path(db.granules_dir)
-        nc_files = (
-            [path for path in granules_dir.iterdir() if path.suffix.lower() == ".nc"]
-            if granules_dir.is_dir()
-            else []
-        )
-        if nc_files:
-            for fpath in sorted(nc_files):
-                fpath.unlink()
-            logger.info(
-                "Deleted %s .nc granule file(s) from %s",
-                len(nc_files),
-                db.granules_dir,
-            )
-        else:
-            logger.info("No .nc files found in %s", db.granules_dir)
-
-
-def _cmd_rebuild():
-    """Implement the 'rebuild' subcommand."""
-    db = IS2Database()
-    gdf = db.create_new_database(populate=True, overwrite=True)
-    n = len(gdf)
-    logger.info(
-        "Rebuilt ivert database index with %d granule%s.",
-        n,
-        "" if n == 1 else "s",
-    )
-
-
-if __name__ == "__main__":
-    import click
-
-    @click.group(
-        name="icesat2_database_v2",
-        help="Manage the local ICESat-2 photon granule database.",
-    )
-    def _cli():
-        pass
-
-    @_cli.command("list", help="List granules currently in the database.")
-    def _list_command():
-        _cmd_list()
-
-    @_cli.command("delete", help="Delete the NetCDF database index file.")
-    @click.option(
-        "--all",
-        "delete_all",
-        is_flag=True,
-        help="Also delete all .nc granule data files.",
-    )
-    def _delete_command(delete_all):
-        _cmd_delete(delete_all)
-
-    @_cli.command(
-        "rebuild",
-        help="Rebuild the database from existing .nc granule files."
-        "Useful if the .nc files have been modified at all, and/or if you suspect"
-        " the overview information has become inaccurate.",
-    )
-    def _rebuild_command():
-        _cmd_rebuild()
-
-    _cli()

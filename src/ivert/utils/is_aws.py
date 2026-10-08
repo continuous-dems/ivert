@@ -21,9 +21,3 @@ def is_aws():
         # During process shutdown, as the process is no longer running we can hit an error here. Just return False if
         # if that happens.
         return False
-
-
-if __name__ == "__main__":
-    # Bare stdout output on purpose: running this module as a script is a shell
-    # helper whose only result is the boolean, meant to be captured or tested.
-    print(is_aws())  # noqa: T201
