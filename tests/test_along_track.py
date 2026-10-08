@@ -140,7 +140,6 @@ def test_classified_photons_carry_along_track_m(tmp_path, monkeypatch):
         lambda *_a, **_k: iter([_records(delta_time)]),
     )
     config = SimpleNamespace(
-        ivert_database_index=str(tmp_path / "db" / "_ivert_database_index.nc"),
         ivert_database_directory=str(tmp_path / "db"),
         ivert_landmask_directory=str(tmp_path / "landmasks"),
         icesat2_download_directory=str(tmp_path),
@@ -177,7 +176,6 @@ def test_no_along_track_without_the_segment_columns(tmp_path, monkeypatch):
     without = records[[n for n in records.dtype.names if n != "ph_index_within_seg"]]
     monkeypatch.setattr(is2db.globato, "read", lambda *_a, **_k: iter([without]))
     config = SimpleNamespace(
-        ivert_database_index=str(tmp_path / "db" / "_ivert_database_index.nc"),
         ivert_database_directory=str(tmp_path / "db"),
         ivert_landmask_directory=str(tmp_path / "landmasks"),
         icesat2_download_directory=str(tmp_path),

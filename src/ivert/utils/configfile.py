@@ -344,8 +344,8 @@ class Config:
         """Return the options whose defaults are defined in terms of 'keys'.
 
         Follows "%(other_option)s" references transitively: if 'keys' contains
-        "user_data_directory", the result includes "ivert_database_directory"
-        (which embeds it) and "ivert_database_index" (which embeds *that*).
+        "user_data_directory", the result includes "cache_directory" (which embeds
+        it) and "icesat2_download_directory" (which embeds *that*).
 
         'keys' themselves are never included. The result is ordered as the
         configfile lists the options.

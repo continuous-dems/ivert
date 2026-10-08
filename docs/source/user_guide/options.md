@@ -64,12 +64,12 @@ Several defaults in `ivert_defaults.ini` embed another setting's value, using co
 user_data_directory = ~/.ivert
 cache_directory = %(user_data_directory)s/cache
 ivert_database_directory = %(user_data_directory)s/database/granules
-ivert_database_index = %(ivert_database_directory)s/_ivert_database_index.nc
+icesat2_download_directory = %(cache_directory)s
 ```
 
 Those embedded references are resolved inside whichever file defines them. So if you override `user_data_directory` in your user config file but `cache_directory` still lives only in `ivert_defaults.ini`, `cache_directory` keeps resolving against the **default** `~/.ivert` — not your new directory.
 
-To avoid that, `ivert options` detects the affected settings (transitively — `ivert_database_index` follows `ivert_database_directory`, which follows `user_data_directory`) and offers to copy them into your user config file:
+To avoid that, `ivert options` detects the affected settings (transitively — `icesat2_download_directory` follows `cache_directory`, which follows `user_data_directory`) and offers to copy them into your user config file:
 
 ```
 $ ivert options user_data_directory=/mnt/external/ivert
@@ -78,7 +78,6 @@ $ ivert options user_data_directory=/mnt/external/ivert
 Warning: these settings use the value of 'user_data_directory' in their own values, and are still at IVERT's default:
     cache_directory = %(user_data_directory)s/cache
     ivert_database_directory = %(user_data_directory)s/database/granules
-    ivert_database_index = %(ivert_database_directory)s/_ivert_database_index.nc
     icesat2_download_directory = %(cache_directory)s
     icesat2_requests_csv = %(user_data_directory)s/database/requests.csv
   Update them to use the new value of 'user_data_directory'? [Y/n]:

@@ -151,7 +151,6 @@ def _fake_classify(_self, h5_fn, **kwargs: object):
 
 def _db(tmp_path):
     config = SimpleNamespace(
-        ivert_database_index=str(tmp_path / "db" / "_ivert_database_index.nc"),
         ivert_database_directory=str(tmp_path / "db"),
         ivert_landmask_directory=str(tmp_path / "landmasks"),
         icesat2_download_directory=str(tmp_path / "cache"),
