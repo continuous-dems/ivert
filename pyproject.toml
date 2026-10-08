@@ -26,7 +26,6 @@ dependencies = [
     "h5py>=3.12.1",
     "matplotlib>=3.8.0",
     "netCDF4>=1.7.1.post1",
-    "numexpr>=2.10.0",
     "numpy>=1.26.0",
     "packaging>=23.2",
     "pandas>=2.1.2",

@@ -498,6 +498,13 @@ def validate_list_of_dems(
     # Read the index now, so the loaded copy is pickled into each tile's validation
     # sub-process instead of every sub-process re-reading it from disk.
     photon_db_obj.open_gdf()
+    # Each DEM is validated in a process forked from this one; loading this here,
+    # once, saves each of them from loading it for itself.
+    if 40 in classes and len(dem_list) > 1:
+        ivert.bathy_filters.preload_reference_fetcher(
+            bathy_filter_settings
+            or ivert.bathy_filters.BathyFilterSettings.from_config(),
+        )
 
     files_to_export = []
     list_of_results_dfs = []

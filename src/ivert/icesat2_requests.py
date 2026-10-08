@@ -11,7 +11,6 @@ import logging
 import time
 from pathlib import Path
 
-import dateparser
 import numpy as np
 import pandas as pd
 
@@ -304,6 +303,9 @@ class ICESat2RequestsCSV:
     @staticmethod
     def _is_expired(dt_string: str) -> bool:
         """Return True if the expiration date has passed."""
+        # Imported here: it is slow to import, and only this needs it.
+        import dateparser
+
         try:
             ex = dateparser.parse(dt_string)
             return datetime.datetime.now(datetime.UTC) >= ex
