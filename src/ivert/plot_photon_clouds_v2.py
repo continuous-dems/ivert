@@ -61,16 +61,30 @@ def _granule_id(filepath):
     return stem
 
 
-def _find_h5(nc_path):
-    """Search for a matching ATL03 .h5 whose name starts with the same granule ID."""
+def _h5_search_dirs(config):
+    """Return the configured folders that may hold downloaded ATL03 .h5 files.
+
+    The ICESat-2 download folder comes first, then the cache folder, which holds it
+    by default; a folder named by both is listed once.
+    """
+    dirs = []
+    for setting in ("icesat2_download_directory", "cache_directory"):
+        value = getattr(config, setting, None)
+        if value and Path(value) not in dirs:
+            dirs.append(Path(value))
+    return dirs
+
+
+def _find_h5(nc_path, cache_dirs=()):
+    """Search for a matching ATL03 .h5 whose name starts with the same granule ID.
+
+    The .nc file's own folder is searched first, then each of cache_dirs, all with
+    their subfolders.
+    """
     gid = _granule_id(nc_path)
     if not gid:
         return None
-    search_dirs = [
-        Path(nc_path).parent,
-        Path("~/.ivert/cache/icesat2").expanduser(),
-        Path("~/.ivert/cache").expanduser(),
-    ]
+    search_dirs = [Path(nc_path).parent, *(Path(d) for d in cache_dirs)]
     for d in search_dirs:
         hits = sorted(d.rglob(f"{gid}*.h5"))
         if hits:
@@ -534,8 +548,9 @@ _H5_SEARCH_CACHE = "__SEARCH_CACHE__"
     flag_value=_H5_SEARCH_CACHE,
     default=None,
     help="ATL03 .h5 file to use as noise background. Supply a path, or "
-    "omit the path to search the IVERT cache for a file whose name "
-    "starts with the same granule ID as the .nc file.",
+    "omit the path to search for a file whose name starts with the same "
+    "granule ID as the .nc file, in the .nc file's folder and then in the "
+    "icesat2_download_directory and cache_directory folders.",
 )
 @click.option(
     "--h5-only",
@@ -612,9 +627,11 @@ def main(
     import ivert.utils.configfile
 
     try:
-        cache_dir = ivert.utils.configfile.Config().cache_directory
+        config = ivert.utils.configfile.Config()
     except (configparser.Error, OSError):
-        cache_dir = None
+        config = None
+    cache_dir = config.cache_directory if config is not None else None
+    h5_search_dirs = _h5_search_dirs(config) if config is not None else []
 
     input_path = absolute_path(input_file)
     if not input_path.exists():
@@ -643,7 +660,7 @@ def main(
         if input_path.suffix.lower() == ".h5":
             h5_path = input_path
         elif h5_arg is True:
-            h5_path = _find_h5(input_path)
+            h5_path = _find_h5(input_path, h5_search_dirs)
             if h5_path is None:
                 sys.exit("--h5-only: no matching .h5 found in cache.")
         elif h5_arg:
@@ -651,7 +668,7 @@ def main(
             if not h5_path.exists():
                 sys.exit(f".h5 file not found: {h5_path}")
         else:
-            h5_path = _find_h5(input_path)
+            h5_path = _find_h5(input_path, h5_search_dirs)
             if h5_path is None:
                 sys.exit("--h5-only: no matching .h5 found in cache.")
 
@@ -707,7 +724,7 @@ def main(
 
     # Resolve .h5 path for beam splitting and noise background
     if h5_arg is True:
-        h5_path = _find_h5(nc_path)
+        h5_path = _find_h5(nc_path, h5_search_dirs)
         if h5_path is None:
             logger.warning("--h5 given but no matching .h5 found in cache.")
     elif h5_arg:
