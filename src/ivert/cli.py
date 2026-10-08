@@ -2431,6 +2431,20 @@ def _manifest_option_values(ctx, manifest_file):
     }
 
 
+def _real_dem_path(dem_name):
+    """Return a DEM path, or the file inside a subdataset string, as the real path on disk.
+
+    Symlinks are followed, so a symlinked folder followed by '..' gives the folder the
+    system actually used rather than the one the text names. A subdataset string keeps
+    its driver and variable around the resolved file ('NETCDF:"/abs/dem.nc":elev').
+    """
+    from ivert.utils import dem_source
+
+    file_part = dem_source.dem_file_path(dem_name)
+    real = str(Path(file_part).resolve())
+    return real if file_part == dem_name else dem_name.replace(file_part, real, 1)
+
+
 def _write_run_manifest(path, options, inputs, outdir, num_reused=0, num_dems=1):
     """Write a run's manifest, warning first if it replaces one with different settings.
 
@@ -2459,10 +2473,12 @@ def _write_run_manifest(path, options, inputs, outdir, num_reused=0, num_dems=1)
                 num_dems,
             )
 
+    # The real paths, symlinks followed: what the system used, which a path collapsed as
+    # text can miss when a symlinked folder is followed by '..'.
     run_info = {
         "command": shlex.join(["ivert", *sys.argv[1:]]),
-        "inputs": [str(absolute_path(f)) for f in inputs],
-        "outdir": str(absolute_path(outdir)),
+        "inputs": [_real_dem_path(f) for f in inputs],
+        "outdir": str(Path(outdir).resolve()),
     }
     manifest_module.write_manifest(path, ivert_version, options, run_info)
     logger.info("Wrote run manifest %s", path)
