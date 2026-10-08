@@ -19,6 +19,7 @@ import re
 import shutil
 import sys
 from collections.abc import Iterator
+from pathlib import Path
 from typing import ClassVar, NamedTuple
 
 import dateparser
@@ -40,6 +41,7 @@ import ivert.landmask
 import ivert.utils.configfile
 import ivert.utils.cuboid_funcs
 from ivert.icesat2_requests import ICESat2RequestsCSV
+from ivert.utils.paths import absolute_path
 
 logger = logging.getLogger(__name__)
 
@@ -100,7 +102,7 @@ def _atl_release_from_filename(filename: str) -> str | None:
 
     "ATL03_20241107234251_08052501_007_01_subsetted.h5" -> "007".
     """
-    parts = os.path.basename(filename).split("_")
+    parts = Path(filename).name.split("_")
     return parts[3] if len(parts) >= 4 else None
 
 
@@ -199,7 +201,7 @@ def classify_worker_count(
         cpu_count = os.cpu_count() or 1
     if available_bytes is None:
         available_bytes = psutil.virtual_memory().available
-    largest = max((os.path.getsize(f) for f in h5_files), default=0)
+    largest = max((Path(f).stat().st_size for f in h5_files), default=0)
     per_worker = max(_CLASSIFY_MIN_WORKER_BYTES, _CLASSIFY_BYTES_PER_H5_BYTE * largest)
 
     by_cpu = max(1, cpu_count - 1)
@@ -258,7 +260,7 @@ def _prefetch_aux_granules(h5_files, cache_dir, threads: int, ready) -> None:
                     logger.warning(
                         "Fetching aux granules for %s failed; its classification "
                         "will fetch them itself.",
-                        os.path.basename(futures[future]),
+                        Path(futures[future]).name,
                         exc_info=True,
                     )
                 else:
@@ -453,12 +455,13 @@ class IS2Database:
             pandas.DataFrame containing the granule records from the database.
 
         """
+        index_file = Path(self.db_fname)
         if overwrite:
-            if os.path.exists(self.db_fname):
-                logger.info("Removing old %s", os.path.basename(self.db_fname))
-                os.remove(self.db_fname)
+            if index_file.exists():
+                logger.info("Removing old %s", index_file.name)
+                index_file.unlink()
 
-        elif os.path.exists(self.db_fname):
+        elif index_file.exists():
             msg = "Database file already exists. Use overwrite=True to overwrite it."
             raise OSError(msg)
 
@@ -493,36 +496,37 @@ class IS2Database:
             gdf = pd.DataFrame(self._empty_db_dict()).drop(labels=0, axis="rows")
 
         self._write_index(gdf)
-        if os.path.exists(self.db_fname):
+        if index_file.exists():
             logger.debug(
                 "Created %s with %d records.",
-                os.path.basename(self.db_fname),
+                index_file.name,
                 len(gdf),
             )
         else:
             msg = "Failed to create"
-            raise OSError(msg, os.path.basename(self.db_fname))
+            raise OSError(msg, index_file.name)
 
         # This becomes the new database for this object.
         self.gdf = gdf
 
         return gdf
 
-    def granule_files(self) -> list[str]:
+    def granule_files(self) -> list[Path]:
         """Return the paths of the .nc granule files in the granules directory, sorted.
 
         The index file lives in that same directory and also ends in .nc, so it
         is explicitly skipped. Returns an empty list if the directory does not
         exist.
         """
-        if not os.path.isdir(self.granules_dir):
+        granules_dir = Path(self.granules_dir)
+        if not granules_dir.is_dir():
             return []
 
-        index_fn = os.path.basename(self.db_fname)
+        index_fn = Path(self.db_fname).name
         return sorted(
-            os.path.join(self.granules_dir, fn)
-            for fn in os.listdir(self.granules_dir)
-            if os.path.splitext(fn)[-1].lower() == ".nc" and fn != index_fn
+            path
+            for path in granules_dir.iterdir()
+            if path.suffix.lower() == ".nc" and path.name != index_fn
         )
 
     def ensure_index_exists(self) -> None:
@@ -542,7 +546,7 @@ class IS2Database:
             to rebuild it from.
 
         """
-        if os.path.exists(self.db_fname):
+        if Path(self.db_fname).exists():
             return
 
         granule_fnames = self.granule_files()
@@ -562,7 +566,7 @@ class IS2Database:
         logger.warning(
             "The database index '%s' is missing, but %d granule file(s) are present "
             "in %s. Rebuilding the index in place; this may take a few moments.",
-            os.path.basename(self.db_fname),
+            Path(self.db_fname).name,
             len(granule_fnames),
             self.granules_dir,
         )
@@ -604,7 +608,7 @@ class IS2Database:
         """
         record = {
             "granule_id": str(
-                attrs.get("granule_id", os.path.splitext(filename)[0]),
+                attrs.get("granule_id", Path(filename).stem),
             ),
             "filename": filename,
             "source_granule": str(
@@ -642,11 +646,11 @@ class IS2Database:
         try:
             with xarray.open_dataset(nc_fn) as ds:
                 attrs = dict(ds.attrs)
-            return cls._index_record_from_attrs(attrs, os.path.basename(nc_fn))
+            return cls._index_record_from_attrs(attrs, Path(nc_fn).name)
         except (OSError, ValueError, KeyError) as e:
             logger.warning(
                 "Could not read metadata from %s: %s",
-                os.path.basename(nc_fn),
+                Path(nc_fn).name,
                 e,
             )
             return None
@@ -679,8 +683,7 @@ class IS2Database:
     @classmethod
     def _granule_stem(cls, filename: str) -> str:
         """Return a granule's filename without directory, extension or query suffix."""
-        stem = os.path.splitext(os.path.basename(filename))[0]
-        return cls._QUERY_SUFFIX_RE.sub("", stem)
+        return cls._QUERY_SUFFIX_RE.sub("", Path(filename).stem)
 
     @classmethod
     def _subset_cache_filename(cls, h5_fn: str, query_bbox: tuple) -> str:
@@ -993,7 +996,7 @@ class IS2Database:
 
         cc = df["class_code"]
         return {
-            "granule_id": os.path.splitext(os.path.basename(nc_fn))[0],
+            "granule_id": Path(nc_fn).stem,
             "source_granule": str(base_attrs["source_granule"]),
             "laser_name": str(base_attrs.get("laser_name", "all")),
             "query_bbox": [float(v) for v in query_bbox[:4]]
@@ -1042,7 +1045,7 @@ class IS2Database:
                 for var in xr_ds.data_vars
             }
 
-        os.makedirs(os.path.dirname(nc_fn) or ".", exist_ok=True)
+        Path(nc_fn).parent.mkdir(parents=True, exist_ok=True)
         xr_ds.to_netcdf(nc_fn, encoding=encoding)
 
     @staticmethod
@@ -1095,16 +1098,13 @@ class IS2Database:
         logger.info(
             "%sSaved %s (%s photons, %s ground, %s bathy).",
             progress,
-            os.path.basename(nc_fn),
+            Path(nc_fn).name,
             f"{metadata_attrs['numphotons']:,}",
             f"{metadata_attrs['numphotons_ground']:,}",
             f"{metadata_attrs['numphotons_bathy_floor']:,}",
         )
 
-        return self._index_record_from_attrs(
-            metadata_attrs,
-            os.path.basename(nc_fn),
-        )
+        return self._index_record_from_attrs(metadata_attrs, Path(nc_fn).name)
 
     @classmethod
     def clip_granule_file(cls, nc_fn: str, cuboids, out_dir: str) -> list[dict]:
@@ -1127,7 +1127,7 @@ class IS2Database:
         base_attrs = {
             "source_granule": attrs.get(
                 "source_granule",
-                cls._source_granule_from_filename(os.path.basename(nc_fn)),
+                cls._source_granule_from_filename(Path(nc_fn).name),
             ),
             "laser_name": attrs.get("laser_name", "all"),
             "downloaded_on_utc": attrs.get(
@@ -1149,15 +1149,12 @@ class IS2Database:
                 ]
             if len(piece) == 0:
                 continue
-            out_fn = os.path.join(
-                out_dir,
-                cls._granule_stem(nc_fn) + cls._query_bbox_suffix(cuboid) + ".nc",
+            out_fn = Path(out_dir) / (
+                cls._granule_stem(nc_fn) + cls._query_bbox_suffix(cuboid) + ".nc"
             )
             piece_attrs = cls._granule_attrs(piece, out_fn, cuboid, base_attrs)
             cls._save_nc(piece, out_fn, piece_attrs)
-            records.append(
-                cls._index_record_from_attrs(piece_attrs, os.path.basename(out_fn)),
-            )
+            records.append(cls._index_record_from_attrs(piece_attrs, out_fn.name))
         return records
 
     @staticmethod
@@ -1197,7 +1194,7 @@ class IS2Database:
         records = []
         to_write = []
         for tile_bbox, nc_fn in tiles:
-            if os.path.exists(nc_fn) and not overwrite:
+            if Path(nc_fn).exists() and not overwrite:
                 meta = self._read_nc_metadata(nc_fn)
                 if meta is not None:
                     records.append(meta)
@@ -1331,7 +1328,7 @@ class IS2Database:
         total = len(files_to_process)
         ordered = sorted(
             files_to_process,
-            key=lambda item: os.path.getsize(item[0]),
+            key=lambda item: Path(item[0]).stat().st_size,
             reverse=True,
         )
         tiles_of = dict(ordered)
@@ -1360,7 +1357,7 @@ class IS2Database:
                     "%d/%d No valid classified photons in %s.",
                     index,
                     total,
-                    os.path.basename(h5_fn),
+                    Path(h5_fn).name,
                 )
 
         h5_files = [h5_fn for h5_fn, _ in ordered]
@@ -1501,10 +1498,7 @@ class IS2Database:
             for col in (*int_cols, *float_cols):
                 encoding[col] = {"zlib": True, "complevel": 4}
 
-        os.makedirs(
-            os.path.dirname(self.db_fname) or ".",
-            exist_ok=True,
-        )
+        Path(self.db_fname).parent.mkdir(parents=True, exist_ok=True)
         ds.to_netcdf(self.db_fname, encoding=encoding)
 
     @classmethod
@@ -1540,7 +1534,7 @@ class IS2Database:
 
         Returns None if the index file does not exist.
         """
-        if not os.path.exists(self.db_fname):
+        if not Path(self.db_fname).exists():
             return None
 
         return self.read_index_file(self.db_fname)
@@ -1570,7 +1564,7 @@ class IS2Database:
         self.gdf = gdf
         logger.info(
             "Loaded %s with %d records.",
-            os.path.basename(self.db_fname),
+            Path(self.db_fname).name,
             len(self.gdf),
         )
 
@@ -1741,19 +1735,17 @@ class IS2Database:
 
         logger.debug("Reading %d granules overlapping %r.", len(gdf_subset), bbox)
 
-        fnames = gdf_subset["filename"].apply(
-            lambda x: os.path.join(self.granules_dir, x),
-        )
+        granules_dir = Path(self.granules_dir)
         logger.debug(
             "%d granules exist with %s ground photons and %s bathy_floor photons.",
-            np.count_nonzero(fnames.apply(os.path.exists)),
+            sum((granules_dir / fn).exists() for fn in gdf_subset["filename"]),
             f"{gdf_subset['numphotons_ground'].sum():,}",
             f"{gdf_subset['numphotons_bathy_floor'].sum():,}",
         )
 
         granule_dfs = []
         for _idx, granule_line in gdf_subset.iterrows():
-            fpath = os.path.join(self.granules_dir, granule_line["filename"])
+            fpath = granules_dir / granule_line["filename"]
             granule_dfs.append(
                 self.read_granule(
                     fpath,
@@ -2038,7 +2030,7 @@ class IS2Database:
             len(bboxes),
         )
 
-        os.makedirs(self.granules_dir, exist_ok=True)
+        Path(self.granules_dir).mkdir(parents=True, exist_ok=True)
 
         atl_version = _normalize_atl_version(self.config.nsidc_atl_version)
 
@@ -2049,12 +2041,13 @@ class IS2Database:
             logger.info("Part %d of %d: %s", i + 1, len(bboxes), sbbox)
             logger.info("=" * 85)
 
+            # A string: it is handed to fetchez.
             cache_dir = (
-                os.path.join(self.icesat2_download_dir, cache_subdir)
+                str(Path(self.icesat2_download_dir) / cache_subdir)
                 if cache_subdir is not None
                 else self.icesat2_download_dir
             )
-            os.makedirs(cache_dir, exist_ok=True)
+            Path(cache_dir).mkdir(parents=True, exist_ok=True)
 
             # fetchez region is "xmin/xmax/ymin/ymax"
             region_str = f"{sbbox[0]}/{sbbox[1]}/{sbbox[2]}/{sbbox[3]}"
@@ -2159,9 +2152,9 @@ class IS2Database:
             for entry in mod.results:
                 dst = entry.get("dst_fn")
                 if dst:
-                    entry["dst_fn"] = os.path.join(
-                        os.path.dirname(dst),
-                        self._subset_cache_filename(dst, sbbox),
+                    # fetchez's own entry, so it stays a string.
+                    entry["dst_fn"] = str(
+                        Path(dst).with_name(self._subset_cache_filename(dst, sbbox)),
                     )
 
             # Update the CSV with the final status (links, progress=100, etc.)
@@ -2185,12 +2178,13 @@ class IS2Database:
                 )
                 parts_failed += 1
                 continue
+            # Strings, for globato's reader.
             h5_files = sorted(
-                os.path.abspath(entry["dst_fn"])
+                str(absolute_path(entry["dst_fn"]))
                 for _, entry in results
                 if entry.get("status") == 0
                 and entry.get("dst_fn")
-                and os.path.exists(entry["dst_fn"])
+                and Path(entry["dst_fn"]).exists()
             )
 
             if not h5_files:
@@ -2210,7 +2204,7 @@ class IS2Database:
                     "The installed fetchez may not support that version yet.",
                     len(wrong_release),
                     atl_version,
-                    os.path.basename(wrong_release[0]),
+                    Path(wrong_release[0]).name,
                 )
                 h5_files = [fn for fn in h5_files if fn not in wrong_release]
                 if not h5_files:
@@ -2246,9 +2240,7 @@ class IS2Database:
                     if nc_basename in existing_filenames and not replace:
                         logger.info("Skipping %s (already in database).", nc_basename)
                     else:
-                        targets.append(
-                            (tile, os.path.join(self.granules_dir, nc_basename)),
-                        )
+                        targets.append((tile, Path(self.granules_dir) / nc_basename))
                 if targets:
                     files_to_process.append((h5_src, targets))
 
@@ -2318,9 +2310,9 @@ class IS2Database:
                             n_replaced,
                         )
                         for old_fname in existing_gdf.loc[is_replaced, "filename"]:
-                            old_fpath = os.path.join(self.granules_dir, old_fname)
-                            if os.path.exists(old_fpath):
-                                os.remove(old_fpath)
+                            (Path(self.granules_dir) / old_fname).unlink(
+                                missing_ok=True,
+                            )
                         existing_gdf = existing_gdf[~is_replaced]
                 self.gdf = pd.concat(
                     [existing_gdf, new_gdf],
@@ -2333,14 +2325,14 @@ class IS2Database:
 
             self._write_index(self.gdf)
 
-            if os.path.exists(self.db_fname):
+            if Path(self.db_fname).exists():
                 logger.info(
                     "Updated %s with %d total records.",
-                    os.path.basename(self.db_fname),
+                    Path(self.db_fname).name,
                     len(self.gdf),
                 )
             else:
-                msg = f"Failed to write {os.path.basename(self.db_fname)}"
+                msg = f"Failed to write {Path(self.db_fname).name}"
                 raise OSError(msg)
 
         return DownloadSummary(
@@ -2463,31 +2455,29 @@ class IS2Database:
     ) -> None:
         """Delete the icesat-2 data downloads and clears the cache directory."""
         # If we only want to get rid of previous ICESat-2 downloads, clearing the CMR sub-directory will do that.
-        if cache_subdir is None:
-            cache_dir = self.icesat2_download_dir
-        else:
-            cache_dir = os.path.join(self.icesat2_download_dir, cache_subdir)
+        cache_dir = Path(self.icesat2_download_dir)
+        if cache_subdir is not None:
+            cache_dir /= cache_subdir
 
-        if delete_everything and os.path.exists(cache_dir):
-            for fname in [os.path.join(cache_dir, fn) for fn in os.listdir(cache_dir)]:
-                shutil.rmtree(fname)
+        if delete_everything and cache_dir.exists():
+            for path in list(cache_dir.iterdir()):
+                shutil.rmtree(path)
 
         else:
             if delete_cmr:
-                if os.path.exists(os.path.join(cache_dir, "cmr")):
-                    shutil.rmtree(os.path.join(cache_dir, "cmr"))
-                if os.path.exists(os.path.join(cache_dir, ".cudem_cache", "cmr")):
-                    shutil.rmtree(os.path.join(cache_dir, ".cudem_cache", "cmr"))
+                if (cache_dir / "cmr").exists():
+                    shutil.rmtree(cache_dir / "cmr")
+                if (cache_dir / ".cudem_cache" / "cmr").exists():
+                    shutil.rmtree(cache_dir / ".cudem_cache" / "cmr")
 
-            if delete_already_processed_txt and os.path.exists(
-                os.path.join(cache_dir, "already_processed.txt"),
+            if (
+                delete_already_processed_txt
+                and (cache_dir / "already_processed.txt").exists()
             ):
-                os.remove(os.path.join(cache_dir, "already_processed.txt"))
+                (cache_dir / "already_processed.txt").unlink()
 
-            if delete_cudem_cache and os.path.exists(
-                os.path.join(cache_dir, ".cudem_cache"),
-            ):
-                shutil.rmtree(os.path.join(cache_dir, ".cudem_cache"))
+            if delete_cudem_cache and (cache_dir / ".cudem_cache").exists():
+                shutil.rmtree(cache_dir / ".cudem_cache")
 
     @staticmethod
     def bbox_valid(bbox: list | tuple) -> bool:
@@ -2779,25 +2769,22 @@ def _cmd_delete(delete_all):
     """Implement the 'delete' subcommand."""
     db = IS2Database()
 
-    if os.path.exists(db.db_fname):
-        os.remove(db.db_fname)
+    if Path(db.db_fname).exists():
+        Path(db.db_fname).unlink()
         logger.info("Deleted %s", db.db_fname)
     else:
         logger.info("Not found (skipping): %s", db.db_fname)
 
     if delete_all:
+        granules_dir = Path(db.granules_dir)
         nc_files = (
-            [
-                os.path.join(db.granules_dir, fn)
-                for fn in os.listdir(db.granules_dir)
-                if os.path.splitext(fn)[-1].lower() == ".nc"
-            ]
-            if os.path.isdir(db.granules_dir)
+            [path for path in granules_dir.iterdir() if path.suffix.lower() == ".nc"]
+            if granules_dir.is_dir()
             else []
         )
         if nc_files:
             for fpath in sorted(nc_files):
-                os.remove(fpath)
+                fpath.unlink()
             logger.info(
                 "Deleted %s .nc granule file(s) from %s",
                 len(nc_files),
