@@ -8,8 +8,8 @@ than re-submitting to Harmony.
 import ast
 import datetime
 import logging
-import os
 import time
+from pathlib import Path
 
 import dateparser
 import numpy as np
@@ -187,7 +187,7 @@ class ICESat2RequestsCSV:
         if self.df is not None and not read_again:
             return self.df
 
-        if os.path.exists(self.csv_file):
+        if Path(self.csv_file).exists():
             num_tries = 0
             while num_tries < 20:
                 try:
@@ -218,7 +218,7 @@ class ICESat2RequestsCSV:
 
     def export(self):
         """Write self.df back to disk."""
-        os.makedirs(os.path.dirname(self.csv_file), exist_ok=True)
+        Path(self.csv_file).parent.mkdir(parents=True, exist_ok=True)
         self.df.to_csv(self.csv_file, index=False, header=True)
 
     def clean_csv(self):
