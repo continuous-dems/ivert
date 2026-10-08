@@ -209,6 +209,19 @@ def test_a_dem_that_cant_be_read_gets_an_error_marker(collection):
     assert "has no georeferencing" in (out / "c_results_ERROR.txt").read_text()
 
 
+def test_a_file_gdal_cant_open_is_skipped_and_the_run_goes_on(collection):
+    """A corrupt or non-raster DEM file used to stop the whole collection (#156)."""
+    tmp_path, out, _, validated, _ = collection
+    (tmp_path / "c.tif").write_text("not a raster")
+    _make_tif(tmp_path / "d.tif")
+
+    _run(tmp_path, out)
+
+    assert "can't be read as a raster" in (out / "c_results_ERROR.txt").read_text()
+    # The DEMs after it are still validated.
+    assert any(Path(d).name == "d.tif" for d in validated)
+
+
 def test_overwrite_deletes_an_empty_marker(tmp_path):
     """An old _results_EMPTY.txt used to be left beside new results, contradicting them."""
     results = tmp_path / "dem_results.h5"

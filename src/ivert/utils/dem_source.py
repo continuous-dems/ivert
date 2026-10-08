@@ -51,6 +51,19 @@ class DEMNotGeoreferencedError(DEMSourceError):
     """GDAL reads no geotransform for the DEM, so where it lies is unknown."""
 
 
+class DEMUnreadableError(DEMSourceError):
+    """GDAL can't open the DEM file as a raster (corrupt, truncated, or not a raster)."""
+
+
+def _open_dem(dem_name):
+    """Return rasterio.open(dem_name), raising DEMUnreadableError if GDAL can't open it."""
+    try:
+        return rasterio.open(dem_name)
+    except rasterio.errors.RasterioIOError as exc:
+        msg = f"{dem_file_path(dem_name)} can't be read as a raster: {exc}"
+        raise DEMUnreadableError(msg) from exc
+
+
 def _parse_subdataset(dem_name):
     """Return (driver, file path, variable) for a subdataset string, or None for a plain path."""
     m = _SUBDATASET_RE.match(dem_name)
@@ -195,13 +208,15 @@ def _georeferenced_source(subdataset):
 def check_georeferenced(dem_name):
     """Raise DEMNotGeoreferencedError if GDAL reads no geotransform for this DEM.
 
+    Raises DEMUnreadableError if GDAL can't open it at all.
+
     rasterio gives such a raster the identity transform, which would put its pixel
     indices in place of its coordinates: a DEM in degrees would seem to lie near
     0°N, 0°E and find no photons, with no sign of why.
     """
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", rasterio.errors.NotGeoreferencedWarning)
-        with rasterio.open(dem_name) as ds:
+        with _open_dem(dem_name) as ds:
             ungeoreferenced = ds.transform.is_identity
     if ungeoreferenced:
         msg = (
@@ -294,7 +309,7 @@ def resolve_dem_source(dem_name, variable=None):
     # A multi-variable file has no georeferencing of its own, which rasterio warns about.
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", rasterio.errors.NotGeoreferencedWarning)
-        with rasterio.open(file_path) as ds:
+        with _open_dem(file_path) as ds:
             count = ds.count
             subdatasets = list(ds.subdatasets)
             single_var = ds.tags(1).get("NETCDF_VARNAME") if count else None
