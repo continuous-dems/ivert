@@ -65,3 +65,18 @@ def test_unrecognized_options_are_dropped_if_the_user_agrees(monkeypatch):
     )
 
     assert options == {"band_num": "1", "projection": "", "variable": ""}
+
+
+def test_write_manifest_through_a_symlinked_folder(tmp_path):
+    """Writing through "symlink/../out" once crashed: the temp file went in a different folder from the manifest."""
+    (tmp_path / "real").mkdir()
+    (tmp_path / "dems").mkdir()
+    (tmp_path / "dems" / "link").symlink_to(tmp_path / "real")
+    path = tmp_path / "dems" / "link" / ".." / "out" / manifest.MANIFEST_FILENAME
+
+    manifest.write_manifest(path, "0.7.0", {"band_num": 1}, {"outdir": "out"})
+
+    # ".." after a symlink leads out of the symlink's target, as the system resolves it.
+    written = tmp_path / "out" / manifest.MANIFEST_FILENAME
+    assert manifest.read_manifest(written)[1] == {"band_num": "1"}
+    assert list(written.parent.iterdir()) == [written]

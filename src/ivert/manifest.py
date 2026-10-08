@@ -18,7 +18,6 @@ import click
 from packaging.version import InvalidVersion, Version
 
 from ivert.utils import dem_source
-from ivert.utils.paths import absolute_path
 
 logger = logging.getLogger(__name__)
 
@@ -114,9 +113,14 @@ def write_manifest(path, version, options, run_info):
     text = "\n".join(parts) + "\n"
 
     # Write to a temporary file and swap it in, so an interrupted write never leaves
-    # a half-written manifest behind.
-    directory = absolute_path(path).parent
+    # a half-written manifest behind. The temporary file must go in the folder the
+    # rename below writes into. In "linkdir/../out", where linkdir is a symlink, the
+    # system resolves ".." from the symlink's target, so that folder is found with
+    # resolve(), never by collapsing "linkdir/.." as text, as os.path.abspath() (and
+    # tempfile, with the 'dir' it is given) would.
+    directory = Path(path).parent
     directory.mkdir(parents=True, exist_ok=True)
+    directory = directory.resolve()
     fd, tmp_path = tempfile.mkstemp(
         dir=directory,
         prefix=".ivert_manifest_",
