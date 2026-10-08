@@ -11,11 +11,13 @@ GDAL's HDF5 driver reads no coordinates, so an HDF5 file (often a NetCDF-4 file 
 another name) is opened through the NetCDF driver when only that one georeferences it.
 """
 
-import os
 import re
 import warnings
+from pathlib import Path
 
 import rasterio
+
+from ivert.utils.paths import absolute_path
 
 # Variable names tried, in order, when a multi-variable file is given without --variable.
 DEFAULT_ELEVATION_VARIABLES = ("elev", "elevation", "z")
@@ -63,7 +65,11 @@ def _variable_path(var):
 
 
 def dem_file_path(dem_name):
-    """Return the file on disk that a DEM path or subdataset string refers to."""
+    """Return the file on disk that a DEM path or subdataset string refers to.
+
+    A string, not a Path: it is the file part of the DEM name exactly as written, which
+    callers find again inside the name (a Path would normalize './' and '//' away).
+    """
     parsed = _parse_subdataset(dem_name)
     return dem_name if parsed is None else parsed[1]
 
@@ -75,7 +81,7 @@ def dem_base_name(dem_name):
     variable is appended ('dem_elev', or 'dem_grid_elev' for an HDF5 dataset in a group),
     so two variables of one file don't share outputs.
     """
-    base = os.path.splitext(os.path.basename(dem_file_path(dem_name)))[0]
+    base = Path(dem_file_path(dem_name)).stem
     parsed = _parse_subdataset(dem_name)
     if parsed is None:
         return base
@@ -89,7 +95,7 @@ def dem_display_name(dem_name):
     the variable, without the GDAL driver prefix or quotes ('dem.nc:elev',
     'dem.h5:grid/elev'), so that two variables of one file stay apart.
     """
-    file_name = os.path.basename(dem_file_path(dem_name))
+    file_name = Path(dem_file_path(dem_name)).name
     parsed = _parse_subdataset(dem_name)
     if parsed is None:
         return file_name
@@ -100,7 +106,7 @@ def _variable_file_driver(dem_name):
     """Return the subdataset driver prefix for a plain NetCDF or HDF5 path, else None."""
     if _parse_subdataset(dem_name) is not None:
         return None
-    return VARIABLE_FILE_DRIVERS.get(os.path.splitext(dem_name)[1].lower())
+    return VARIABLE_FILE_DRIVERS.get(Path(dem_name).suffix.lower())
 
 
 def possible_base_names(dem_name, variable=None):
@@ -121,7 +127,7 @@ def possible_base_names(dem_name, variable=None):
     bases = [base] + [
         f"{base}_{_variable_path(name).replace('/', '_')}" for name in names
     ]
-    if variable is None and os.path.exists(dem_name):
+    if variable is None and Path(dem_name).exists():
         try:
             resolved = dem_base_name(resolve_dem_source(dem_name))
         except (DEMSourceError, rasterio.errors.RasterioIOError):
@@ -237,7 +243,9 @@ def _resolve_named_variable(
         if variable == single_var:
             return file_path
         prefix = "//" if driver == "HDF5" else ""
-        subdataset = f'{driver}:"{os.path.abspath(file_path)}":{prefix}{_variable_path(variable)}'
+        subdataset = (
+            f'{driver}:"{absolute_path(file_path)}":{prefix}{_variable_path(variable)}'
+        )
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", rasterio.errors.NotGeoreferencedWarning)
             if _opens(subdataset):
@@ -278,10 +286,10 @@ def resolve_dem_source(dem_name, variable=None):
     driver = _variable_file_driver(file_path)
     if driver is None:
         return dem_name
-    if not os.path.exists(file_path):
+    if not Path(file_path).exists():
         msg = f"Could not find DEM file {file_path}."
         raise FileNotFoundError(msg)
-    abs_path = os.path.abspath(file_path)
+    abs_path = absolute_path(file_path)
 
     # A multi-variable file has no georeferencing of its own, which rasterio warns about.
     with warnings.catch_warnings():
