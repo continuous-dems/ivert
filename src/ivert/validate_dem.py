@@ -50,6 +50,9 @@ logger = logging.getLogger(__name__)
 # the signal, so every photon in the cell is used instead.
 INTERDECILE_MIN_PHOTONS = 5
 
+# The text of the "<dem>_results_EMPTY.txt" marker for a DEM with no results.
+_EMPTY_RESULTS_TEXT = "No ICESat-2 data overlapping this DEM to validate."
+
 
 def read_dataframe_file(df_filename: str | Path) -> pd.DataFrame:
     """Read a dataframe file, either from HDF, CSV, or feather.
@@ -642,7 +645,7 @@ def validate_dem(
         include_photon_level_validation: Include photon level validation (not just cell-level validation).
         plot_results: Plot results.
         location_name: Name of the location being validated.
-        mark_empty_results: Mark results that are empty in an "_EMPTY.txt" file.
+        mark_empty_results: Mark results that are empty in a "<dem>_results_EMPTY.txt" file.
         measure_coverage: Measure the coverage of ICESat-2 photons within each grid-cell.
         min_coverage_pct: If set, drop grid cells whose measured coverage is below this
             percentage (0-100) from the validation results, stats, and plots. Requires
@@ -691,6 +694,10 @@ def validate_dem(
 
     if shared_ret_values is None:
         shared_ret_values = {}
+
+    # The merge after a split below writes into it, so settle the default here rather
+    # than leave it to the sub-process.
+    output_dir = _default_output_dir(dem_name, output_dir)
 
     manager = mp.Manager()
     sub_shared_ret_values = manager.dict()
@@ -799,7 +806,7 @@ def validate_dem(
             validate_dem(
                 sub_dem_name,
                 output_dir=output_dir,
-                shared_ret_values=dict(sub_shared_ret_dict),
+                shared_ret_values=sub_shared_ret_dict,
                 icesat2_photon_database_obj=icesat2_photon_database_obj,
                 band_num=band_num,
                 dem_vertical_datum=dem_vertical_datum,
@@ -939,14 +946,11 @@ def validate_dem(
             and subdivision_number == 0
         ):
             # If any of the results existed, we don't need to do this just because one sub-result doesn't exist.
-            empty_fname = Path(output_dir) / (
-                dem_source.dem_base_name(dem_name) + "_EMPTY.txt"
+            empty_fname = _empty_results_filename(
+                _results_dataframe_filename(dem_name, output_dir),
             )
-            empty_fname.write_text(
-                Path(dem_source.dem_file_path(dem_name)).name
-                + " had no IVERT results.",
-                encoding="utf-8",
-            )
+            empty_fname.write_text(_EMPTY_RESULTS_TEXT, encoding="utf-8")
+            written_files.append(empty_fname)
             shared_ret_values["empty_results_filename"] = empty_fname
 
         # Create the overall summary stats text file.
@@ -996,10 +1000,13 @@ def validate_dem(
             output_fname = Path(output_dir) / (
                 dem_source.dem_base_name(dem_name) + "_plot.png"
             )
-            ivert.plot_validation_results.plot_histogram_and_error_stats_4_panels(
+            if location_name is None:
+                location_name = Path(dem_source.dem_file_path(dem_name)).name
+            ivert.plot_validation_results.plot_histograms_and_line(
                 shared_results_df,
                 output_fname,
                 place_name=location_name,
+                figsize=(10, 4),
             )
             written_files.append(output_fname)
             shared_ret_values["plot_filename"] = output_fname
@@ -1009,6 +1016,13 @@ def validate_dem(
 
     msg = f"validate_dem.validate_dem({orig_dem_name},...) exited with exitcode {exitcode}."
     raise RuntimeError(msg)
+
+
+def _default_output_dir(dem_name, output_dir):
+    """Return output_dir as a Path, or the DEM's own folder if it is empty or None."""
+    if not output_dir:
+        return absolute_path(dem_source.dem_file_path(dem_name)).parent
+    return Path(output_dir)
 
 
 def _results_dataframe_filename(dem_name, output_dir):
@@ -1071,9 +1085,7 @@ def _setup_output_paths(
              empty_results_filename, summary_stats_filename, plot_filename).
     The last three are None when that output isn't wanted.
     """
-    if not output_dir:
-        output_dir = absolute_path(dem_source.dem_file_path(dem_name)).parent
-    output_dir = Path(output_dir)
+    output_dir = _default_output_dir(dem_name, output_dir)
     if not output_dir.exists():
         logger.info("Creating output directory %s", output_dir)
         output_dir.mkdir(parents=True)
@@ -2096,10 +2108,7 @@ def _write_validation_outputs(
     if len(results_dataframe) == 0:
         logger.info("No valid results in results dataframe. No outputs computed.")
         if mark_empty_results:
-            empty_results_filename.write_text(
-                "No ICESat-2 data data overlapping this DEM to validate.",
-                encoding="utf-8",
-            )
+            empty_results_filename.write_text(_EMPTY_RESULTS_TEXT, encoding="utf-8")
             logger.info(
                 "Created %s to indicate no data was returned here.",
                 empty_results_filename,
