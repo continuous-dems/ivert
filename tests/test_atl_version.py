@@ -223,7 +223,6 @@ class _FakeRequestsCSV:
 def db(tmp_path, monkeypatch):
     """An IS2Database rooted in tmp_path, with the network replaced by the fakes."""
     config = SimpleNamespace(
-        ivert_database_index=str(tmp_path / "db" / "_ivert_database_index.nc"),
         ivert_database_directory=str(tmp_path / "db"),
         ivert_landmask_directory=str(tmp_path / "db" / "landmasks"),
         icesat2_download_directory=str(tmp_path / "cache"),

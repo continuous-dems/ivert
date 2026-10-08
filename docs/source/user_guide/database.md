@@ -1,6 +1,6 @@
 # ivert database
 
-Manage the local IVERT ICESat-2 photon database. IVERT stores downloaded photon data as NetCDF granule files (`.nc`) indexed by a single NetCDF index file (`.nc`) for fast spatial lookup. The database location is set by `ivert_database_directory` (and the index file by `ivert_database_index`) in your config (see [ivert options](options.md)).
+Manage the local IVERT ICESat-2 photon database. IVERT stores downloaded photon data as NetCDF granule files (`.nc`) indexed by a single NetCDF index file (`.nc`) for fast spatial lookup. The database location is set by `ivert_database_directory` in your config (see [ivert options](options.md)); the index file, `_ivert_database_index.nc`, always lives in that directory with the granules.
 
 ---
 

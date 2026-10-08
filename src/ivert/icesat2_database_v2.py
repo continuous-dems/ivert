@@ -316,6 +316,9 @@ class DatabaseNotFoundError(Exception):
 class IS2Database:
     """A tiled database of classified ICESat-2 photons, and the index that locates them."""
 
+    # The index file's name, in the database directory (ivert_database_directory).
+    INDEX_FILENAME = "_ivert_database_index.nc"
+
     # Column groups describing how the index is serialized to the NetCDF file.
     # Every column becomes a plain 1-D numeric or string variable over the
     # "record" dimension, so the index reads back as an ordinary DataFrame with
@@ -433,7 +436,6 @@ class IS2Database:
         else:
             self.config = ivert_config
 
-        self.db_fname = Path(self.config.ivert_database_index)
         self.gdf = None
         self.last_gdf_bbox = None
         self.last_gdf_date_range = None
@@ -444,6 +446,8 @@ class IS2Database:
         self.crs = "EPSG:4326+3855"
 
         self.granules_dir = Path(self.config.ivert_database_directory)
+        # The index always sits with the granules it lists, so the two can't part.
+        self.db_fname = self.granules_dir / self.INDEX_FILENAME
         self.icesat2_download_dir = Path(self.config.icesat2_download_directory)
         self.landmask_dir = Path(self.config.ivert_landmask_directory)
 
