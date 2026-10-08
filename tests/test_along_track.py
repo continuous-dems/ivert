@@ -1,7 +1,7 @@
 # tests/test_along_track.py
 """Each classified photon gets its cumulative along-track distance from the .h5."""
 
-import os
+from pathlib import Path
 from types import SimpleNamespace
 
 import h5py
@@ -207,4 +207,4 @@ def test_the_plotter_computes_the_same_distances_from_the_h5(tmp_path, name):
     _, _, along = is2db.IS2Database._h5_along_track_m(h5, [name])[name]
 
     assert plotter["along_track_m"].tolist() == along.tolist()
-    assert os.path.exists(h5)
+    assert Path(h5).exists()

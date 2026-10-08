@@ -57,9 +57,9 @@ def manifest_path(output_dir, dem_name=None):
     gets 'ivert_manifest.ini'.
     """
     if dem_name is None:
-        return os.path.join(output_dir, MANIFEST_FILENAME)
+        return Path(output_dir) / MANIFEST_FILENAME
     base = dem_source.dem_base_name(dem_name)
-    return os.path.join(output_dir, f"{base}_{MANIFEST_FILENAME}")
+    return Path(output_dir) / f"{base}_{MANIFEST_FILENAME}"
 
 
 def tracked_params(command):
@@ -99,7 +99,7 @@ def write_manifest(path, version, options, run_info):
     """
     created = datetime.datetime.now(datetime.UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
     parts = [
-        _HEADER.format(filename=os.path.basename(path)),
+        _HEADER.format(filename=Path(path).name),
         "[ivert]",
         _format_entry("version", version),
         _format_entry("created_utc", created),
@@ -113,9 +113,14 @@ def write_manifest(path, version, options, run_info):
     text = "\n".join(parts) + "\n"
 
     # Write to a temporary file and swap it in, so an interrupted write never leaves
-    # a half-written manifest behind.
-    directory = os.path.dirname(os.path.abspath(path))
-    os.makedirs(directory, exist_ok=True)
+    # a half-written manifest behind. The temporary file must go in the folder the
+    # rename below writes into. In "linkdir/../out", where linkdir is a symlink, the
+    # system resolves ".." from the symlink's target, so that folder is found with
+    # resolve(), never by collapsing "linkdir/.." as text, as os.path.abspath() (and
+    # tempfile, with the 'dir' it is given) would.
+    directory = Path(path).parent
+    directory.mkdir(parents=True, exist_ok=True)
+    directory = directory.resolve()
     fd, tmp_path = tempfile.mkstemp(
         dir=directory,
         prefix=".ivert_manifest_",
@@ -126,8 +131,7 @@ def write_manifest(path, version, options, run_info):
             f.write(text)
         Path(tmp_path).replace(path)
     except BaseException:
-        if os.path.exists(tmp_path):
-            os.remove(tmp_path)
+        Path(tmp_path).unlink(missing_ok=True)
         raise
 
 
@@ -150,7 +154,7 @@ def read_manifest(path):
     """
     parser = _new_parser()
     try:
-        with open(path) as f:
+        with Path(path).open() as f:
             parser.read_file(f)
     except (OSError, configparser.Error) as exc:
         msg = f"Could not read manifest '{path}': {exc}"

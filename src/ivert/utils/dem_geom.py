@@ -5,8 +5,8 @@ the (deprecated) cudem library and are general-purpose enough to live in utils.
 """
 
 import logging
-import os
 import typing
+from pathlib import Path
 
 import pyproj
 import rasterio
@@ -108,7 +108,7 @@ def get_dem_reference_frame_from_file(
         FileNotFoundError: if the file does not exist.
 
     """
-    if not os.path.exists(dem_source.dem_file_path(dem_fname)):
+    if not Path(dem_source.dem_file_path(dem_fname)).exists():
         msg = f"DEM file {dem_fname} does not exist."
         raise FileNotFoundError(msg)
 
@@ -243,7 +243,7 @@ def get_wgs84_bounding_box(
         )
 
     elif isinstance(polygon_bbox_or_dem_fname, str):
-        if not os.path.exists(dem_source.dem_file_path(polygon_bbox_or_dem_fname)):
+        if not Path(dem_source.dem_file_path(polygon_bbox_or_dem_fname)).exists():
             msg = f"File not found: {polygon_bbox_or_dem_fname}"
             raise FileNotFoundError(msg)
         if dem_horz_reference_frame is None:
@@ -352,7 +352,7 @@ def resolve_horizontal_crs(dem_name, file_horz_crs, projection_horz=None):
         logger.warning(
             "Using -p/--projection %s for %s in place of the CRS in the file (%s).",
             reference_label(projection_horz),
-            os.path.basename(dem_source.dem_file_path(dem_name)),
+            Path(dem_source.dem_file_path(dem_name)).name,
             reference_label(file_horz_crs),
         )
     return projection_horz

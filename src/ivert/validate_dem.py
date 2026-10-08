@@ -14,11 +14,11 @@ import contextlib
 import logging
 import multiprocessing as mp
 import os
-import re
 import signal
 import sys
 import time
 from multiprocessing import shared_memory
+from pathlib import Path
 
 import geopandas
 import numexpr
@@ -40,6 +40,7 @@ import ivert.utils.logging_config
 import ivert.utils.split_dem
 import ivert.vdatum_lookup
 from ivert.utils import dem_geom, dem_source, parallel_funcs
+from ivert.utils.paths import absolute_path
 
 logger = logging.getLogger(__name__)
 
@@ -50,16 +51,15 @@ logger = logging.getLogger(__name__)
 INTERDECILE_MIN_PHOTONS = 5
 
 
-def read_dataframe_file(df_filename: str) -> pd.DataFrame:
+def read_dataframe_file(df_filename: str | Path) -> pd.DataFrame:
     """Read a dataframe file, either from HDF, CSV, or feather.
 
     (Can handle other formats by adding more "elif ..." statements in the function.)
     """
-    if not os.path.exists(df_filename):
+    if not Path(df_filename).exists():
         msg = f"{df_filename} does not exist."
         raise FileNotFoundError(msg)
-    ext = os.path.splitext(df_filename)[1]
-    ext = ext.lower()
+    ext = Path(df_filename).suffix.lower()
     if ext in (".h5", ".hdf"):
         dataframe = pd.read_hdf(df_filename, mode="r")
     elif ext in (".csv", ".txt"):
@@ -501,10 +501,10 @@ def kick_off_new_child_process(
 def subdivide_dem(
     dem_name: str,
     factor: int = 2,
-    output_dir: str | None = None,
+    output_dir: str | Path | None = None,
 ) -> list[str]:
     """Split a DEM into 4 smaller parts."""
-    if not os.path.exists(dem_source.dem_file_path(dem_name)):
+    if not Path(dem_source.dem_file_path(dem_name)).exists():
         msg = f"DEM {dem_name} does not exist."
         raise FileNotFoundError(msg)
 
@@ -538,7 +538,7 @@ def reset_results_indexes_after_merge(
     # The two DEMs should have the exact same x- and y-steps (resolutions).
     if x_step != parent_geotransform[1] or y_step != parent_geotransform[5]:
         msg = (
-            f"DEMs {os.path.basename(sub_dem_fname)} and {os.path.basename(parent_dem_fname)}"
+            f"DEMs {Path(sub_dem_fname).name} and {Path(parent_dem_fname).name}"
             " have different x- or y-resolutions. Cannot combine results."
         )
         raise ValueError(msg)
@@ -565,7 +565,7 @@ def _resolve_config(config, icesat2_photon_database_obj=None):
 
 def validate_dem(
     dem_name: str,
-    output_dir: str | None = None,
+    output_dir: str | Path | None = None,
     dates: list[int, int] | tuple[int, int] | None = None,
     classes: list[int] | tuple[int, ...] = (1, 6, 40),
     shared_ret_values: dict | None = None,
@@ -575,7 +575,7 @@ def validate_dem(
     dem_vertical_datum: str | int | None = None,
     dem_projection: str | int | None = None,
     dem_ndv: float | None = None,
-    interim_data_dir: str | None = None,
+    interim_data_dir: str | Path | None = None,
     overwrite: bool = False,
     write_summary_stats: bool = True,
     outliers_sd_threshold: float | None = 2.5,
@@ -765,7 +765,7 @@ def validate_dem(
             raise MemoryError(msg)
 
         # Make sure the DEM exists that we're trying to sub-divide
-        if not os.path.exists(dem_source.dem_file_path(dem_name)):
+        if not Path(dem_source.dem_file_path(dem_name)).exists():
             msg = f"validate_dem.validate_dem_parallell({orig_dem_name},...) could not find {dem_name}."
             raise FileNotFoundError(msg)
 
@@ -867,8 +867,12 @@ def validate_dem(
             output_dfs = []
             for fname in all_fnames:
                 dem_results_df = pd.read_hdf(fname)
-                # Now I gotta reset the i,j indexes.
-                sub_dem_name = fname.replace("_results.h5", ".tif")
+                # Now I gotta reset the i,j indexes. Each part's results sit next to
+                # that part's GeoTIFF.
+                results_fname = Path(fname)
+                sub_dem_name = results_fname.with_name(
+                    results_fname.name.removesuffix("_results.h5") + ".tif",
+                )
                 parent_dem_name = dem_name
                 dem_results_df = reset_results_indexes_after_merge(
                     dem_results_df,
@@ -894,10 +898,7 @@ def validate_dem(
                     f"{len(shared_results_df):,}",
                 )
 
-            output_fname = os.path.join(
-                output_dir,
-                dem_source.dem_base_name(dem_name) + "_results.h5",
-            )
+            output_fname = _results_dataframe_filename(dem_name, output_dir)
             shared_results_df.to_hdf(
                 output_fname,
                 key="icesat2",
@@ -918,10 +919,7 @@ def validate_dem(
             and (shared_results_df is not None)
             and subdivision_number == 0
         ):
-            merged_results_file = os.path.join(
-                output_dir,
-                dem_source.dem_base_name(dem_name) + "_results.h5",
-            )
+            merged_results_file = _results_dataframe_filename(dem_name, output_dir)
             with rasterio.open(dem_name) as dem_ds_tmp:
                 exported = export_error_results(
                     shared_results_df,
@@ -941,15 +939,14 @@ def validate_dem(
             and subdivision_number == 0
         ):
             # If any of the results existed, we don't need to do this just because one sub-result doesn't exist.
-            empty_fname = os.path.join(
-                output_dir,
-                dem_source.dem_base_name(dem_name) + "_EMPTY.txt",
+            empty_fname = Path(output_dir) / (
+                dem_source.dem_base_name(dem_name) + "_EMPTY.txt"
             )
-            with open(empty_fname, "w", encoding="utf-8") as f:
-                f.write(
-                    os.path.basename(dem_source.dem_file_path(dem_name))
-                    + " had no IVERT results.",
-                )
+            empty_fname.write_text(
+                Path(dem_source.dem_file_path(dem_name)).name
+                + " had no IVERT results.",
+                encoding="utf-8",
+            )
             shared_ret_values["empty_results_filename"] = empty_fname
 
         # Create the overall summary stats text file.
@@ -959,9 +956,8 @@ def validate_dem(
             and subdivision_number == 0
         ):
             # Generate a new summary stats file only if we have results and if the recursion depth is zero.
-            output_fname = os.path.join(
-                output_dir,
-                dem_source.dem_base_name(dem_name) + "_summary_stats.txt",
+            output_fname = Path(output_dir) / (
+                dem_source.dem_base_name(dem_name) + "_summary_stats.txt"
             )
             write_summary_stats_file(
                 shared_results_df,
@@ -984,9 +980,8 @@ def validate_dem(
                 ignore_index=True,
                 axis=0,
             )
-            output_fname = os.path.join(
-                output_dir,
-                dem_source.dem_base_name(dem_name) + "_photons.h5",
+            output_fname = Path(output_dir) / (
+                dem_source.dem_base_name(dem_name) + "_photons.h5"
             )
             results_df.to_hdf(output_fname, key="icesat2", complib="zlib", mode="w")
             written_files.append(output_fname)
@@ -998,9 +993,8 @@ def validate_dem(
             and (shared_results_df is not None)
             and (subdivision_number == 0)
         ):
-            output_fname = os.path.join(
-                output_dir,
-                dem_source.dem_base_name(dem_name) + "_plot.png",
+            output_fname = Path(output_dir) / (
+                dem_source.dem_base_name(dem_name) + "_plot.png"
             )
             ivert.plot_validation_results.plot_histogram_and_error_stats_4_panels(
                 shared_results_df,
@@ -1019,16 +1013,15 @@ def validate_dem(
 
 def _results_dataframe_filename(dem_name, output_dir):
     """Return the '<dem>_results.h5' path for a DEM's validation results in output_dir."""
-    return os.path.join(
-        output_dir,
-        dem_source.dem_base_name(dem_name) + "_results.h5",
-    )
+    return Path(output_dir) / (dem_source.dem_base_name(dem_name) + "_results.h5")
 
 
 def _empty_results_filename(results_dataframe_file):
     """Return the '<dem>_results_EMPTY.txt' marker path matching a results dataframe file."""
-    base, _ = os.path.splitext(results_dataframe_file)
-    return base + "_EMPTY.txt"
+    results_dataframe_file = Path(results_dataframe_file)
+    return results_dataframe_file.with_name(
+        results_dataframe_file.stem + "_EMPTY.txt",
+    )
 
 
 def dem_needs_validation(
@@ -1053,12 +1046,13 @@ def dem_needs_validation(
     if overwrite:
         return True
     for base in dem_source.possible_base_names(dem_name, variable):
-        results_dataframe_file = os.path.join(output_dir, base + "_results.h5")
-        if os.path.exists(results_dataframe_file):
-            return include_photons and not os.path.exists(
-                _photon_results_filename(results_dataframe_file),
+        results_dataframe_file = Path(output_dir) / (base + "_results.h5")
+        if results_dataframe_file.exists():
+            return (
+                include_photons
+                and not _photon_results_filename(results_dataframe_file).exists()
             )
-        if os.path.exists(_empty_results_filename(results_dataframe_file)):
+        if _empty_results_filename(results_dataframe_file).exists():
             return False
     return True
 
@@ -1075,38 +1069,39 @@ def _setup_output_paths(
 
     Returns (output_dir, interim_data_dir, results_dataframe_file,
              empty_results_filename, summary_stats_filename, plot_filename).
+    The last three are None when that output isn't wanted.
     """
     if not output_dir:
-        output_dir = os.path.dirname(
-            os.path.abspath(dem_source.dem_file_path(dem_name)),
-        )
-    if not os.path.exists(output_dir):
+        output_dir = absolute_path(dem_source.dem_file_path(dem_name)).parent
+    output_dir = Path(output_dir)
+    if not output_dir.exists():
         logger.info("Creating output directory %s", output_dir)
-        os.makedirs(output_dir)
+        output_dir.mkdir(parents=True)
 
     results_dataframe_file = _results_dataframe_filename(dem_name, output_dir)
 
-    if interim_data_dir is None:
-        interim_data_dir = output_dir
-    if not os.path.exists(interim_data_dir):
+    interim_data_dir = (
+        output_dir if interim_data_dir is None else Path(interim_data_dir)
+    )
+    if not interim_data_dir.exists():
         logger.info("Creating interim data directory %s", interim_data_dir)
-        os.makedirs(interim_data_dir)
+        interim_data_dir.mkdir(parents=True)
 
-    empty_results_filename = ""
+    empty_results_filename = None
     if mark_empty_results:
         empty_results_filename = _empty_results_filename(results_dataframe_file)
 
-    summary_stats_filename = ""
+    results_base = results_dataframe_file.name.removesuffix("_results.h5")
+
+    summary_stats_filename = None
     if write_summary_stats:
-        summary_stats_filename = re.sub(
-            r"_results\.h5\Z",
-            "_summary_stats.txt",
-            results_dataframe_file,
+        summary_stats_filename = results_dataframe_file.with_name(
+            results_base + "_summary_stats.txt",
         )
 
-    plot_filename = ""
+    plot_filename = None
     if plot_results:
-        plot_filename = re.sub(r"_results\.h5\Z", "_plot.png", results_dataframe_file)
+        plot_filename = results_dataframe_file.with_name(results_base + "_plot.png")
 
     return (
         output_dir,
@@ -1137,31 +1132,36 @@ def _check_existing_outputs(
     """Handle overwrite deletion or early return when outputs already exist.
 
     Returns a files_to_export list if work is already done (caller should return it),
-    or None to continue processing.
+    or None to continue processing. The empty-marker, summary-stats and plot file
+    names may be None (or empty) when that output isn't wanted.
     """
+    results_dataframe_file = Path(results_dataframe_file)
+    empty_results_filename, summary_stats_filename, plot_filename = (
+        Path(fn) if fn else None
+        for fn in (empty_results_filename, summary_stats_filename, plot_filename)
+    )
+
     if overwrite:
         for fn in (
             results_dataframe_file,
             empty_results_filename,
             summary_stats_filename,
             plot_filename,
+            *_error_export_filenames(results_dataframe_file, export_error_formats),
         ):
-            if fn and os.path.exists(fn):
-                os.remove(fn)
-        for fn in _error_export_filenames(results_dataframe_file, export_error_formats):
-            if os.path.exists(fn):
-                os.remove(fn)
+            if fn is not None:
+                fn.unlink(missing_ok=True)
         return None
 
     files_to_export = []
 
-    if os.path.exists(results_dataframe_file):
+    if results_dataframe_file.exists():
         # Photon-level results can't be regenerated from the results dataframe alone — they require
         # the raw photon data. If they're missing, signal the caller to run the full pipeline.
-        photon_results_file = ""
+        photon_results_file = None
         if include_photon_level_validation:
             photon_results_file = _photon_results_filename(results_dataframe_file)
-            if not os.path.exists(photon_results_file):
+            if not photon_results_file.exists():
                 return None
 
         results_dataframe = None
@@ -1170,7 +1170,7 @@ def _check_existing_outputs(
         shared_ret_values["results_dataframe_file"] = results_dataframe_file
 
         if write_summary_stats:
-            if not os.path.exists(summary_stats_filename):
+            if not summary_stats_filename.exists():
                 if results_dataframe is None:
                     logger.info("Reading %s ...", results_dataframe_file)
                     results_dataframe = read_dataframe_file(results_dataframe_file)
@@ -1190,7 +1190,7 @@ def _check_existing_outputs(
                 results_dataframe_file,
                 export_error_formats,
             )
-            missing = [fn for fn in export_files if not os.path.exists(fn)]
+            missing = [fn for fn in export_files if not fn.exists()]
             if missing:
                 dem_ds_tmp = rasterio.open(dem_name)
                 if results_dataframe is None:
@@ -1209,9 +1209,9 @@ def _check_existing_outputs(
             shared_ret_values["error_export_files"] = export_files
 
         if plot_results:
-            if not os.path.exists(plot_filename):
+            if not plot_filename.exists():
                 if location_name is None:
-                    location_name = os.path.basename(dem_source.dem_file_path(dem_name))
+                    location_name = Path(dem_source.dem_file_path(dem_name)).name
                 if results_dataframe is None:
                     logger.info("Reading %s ...", results_dataframe_file)
                     results_dataframe = read_dataframe_file(results_dataframe_file)
@@ -1234,10 +1234,10 @@ def _check_existing_outputs(
 
         return files_to_export
 
-    if mark_empty_results and os.path.exists(empty_results_filename):
+    if mark_empty_results and empty_results_filename.exists():
         logger.info(
             "No valid data produced during previous ICESat-2 analysis of %s",
-            os.path.basename(dem_source.dem_file_path(dem_name)) + ". Returning.",
+            Path(dem_source.dem_file_path(dem_name)).name + ". Returning.",
         )
         return files_to_export
 
@@ -1280,7 +1280,7 @@ def _resolve_dem_crs(
             vertical datum isn't recognised.
 
     """
-    dem_label = os.path.basename(dem_source.dem_file_path(dem_name))
+    dem_label = Path(dem_source.dem_file_path(dem_name)).name
 
     proj_horz, proj_vert = (None, None)
     if dem_projection is not None:
@@ -1470,7 +1470,7 @@ def _unpack_elevations(stored_values, dem_ds, band_num):
         return stored_values
     logger.info(
         "Unpacking %s band %d: elevation = stored value * %s + %s.",
-        os.path.basename(dem_ds.name),
+        Path(dem_ds.name).name,
         band_num,
         scale,
         offset,
@@ -1679,7 +1679,7 @@ def _run_photon_level_validation(
         complib="zlib",
         complevel=3,
     )
-    logger.info("\tWrote %s.\n", os.path.split(photon_results_dataframe_file)[1])
+    logger.info("\tWrote %s.\n", photon_results_dataframe_file.name)
 
     return photon_results_dataframe_file
 
@@ -2096,8 +2096,10 @@ def _write_validation_outputs(
     if len(results_dataframe) == 0:
         logger.info("No valid results in results dataframe. No outputs computed.")
         if mark_empty_results:
-            with open(empty_results_filename, "w", encoding="utf-8") as f:
-                f.write("No ICESat-2 data data overlapping this DEM to validate.")
+            empty_results_filename.write_text(
+                "No ICESat-2 data data overlapping this DEM to validate.",
+                encoding="utf-8",
+            )
             logger.info(
                 "Created %s to indicate no data was returned here.",
                 empty_results_filename,
@@ -2106,8 +2108,7 @@ def _write_validation_outputs(
             shared_ret_values["empty_results_filename"] = empty_results_filename
         return files_to_export
 
-    _base, ext = os.path.splitext(results_dataframe_file)
-    ext = ext.lower().strip()
+    ext = results_dataframe_file.suffix.lower().strip()
     if ext in (".txt", ".csv"):
         results_dataframe.to_csv(results_dataframe_file)
     else:
@@ -2151,7 +2152,7 @@ def _write_validation_outputs(
 
     if plot_results:
         if location_name is None:
-            location_name = os.path.basename(dem_source.dem_file_path(dem_name))
+            location_name = Path(dem_source.dem_file_path(dem_name)).name
         ivert.plot_validation_results.plot_histograms_and_line(
             results_dataframe,
             plot_filename,
@@ -2168,7 +2169,7 @@ def _write_validation_outputs(
 
 def validate_dem_parallel(
     dem_name: str,
-    output_dir: str | None = None,
+    output_dir: str | Path | None = None,
     dates: list[int, int] | tuple[int, int] | None = None,
     classes: list[int] | tuple[int, ...] = (1, 6, 40),
     shared_ret_values: dict | None = None,
@@ -2178,7 +2179,7 @@ def validate_dem_parallel(
     dem_vertical_datum: str | int | None = None,
     dem_projection: str | int | None = None,
     dem_ndv: float | None = None,
-    interim_data_dir: str | None = None,
+    interim_data_dir: str | Path | None = None,
     overwrite: bool = False,
     write_summary_stats: bool = True,
     outliers_sd_threshold: float = 2.5,
@@ -2214,7 +2215,7 @@ def validate_dem_parallel(
     if log_level is not None:
         ivert.utils.logging_config.configure_worker_logging(log_level)
 
-    if not os.path.exists(dem_source.dem_file_path(dem_name)):
+    if not Path(dem_source.dem_file_path(dem_name)).exists():
         msg = f"Could not find file {dem_name}."
         raise FileNotFoundError(msg)
 
@@ -2291,11 +2292,11 @@ def validate_dem_parallel(
 
     if fetch_result is None:
         if mark_empty_results:
-            with open(empty_results_filename, "w", encoding="utf-8") as f:
-                f.write(
-                    os.path.basename(dem_source.dem_file_path(dem_name))
-                    + " had no ICESat-2 results.",
-                )
+            empty_results_filename.write_text(
+                Path(dem_source.dem_file_path(dem_name)).name
+                + " had no ICESat-2 results.",
+                encoding="utf-8",
+            )
             logger.info(
                 "Created %s to indicate no valid ICESat-2 data was returned here.",
                 empty_results_filename,
@@ -2321,11 +2322,11 @@ def validate_dem_parallel(
     )
     if overlap_result is None:
         if mark_empty_results:
-            with open(empty_results_filename, "w", encoding="utf-8") as f:
-                f.write(
-                    os.path.basename(dem_source.dem_file_path(dem_name))
-                    + " had no ICESat-2 results.",
-                )
+            empty_results_filename.write_text(
+                Path(dem_source.dem_file_path(dem_name)).name
+                + " had no ICESat-2 results.",
+                encoding="utf-8",
+            )
             logger.info(
                 "Created %s to indicate no data was returned here.",
                 empty_results_filename,
@@ -2518,22 +2519,21 @@ def log_written_files(filenames) -> None:
     """
     files_by_dir = {}
     for fname in filenames:
-        if fname and os.path.isfile(fname):
-            folder = os.path.dirname(os.path.abspath(fname))
-            files_by_dir.setdefault(folder, []).append(fname)
+        if fname and Path(fname).is_file():
+            folder = absolute_path(fname).parent
+            files_by_dir.setdefault(folder, []).append(Path(fname))
 
     for folder, fnames in files_by_dir.items():
         lines = [f"In {folder}:"]
         lines.extend(
-            f"    {os.path.basename(fn)} ({_format_file_size(os.path.getsize(fn))})"
-            for fn in fnames
+            f"    {fn.name} ({_format_file_size(fn.stat().st_size)})" for fn in fnames
         )
         logger.info("\n".join(lines))
 
 
 def write_summary_stats_file(
     results_df: pd.DataFrame,
-    statsfile_name: str,
+    statsfile_name: str | Path,
     bathy_filter_report: ivert.bathy_filters.BathyFilterReport | None = None,
 ) -> None:
     """Write the summary statistics file.
@@ -2627,10 +2627,10 @@ def write_summary_stats_file(
         lines.extend(bathy_filter_report.summary_lines())
 
     out_text = "\n".join(lines)
-    with open(statsfile_name, "w", encoding="utf-8") as outf:
-        outf.write(out_text)
+    statsfile_name = Path(statsfile_name)
+    statsfile_name.write_text(out_text, encoding="utf-8")
 
-    if os.path.exists(statsfile_name):
+    if statsfile_name.exists():
         logger.debug("%s written.", statsfile_name)
     else:
         logger.info("%s NOT written.", statsfile_name)
@@ -2722,13 +2722,12 @@ def _export_errors_vector(results_dataframe, dem_ds, out_fname, fmt, crs=None):
     driver_name = {"gpkg": "GPKG", "shp": "ESRI Shapefile"}[fmt]
 
     # Remove any previous export (including shapefile sidecar files) before writing.
-    base = os.path.splitext(out_fname)[0]
+    out_fname = Path(out_fname)
     sidecar_exts = (
         (".shp", ".shx", ".dbf", ".prj", ".cpg") if fmt == "shp" else ("." + fmt,)
     )
     for ext in sidecar_exts:
-        if os.path.exists(base + ext):
-            os.remove(base + ext)
+        out_fname.with_suffix(ext).unlink(missing_ok=True)
 
     fields = [
         (name, col)
@@ -2750,7 +2749,7 @@ def _export_errors_vector(results_dataframe, dem_ds, out_fname, fmt, crs=None):
         geometry=geopandas.points_from_xy(x_centers, y_centers),
         crs=dem_ds.crs if crs is None else crs,
     )
-    layer_name = os.path.splitext(os.path.basename(out_fname))[0]
+    layer_name = out_fname.stem
     gdf.to_file(out_fname, driver=driver_name, layer=layer_name)
 
     logger.debug("%s written.", out_fname)
@@ -2795,16 +2794,22 @@ def _photon_results_filename(results_dataframe_file):
     blanket str.replace("_results", "_photons") would also rewrite the directory
     and send this file to a sibling 'ivert_photons' directory that is never created.
     """
-    base, ext = os.path.splitext(results_dataframe_file)
-    return base.removesuffix("_results") + "_photons" + ext
+    results_dataframe_file = Path(results_dataframe_file)
+    return results_dataframe_file.with_name(
+        results_dataframe_file.stem.removesuffix("_results")
+        + "_photons"
+        + results_dataframe_file.suffix,
+    )
 
 
 def _error_export_filenames(results_dataframe_file, formats):
     """Return the '<dem>_errors.<ext>' output paths a given format request would produce."""
-    base, _ = os.path.splitext(results_dataframe_file)
-    base = base.removesuffix("_results")
-    base = base + "_errors"
-    return [base + "." + fmt for fmt in normalize_export_formats(formats)]
+    results_dataframe_file = Path(results_dataframe_file)
+    base = results_dataframe_file.stem.removesuffix("_results") + "_errors"
+    return [
+        results_dataframe_file.with_name(f"{base}.{fmt}")
+        for fmt in normalize_export_formats(formats)
+    ]
 
 
 def export_error_results(

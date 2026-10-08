@@ -2,7 +2,7 @@
 
 import glob
 import logging
-import os
+from pathlib import Path
 
 import click
 import rasterio
@@ -21,7 +21,7 @@ def contains_glob_flags(fname: str) -> bool:
 def split(
     dem_name: str | list[str],
     factor: int = 2,
-    output_dir: str | None = None,
+    output_dir: str | Path | None = None,
 ) -> list[str]:
     """Split a DEM into sub-segments, each side split by a factor. 2 will create 4 sub-segments.
 
@@ -31,7 +31,8 @@ def split(
         output_dir: The directory to which the sub-segments will be written. Defaults to the same directory as the DEM.
 
     Returns:
-        list[str]: The names of the new DEM files.
+        list[str]: The names of the new DEM files. They are DEM names, which are
+        strings (see dem_source), to be validated like any other DEM.
 
     """
     if isinstance(dem_name, str):
@@ -40,7 +41,7 @@ def split(
         ]
 
     if output_dir is None:
-        output_dir = os.path.dirname(dem_source.dem_file_path(dem_name[0]))
+        output_dir = Path(dem_source.dem_file_path(dem_name[0])).parent
 
     outfiles = []
     infiles = []
@@ -48,7 +49,8 @@ def split(
     # Expand the number of files if there are glob flags.
     for dname in dem_name:
         if contains_glob_flags(dname):
-            infiles.extend(glob.glob(dname))
+            # A user-supplied pattern, possibly absolute, which Path.glob rejects.
+            infiles.extend(glob.glob(dname))  # noqa: PTH207
         else:
             infiles.append(dname)
 
@@ -62,14 +64,14 @@ def split(
 
             for xi, xb in zip(range(factor), x_steps, strict=True):
                 for yj, yb in zip(range(factor), y_steps, strict=True):
-                    fn_out = os.path.join(
-                        output_dir,
-                        f"{dem_source.dem_base_name(fname)}_{yj}.{xi}.tif",
+                    fn_out = (
+                        Path(output_dir)
+                        / f"{dem_source.dem_base_name(fname)}_{yj}.{xi}.tif"
                     )
 
-                    if os.path.exists(fn_out):
+                    if fn_out.exists():
                         logger.info("%s already exists.", fn_out)
-                        outfiles.append(fn_out)
+                        outfiles.append(str(fn_out))
                         continue
 
                     window = rasterio.windows.Window(
@@ -98,9 +100,9 @@ def split(
                         dst.scales = src.scales
                         dst.offsets = src.offsets
 
-                    if os.path.exists(fn_out):
+                    if fn_out.exists():
                         logger.info("%s written.", fn_out)
-                        outfiles.append(fn_out)
+                        outfiles.append(str(fn_out))
                     else:
                         logger.error("%s failed.", fn_out)
 

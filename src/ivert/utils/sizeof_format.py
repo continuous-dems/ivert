@@ -1,15 +1,15 @@
 """Code for returning human-readable string of file sizes (in bytes)."""
 
-import os
+from pathlib import Path
 
 
 def sizeof_fmt(num, suffix="B", decimal_digits=1):
     """Resturn a filesize in human readable format.
 
-    Can be a number from os.path.getsize(), or a filename
+    Can be a number of bytes, or a filename (str or Path)
     """
-    if type(num) is str and os.path.exists(num):
-        num = os.path.getsize(num)
+    if isinstance(num, (str, Path)) and Path(num).exists():
+        num = Path(num).stat().st_size
 
     for unit in ["", "K", "M", "G", "T", "P", "E", "Z"]:
         if abs(num) < 1024.0:

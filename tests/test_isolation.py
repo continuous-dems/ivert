@@ -15,14 +15,14 @@ def test_user_config_is_redirected_into_a_temporary_directory(tmp_path):
     """Config.user_config_path must keep honoring IVERT_USER_CONFIG."""
     config = configfile.Config()
 
-    assert config.user_config_path == str(tmp_path / "ivert_user_config.ini")
+    assert config.user_config_path == tmp_path / "ivert_user_config.ini"
 
 
 def test_the_real_user_config_is_never_the_target():
     """The guarantee the fixture exists for, checked directly: no test writes to ~/.ivert."""
     config = configfile.Config()
 
-    assert not Path(config.user_config_path).is_relative_to(Path.home() / ".ivert")
+    assert not config.user_config_path.is_relative_to(Path.home() / ".ivert")
 
 
 def test_config_reads_aws_detection_where_conftest_patches_it(monkeypatch):

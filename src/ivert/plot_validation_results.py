@@ -3,7 +3,7 @@
 import collections
 import logging
 import math
-import os
+from pathlib import Path
 
 import matplotlib as mpl
 import matplotlib.pyplot as plt
@@ -26,16 +26,16 @@ def is_iterable(obj):
 
 
 def get_data_from_h5_or_list(
-    h5_name_or_list: str | list[str],
+    h5_name_or_list: str | Path | list[str | Path],
     orig_filenames: str | list[str] | None = None,
     include_filenames: bool = False,
 ) -> pd.DataFrame:
     """Return the data either from a single hdf5 results file, or a list of them. Filter out empty (bad data) values."""
-    if type(h5_name_or_list) is str:
+    if isinstance(h5_name_or_list, (str, Path)):
         data = pd.read_hdf(h5_name_or_list)
         if include_filenames:
             if orig_filenames is None:
-                data["filename"] = os.path.basename(h5_name_or_list)
+                data["filename"] = Path(h5_name_or_list).name
             else:
                 if not isinstance(orig_filenames, str):
                     msg = "orig_filenames must be a string when h5_name_or_list is one."
@@ -55,11 +55,11 @@ def get_data_from_h5_or_list(
                 unit="file",
             ),
         ):
-            if os.path.exists(h5_file):
+            if Path(h5_file).exists():
                 temp_data = pd.read_hdf(h5_file)
                 if include_filenames:
                     if orig_filenames is None:
-                        temp_data["filename"] = os.path.basename(h5_file)
+                        temp_data["filename"] = Path(h5_file).name
                     else:
                         if not is_iterable(orig_filenames):
                             msg = "orig_filenames must be a list when h5_name_or_list is one."
@@ -103,7 +103,7 @@ def plot_histograms_and_line(
     """
     # If we're writing a PNG file, use the "Agg" backend (no display).
     # This helps avoid errors.
-    if os.path.splitext(output_figure_name)[1].lower() == ".png":
+    if Path(output_figure_name).suffix.lower() == ".png":
         mpl.use("Agg")
 
     if type(results_h5_or_list_or_df) is pd.DataFrame:
@@ -456,7 +456,7 @@ def plot_histogram_and_error_stats_4_panels(
     """
     # If we're writing a PNG file, use the "Agg" backend (no display).
     # This helps avoid errors.
-    if os.path.splitext(output_figure_name)[1].lower() == ".png":
+    if Path(output_figure_name).suffix.lower() == ".png":
         mpl.use("Agg")
 
     if type(results_h5_or_list_or_df) is pd.DataFrame:

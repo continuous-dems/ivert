@@ -13,14 +13,13 @@ it is open water, which is still a covered area.
 """
 
 import contextlib
-import glob
 import json
 import logging
 import math
 import os
-import pathlib
 import re
 import tempfile
+from pathlib import Path
 
 import numpy as np
 import pyogrio
@@ -45,7 +44,7 @@ _OSM_CACHE_FILE_RE = re.compile(
 
 # Where fetchez puts 'osm_landmask' files under a given output directory. Older
 # globato versions wrote them one level down, in 'icesat2/'.
-_OSM_CACHE_SUBDIRS = ("osm_landmask", os.path.join("icesat2", "osm_landmask"))
+_OSM_CACHE_SUBDIRS = (Path("osm_landmask"), Path("icesat2", "osm_landmask"))
 
 # Area that is not covered by any landmask, in square degrees, below which it is
 # treated as rounding and ignored.
@@ -62,29 +61,28 @@ def _box(bbox):
     return shapely.box(xmin, ymin, xmax, ymax)
 
 
-def store_filename(store_dir: str, bbox) -> str:
+def store_filename(store_dir: str | Path, bbox) -> Path:
     """Return the stored landmask file for an (xmin, xmax, ymin, ymax) rectangle."""
     xmin, xmax, ymin, ymax = (float(v) for v in bbox)
-    return os.path.join(store_dir, f"landmask_{xmin}_{xmax}_{ymin}_{ymax}.geojson")
+    return Path(store_dir) / f"landmask_{xmin}_{xmax}_{ymin}_{ymax}.geojson"
 
 
-def stored_landmasks(store_dir: str) -> dict:
+def stored_landmasks(store_dir: str | Path) -> dict[Path, tuple]:
     """{path: (xmin, xmax, ymin, ymax)} of every landmask in the store."""
     found = {}
-    for path in glob.glob(os.path.join(store_dir, "landmask_*.geojson")):
-        match = _STORE_FILE_RE.match(os.path.basename(path))
+    for path in Path(store_dir).glob("landmask_*.geojson"):
+        match = _STORE_FILE_RE.match(path.name)
         if match:
             found[path] = tuple(float(v) for v in match.groups())
     return found
 
 
-def _cached_osm_landmasks(cache_dir: str) -> dict:
+def _cached_osm_landmasks(cache_dir: str | Path) -> dict[Path, tuple]:
     """{path: (xmin, xmax, ymin, ymax)} of the OSM landmasks fetchez has cached."""
     found = {}
     for subdir in _OSM_CACHE_SUBDIRS:
-        pattern = os.path.join(cache_dir, subdir, "osm_landmask_*.geojson")
-        for path in glob.glob(pattern):
-            match = _OSM_CACHE_FILE_RE.match(os.path.basename(path))
+        for path in (Path(cache_dir) / subdir).glob("osm_landmask_*.geojson"):
+            match = _OSM_CACHE_FILE_RE.match(path.name)
             if match:
                 west, south, east, north = (float(v) for v in match.groups())
                 found[path] = (west, east, south, north)
@@ -115,7 +113,7 @@ def land_from_files(paths, bbox):
     return shapely.union_all(polygons).intersection(_box(bbox))
 
 
-def write_land(path: str, land) -> None:
+def write_land(path: str | Path, land) -> None:
     """Write land polygons to a GeoJSON file, atomically.
 
     Validations of neighbouring DEMs may run at the same time and fill the same
@@ -130,19 +128,20 @@ def write_land(path: str, land) -> None:
         {"type": "Feature", "properties": {}, "geometry": shapely.geometry.mapping(g)}
         for g in polygons
     ]
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    fd, tmp = tempfile.mkstemp(dir=os.path.dirname(path), suffix=".geojson.tmp")
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=path.parent, suffix=".geojson.tmp")
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as f:
             json.dump({"type": "FeatureCollection", "features": features}, f)
-        pathlib.Path(tmp).replace(path)
+        Path(tmp).replace(path)
     except BaseException:
         with contextlib.suppress(OSError):
-            os.remove(tmp)
+            Path(tmp).unlink()
         raise
 
 
-def clip_stored_landmask(path: str, bbox, store_dir: str) -> str:
+def clip_stored_landmask(path: str | Path, bbox, store_dir: str | Path) -> Path:
     """Write the part of a stored landmask inside an (xmin, xmax, ymin, ymax) box.
 
     The result is a stored landmask of its own, named for bbox, in store_dir.
@@ -180,7 +179,8 @@ def _fetch_osm_landmask(bbox, cache_dir: str) -> None:
         fetchez.get(
             "osm_landmask",
             region=[xmin, xmax, ymin, ymax],
-            outdir=cache_dir,
+            # A string, for fetchez.
+            outdir=None if cache_dir is None else str(cache_dir),
             verbose=False,
         )
 

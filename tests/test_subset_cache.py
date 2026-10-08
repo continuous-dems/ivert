@@ -11,7 +11,7 @@ The database is built on a stand-in config in tmp_path and fetchez is faked, so
 nothing here touches the developer's real ~/.ivert or the network.
 """
 
-import os
+from pathlib import Path
 from types import SimpleNamespace
 from typing import ClassVar
 
@@ -103,7 +103,8 @@ class _FakeFetchezIceSat2:
         self.results = [
             {
                 "url": f"https://harmony/{GRANULE}",
-                "dst_fn": os.path.join(self.outdir, GRANULE),
+                # fetchez's result entries hold strings.
+                "dst_fn": str(Path(self.outdir) / GRANULE),
             },
         ]
 
@@ -127,8 +128,7 @@ def _fake_run_fetchez(mods):
     out = []
     for mod in mods:
         for entry in mod.results:
-            with open(entry["dst_fn"], "wb"):
-                pass
+            Path(entry["dst_fn"]).touch()
             out.append((mod, {**entry, "status": 0}))
     return out
 
@@ -213,7 +213,7 @@ def test_a_subset_is_classified_once_and_stored_per_tile(db, monkeypatch):
     calls = []
 
     def fake_classify(h5_fn, query_bbox, **_kwargs: object):
-        calls.append((os.path.basename(h5_fn), query_bbox))
+        calls.append((Path(h5_fn).name, query_bbox))
         return _photons([-120.5, -118.0, -117.0]), "EPSG:4979"
 
     monkeypatch.setattr(db, "_classify_h5", fake_classify)
@@ -226,7 +226,7 @@ def test_a_subset_is_classified_once_and_stored_per_tile(db, monkeypatch):
         (-121.0, -119.0, 32.0, 33.0),
         (-119.0, -116.5, 32.0, 33.0),
     ]
-    written = sorted(os.listdir(db.granules_dir))
+    written = sorted(path.name for path in db.granules_dir.iterdir())
     assert written == sorted(
         [is2db.IS2Database._nc_filename(GRANULE, t) for t in tiles]
         + ["_ivert_database_index.nc"],
@@ -234,7 +234,7 @@ def test_a_subset_is_classified_once_and_stored_per_tile(db, monkeypatch):
     counts = {}
     for name in written:
         if name.startswith("ATL03"):
-            ds = xarray.open_dataset(os.path.join(db.granules_dir, name))
+            ds = xarray.open_dataset(db.granules_dir / name)
             counts[tuple(ds.attrs["query_bbox"][:4])] = int(ds.attrs["numphotons"])
             ds.close()
     assert counts == {(-121.0, -119.0, 32.0, 33.0): 1, (-119.0, -116.5, 32.0, 33.0): 2}
@@ -251,7 +251,7 @@ def test_a_tile_with_no_photons_gets_no_file(db, monkeypatch):
 
     db.download_new_granules(PART_1)
 
-    nc_files = [n for n in os.listdir(db.granules_dir) if n.startswith("ATL03")]
+    nc_files = [p.name for p in db.granules_dir.iterdir() if p.name.startswith("ATL03")]
     assert nc_files == [
         is2db.IS2Database._nc_filename(GRANULE, is2db.split_bbox_into_parts(PART_1)[0]),
     ]
@@ -267,8 +267,8 @@ def test_low_confidence_bathy_floor_photons_are_not_stored(db, monkeypatch):
 
     db.download_new_granules(PART_1, min_bathy_confidence=0.5)
 
-    (name,) = [n for n in os.listdir(db.granules_dir) if n.startswith("ATL03")]
-    with xarray.open_dataset(os.path.join(db.granules_dir, name)) as ds:
+    (name,) = [p.name for p in db.granules_dir.iterdir() if p.name.startswith("ATL03")]
+    with xarray.open_dataset(db.granules_dir / name) as ds:
         kept = ds[["class_code", "bathy_confidence"]].to_dataframe()
     # The class-40 photon below 0.5 is gone; the land photon stays whatever its value.
     assert sorted(zip(kept["class_code"], kept["bathy_confidence"], strict=True)) == [
@@ -283,7 +283,7 @@ def test_each_part_fetches_and_reads_its_own_copy_of_a_shared_granule(db, monkey
     read = []
 
     def fake_classify(h5_fn, _query_bbox, **_kwargs: object):
-        read.append(os.path.basename(h5_fn))
+        read.append(Path(h5_fn).name)
 
     monkeypatch.setattr(db, "_classify_h5", fake_classify)
 
@@ -292,4 +292,4 @@ def test_each_part_fetches_and_reads_its_own_copy_of_a_shared_granule(db, monkey
 
     assert len(set(read)) == 2, read
     assert all(name.startswith(STEM + "_W") for name in read)
-    assert sorted(os.listdir(db.icesat2_download_dir)) == sorted(read)
+    assert sorted(p.name for p in db.icesat2_download_dir.iterdir()) == sorted(read)

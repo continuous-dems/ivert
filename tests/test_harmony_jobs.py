@@ -4,7 +4,7 @@ IVERT's requests.csv decides which Harmony job each part uses; fetchez must
 neither pick a job of its own nor answer from a cache of another job's links.
 """
 
-import os
+from pathlib import Path
 from types import SimpleNamespace
 from typing import ClassVar
 
@@ -68,7 +68,7 @@ def db(tmp_path, monkeypatch):
         icesat2_vertical_datum="ellipsoid",
         nsidc_atl_version="007",
     )
-    os.makedirs(config.icesat2_download_directory)
+    Path(config.icesat2_download_directory).mkdir(parents=True)
     _FakeFetchezIceSat2.built_with = []
     _FakeFetchezIceSat2.runs = []
     _FakeFetchezIceSat2.accept = True
