@@ -2093,7 +2093,7 @@ def database_dump(
                 raise click.Abort
 
     try:
-        result = database_archive.dump(str(output), rects, date_range, db=db)
+        result = database_archive.dump(output, rects, date_range, db=db)
     except database_archive.ArchiveError as exc:
         raise click.ClickException(str(exc)) from exc
 
