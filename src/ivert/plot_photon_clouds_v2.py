@@ -13,10 +13,9 @@ Photon class codes and their meanings come from globato's ATL03 reader; run
 'ivert classes' (or see ivert.photon_classes) for the authoritative list.
 """
 
-import glob
 import logging
-import os
 import sys
+from pathlib import Path
 
 import click
 import matplotlib as mpl
@@ -28,6 +27,7 @@ import matplotlib.pyplot as plt
 import netCDF4
 
 from ivert.photon_classes import class_labels
+from ivert.utils.paths import absolute_path
 
 logger = logging.getLogger(__name__)
 
@@ -53,7 +53,7 @@ DEM_COLORS = ["dimgrey", "purple", "darkcyan", "darkmagenta", "darkgoldenrod"]
 
 def _granule_id(filepath):
     """Return the bare granule ID from a file path (strips _subsetted and bbox suffixes)."""
-    stem = os.path.splitext(os.path.basename(filepath))[0]
+    stem = Path(filepath).stem
     for marker in ("_subsetted", "_W", "_N", "_E", "_S"):
         idx = stem.find(marker)
         if idx >= 0:
@@ -67,12 +67,12 @@ def _find_h5(nc_path):
     if not gid:
         return None
     search_dirs = [
-        os.path.dirname(nc_path),
-        os.path.expanduser("~/.ivert/cache/icesat2"),
-        os.path.expanduser("~/.ivert/cache"),
+        Path(nc_path).parent,
+        Path("~/.ivert/cache/icesat2").expanduser(),
+        Path("~/.ivert/cache").expanduser(),
     ]
     for d in search_dirs:
-        hits = sorted(glob.glob(os.path.join(d, "**", f"{gid}*.h5"), recursive=True))
+        hits = sorted(d.rglob(f"{gid}*.h5"))
         if hits:
             return hits[0]
     return None
@@ -289,7 +289,7 @@ def _sample_dem_along_track(
         rasterio.errors.RasterioError,
         pyproj.exceptions.ProjError,
     ) as e:
-        logger.warning("Could not sample DEM %s: %s", os.path.basename(dem_path), e)
+        logger.warning("Could not sample DEM %s: %s", Path(dem_path).name, e)
         return None
 
     z_dem = np.array([s[0] if len(s) else np.nan for s in samples], dtype=float)
@@ -300,7 +300,7 @@ def _sample_dem_along_track(
     if not np.any(valid):
         logger.info(
             "  DEM %s: no overlap with laser track.",
-            os.path.basename(dem_path),
+            Path(dem_path).name,
         )
         return None
 
@@ -341,7 +341,7 @@ def _sample_dem_along_track(
 
     sort_idx = np.argsort(dense_atm[valid])
     valid_idx = np.where(valid)[0][sort_idx]
-    label = os.path.splitext(os.path.basename(dem_path))[0]
+    label = Path(dem_path).stem
     return dense_atm[valid_idx] / 1000.0, z_dem[valid_idx], label
 
 
@@ -367,7 +367,7 @@ def _collect_dem_profiles(
         if result is not None:
             logger.info(
                 "  DEM %s: %s sampled points",
-                os.path.basename(p),
+                Path(p).name,
                 f"{len(result[0]):,}",
             )
             profiles.append(result)
@@ -459,7 +459,7 @@ def plot_beam(
 
     ax.set_xlabel("Along-track distance (km)")
     ax.set_ylabel(ylabel or "Elevation / depth (m, EGM2008 geoid)")
-    title = f"{os.path.basename(outpath).replace('.png', '')}  —  {beam_name}"
+    title = f"{Path(outpath).stem}  —  {beam_name}"
     if title_extra:
         title += f"  {title_extra}"
     ax.set_title(title, fontsize=8)
@@ -616,8 +616,8 @@ def main(
     except (configparser.Error, OSError):
         cache_dir = None
 
-    input_path = os.path.abspath(input_file)
-    if not os.path.exists(input_path):
+    input_path = absolute_path(input_file)
+    if not input_path.exists():
         sys.exit(f"File not found: {input_path}")
 
     zlim = None
@@ -636,30 +636,30 @@ def main(
         classes = {int(c) for c in classes_str.split("/")}
 
     # ------------------------------------------------------------------ h5-only
-    h5_only = h5_only or input_path.lower().endswith(".h5")
+    h5_only = h5_only or input_path.suffix.lower() == ".h5"
 
     if h5_only:
         # Resolve the h5 file to use
-        if input_path.lower().endswith(".h5"):
+        if input_path.suffix.lower() == ".h5":
             h5_path = input_path
         elif h5_arg is True:
             h5_path = _find_h5(input_path)
             if h5_path is None:
                 sys.exit("--h5-only: no matching .h5 found in cache.")
         elif h5_arg:
-            h5_path = os.path.abspath(h5_arg)
-            if not os.path.exists(h5_path):
+            h5_path = absolute_path(h5_arg)
+            if not h5_path.exists():
                 sys.exit(f".h5 file not found: {h5_path}")
         else:
             h5_path = _find_h5(input_path)
             if h5_path is None:
                 sys.exit("--h5-only: no matching .h5 found in cache.")
 
-        outdir = outdir or os.path.dirname(h5_path)
-        os.makedirs(outdir, exist_ok=True)
-        h5_stem = os.path.splitext(os.path.basename(h5_path))[0]
+        outdir = Path(outdir) if outdir else h5_path.parent
+        outdir.mkdir(parents=True, exist_ok=True)
+        h5_stem = h5_path.stem
 
-        logger.info("H5-only: %s", os.path.basename(h5_path))
+        logger.info("H5-only: %s", h5_path.name)
         beam_dts = _beam_delta_times(h5_path)
         beams_to_plot = [laser] if laser else list(beam_dts.keys())
 
@@ -683,7 +683,7 @@ def main(
                 target_vert,
                 cache_dir,
             )
-            outpath = os.path.join(outdir, f"{h5_stem}_{beam}.png")
+            outpath = outdir / f"{h5_stem}_{beam}.png"
             plot_beam(
                 df_plot,
                 beam,
@@ -698,12 +698,12 @@ def main(
 
     # ------------------------------------------------------------------ nc + optional h5
     nc_path = input_path
-    outdir = outdir or os.path.dirname(nc_path)
-    os.makedirs(outdir, exist_ok=True)
+    outdir = Path(outdir) if outdir else nc_path.parent
+    outdir.mkdir(parents=True, exist_ok=True)
 
-    logger.info("Loading %s ...", os.path.basename(nc_path))
+    logger.info("Loading %s ...", nc_path.name)
     df = load_nc(nc_path)
-    nc_stem = os.path.splitext(os.path.basename(nc_path))[0]
+    nc_stem = nc_path.stem
 
     # Resolve .h5 path for beam splitting and noise background
     if h5_arg is True:
@@ -711,14 +711,14 @@ def main(
         if h5_path is None:
             logger.warning("--h5 given but no matching .h5 found in cache.")
     elif h5_arg:
-        h5_path = os.path.abspath(h5_arg)
-        if not os.path.exists(h5_path):
+        h5_path = absolute_path(h5_arg)
+        if not h5_path.exists():
             sys.exit(f".h5 file not found: {h5_path}")
     else:
         h5_path = None
 
     if h5_path:
-        logger.info("Found .h5: %s", os.path.basename(h5_path))
+        logger.info("Found .h5: %s", h5_path.name)
         beam_dts = _beam_delta_times(h5_path)
         beams_to_plot = [laser] if laser else list(beam_dts.keys())
 
@@ -774,7 +774,7 @@ def main(
                 target_vert,
                 cache_dir,
             )
-            outpath = os.path.join(outdir, f"{nc_stem}_{beam}.png")
+            outpath = outdir / f"{nc_stem}_{beam}.png"
             plot_beam(
                 df_plot,
                 beam,
@@ -812,7 +812,7 @@ def main(
                 target_vert,
                 cache_dir,
             )
-            outpath = os.path.join(outdir, f"{nc_stem}_{beam}.png")
+            outpath = outdir / f"{nc_stem}_{beam}.png"
             plot_beam(
                 df_beam,
                 beam,
