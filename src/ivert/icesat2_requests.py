@@ -20,6 +20,36 @@ import ivert.utils.configfile
 logger = logging.getLogger(__name__)
 
 
+def normalize_atl_version(value: int | str) -> str:
+    """Return an NSIDC ATL version as its zero-padded string, e.g. 7 or "7" -> "007".
+
+    The config file stores it quoted ("007"), but a value set by hand may be parsed
+    as an int, and either has to compare equal to the release field of a granule
+    filename and to the versions recorded in the requests CSV.
+    """
+    text = str(value).strip()
+    if not text.isdigit() or len(text) > 3:
+        msg = f"nsidc_atl_version must be a number of up to 3 digits such as 007, not {value!r}."
+        raise ValueError(msg)
+    return text.zfill(3)
+
+
+def _atl_version_from_csv(value: str) -> str:
+    """Return a version read from the requests CSV in normalized form, or "" if none is recorded.
+
+    A file saved by a spreadsheet program can hold the version as a number, "7" or "7.0",
+    and one written before the column existed holds nothing.
+    A value that is not a version at all is kept as it is, so it matches no lookup.
+    """
+    text = value.strip().removesuffix(".0")
+    if not text:
+        return ""
+    try:
+        return normalize_atl_version(text)
+    except ValueError:
+        return value
+
+
 class ICESat2RequestsCSV:
     """Read/write the Harmony request cache at ~/.ivert/icesat2/requests.csv.
 
@@ -59,7 +89,7 @@ class ICESat2RequestsCSV:
         only_unexpired: bool = True,
         tolerance: float = 1e-9,
         return_rows: bool = False,
-        atl_version: str | None = None,
+        atl_version: int | str | None = None,
     ) -> dict | pd.DataFrame | None:
         """Return the cached Harmony JSON for a matching request, or None.
 
@@ -71,8 +101,8 @@ class ICESat2RequestsCSV:
             only_unexpired: When True (default), ignore records whose dataExpiration has passed.
             tolerance: Absolute tolerance for matching each bbox coordinate. Defaults to 1e-9.
             return_rows: When True, return the matching DataFrame rows instead of the JSON dict.
-            atl_version: When given (e.g. "007"), only match records of jobs that asked for that
-                version. Records with no version recorded never match, so a job submitted
+            atl_version: When given (e.g. "007" or 7), only match records of jobs that asked for
+                that version. Records with no version recorded never match, so a job submitted
                 before the version was tracked is not re-used. Defaults to None (any version).
 
         """
@@ -87,7 +117,9 @@ class ICESat2RequestsCSV:
         ) & (self.df["atl_dataset"] == atl_dataset.upper().strip())
 
         if atl_version is not None:
-            matching_mask = matching_mask & (self.df["atl_version"] == atl_version)
+            matching_mask = matching_mask & (
+                self.df["atl_version"] == normalize_atl_version(atl_version)
+            )
 
         if only_unexpired and not auto_clean_csv:
             matching_mask = matching_mask & ~self.df["expiration_date"].apply(
@@ -106,11 +138,14 @@ class ICESat2RequestsCSV:
         query_bbox,
         json_dict,
         write_file: bool = True,
-        atl_version: str = "",
+        atl_version: int | str = "",
     ):
         """Append a new Harmony job record."""
         if self.df is None:
             self.open()
+
+        if atl_version != "":
+            atl_version = normalize_atl_version(atl_version)
 
         if isinstance(query_bbox, str):
             query_bbox = ast.literal_eval(query_bbox)
@@ -207,7 +242,9 @@ class ICESat2RequestsCSV:
             # Files written before the version was tracked have no such column.
             if "atl_version" not in self.df.columns:
                 self.df.insert(1, "atl_version", "")
-            self.df["atl_version"] = self.df["atl_version"].fillna("")
+            self.df["atl_version"] = (
+                self.df["atl_version"].fillna("").apply(_atl_version_from_csv)
+            )
         elif create_if_nonexistent:
             self._create_empty()
         else:

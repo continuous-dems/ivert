@@ -13,7 +13,7 @@ import pytest
 from globato.streams.readers.icesat2 import ATL03Reader
 
 from ivert import icesat2_database_v2 as is2db
-from ivert.icesat2_requests import ICESat2RequestsCSV
+from ivert.icesat2_requests import ICESat2RequestsCSV, normalize_atl_version
 
 V007_GRANULE = "ATL03_20241107234251_08052501_007_01_subsetted.h5"
 V006_GRANULE = "ATL03_20241107234251_08052501_006_01_subsetted.h5"
@@ -37,14 +37,14 @@ BBOX = (-74.0, -73.0, 40.5, 41.0, 20230101, 20230201)
 )
 def test_the_version_is_normalised_to_three_digits(value, expected):
     """Both the quoted config value and a hand-set int must match a filename's release field."""
-    assert is2db._normalize_atl_version(value) == expected
+    assert normalize_atl_version(value) == expected
 
 
 @pytest.mark.parametrize("value", ["abc", "0007", "", "7.0", "-7", "7 1", None])
 def test_a_value_that_is_not_a_version_is_rejected(value):
     """A bad setting stops here, naming it, not later as a release that never matches."""
     with pytest.raises(ValueError, match="nsidc_atl_version"):
-        is2db._normalize_atl_version(value)
+        normalize_atl_version(value)
 
 
 def test_the_release_is_read_from_the_granule_filename():
@@ -133,6 +133,45 @@ def test_a_file_from_before_the_column_existed_is_upgraded_on_read(tmp_path):
     assert list(csv.df["atl_version"]) == [""]
     assert csv.find_matching_request("ATL03", BBOX, atl_version="007") is None
     assert csv.find_matching_request("ATL03", BBOX)["jobID"] == "job-old"
+
+
+@pytest.mark.parametrize("old_value", ["7.0", "7", "007"])
+def test_a_job_recorded_with_a_numeric_spelling_of_the_version_is_reused(
+    tmp_path,
+    old_value,
+):
+    """A spreadsheet program that saves the file writes the version as a number, "7" or "7.0".
+
+    Not matching them submitted a duplicate Harmony job for a box that already had one.
+    The value is corrected in memory, so the next write of the file fixes it on disk.
+    """
+    job = _harmony_job("job-old")
+    (tmp_path / "requests.csv").write_text(
+        "atl_dataset,atl_version,bbox,creation_date,expiration_date,job_id,json\n"
+        f'ATL03,{old_value},"{BBOX}",{job["createdAt"]},{job["dataExpiration"]},{job["jobID"]},"{job}"\n',
+    )
+
+    csv = _requests_csv(tmp_path)
+    csv.open()
+
+    assert list(csv.df["atl_version"]) == ["007"]
+    assert (
+        csv.find_matching_request("ATL03", BBOX, atl_version="007")["jobID"]
+        == "job-old"
+    )
+
+
+@pytest.mark.parametrize("asked_for", [7, "7", " 007 "])
+def test_a_lookup_and_a_record_accept_any_spelling_of_the_version(tmp_path, asked_for):
+    """A version given as an int or unpadded is normalised on both sides of the comparison."""
+    csv = _requests_csv(tmp_path)
+    csv.add_record("ATL03", BBOX, _harmony_job("job-007"), atl_version=asked_for)
+
+    assert list(csv.df["atl_version"]) == ["007"]
+    assert (
+        csv.find_matching_request("ATL03", BBOX, atl_version=asked_for)["jobID"]
+        == "job-007"
+    )
 
 
 # ---------------------------------------------------------------------------

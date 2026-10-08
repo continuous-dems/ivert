@@ -40,7 +40,7 @@ from fetchez.modules.earthdata import IceSat2 as _FetchezIceSat2
 import ivert.landmask
 import ivert.utils.configfile
 import ivert.utils.cuboid_funcs
-from ivert.icesat2_requests import ICESat2RequestsCSV
+from ivert.icesat2_requests import ICESat2RequestsCSV, normalize_atl_version
 from ivert.utils.paths import absolute_path
 
 logger = logging.getLogger(__name__)
@@ -81,20 +81,6 @@ def _yyyymmdd_to_delta_time(yyyymmdd: int | str) -> float:
         )
         - _ICESAT2_EPOCH
     ).total_seconds()
-
-
-def _normalize_atl_version(value: int | str) -> str:
-    """Return an NSIDC ATL version as its zero-padded string, e.g. 7 or "7" -> "007".
-
-    The config file stores it quoted ("007"), but a value set by hand may be parsed
-    as an int, and either has to compare equal to the release field of a granule
-    filename.
-    """
-    text = str(value).strip()
-    if not text.isdigit() or len(text) > 3:
-        msg = f"nsidc_atl_version must be a number of up to 3 digits such as 007, not {value!r}."
-        raise ValueError(msg)
-    return text.zfill(3)
 
 
 def _atl_release_from_filename(filename: str) -> str | None:
@@ -919,7 +905,7 @@ class IS2Database:
             vertical_datum=self._vertical_epsg_to_globato_datum(vertical_datum),
             reject_failed_qa=True,
             append_atl24=True,
-            atl_version=_normalize_atl_version(self.config.nsidc_atl_version),
+            atl_version=normalize_atl_version(self.config.nsidc_atl_version),
             cache_dir=str(self.icesat2_download_dir),  # a string, for globato
             use_external_masks=use_external_masks,
         )
@@ -2032,7 +2018,7 @@ class IS2Database:
 
         self.granules_dir.mkdir(parents=True, exist_ok=True)
 
-        atl_version = _normalize_atl_version(self.config.nsidc_atl_version)
+        atl_version = normalize_atl_version(self.config.nsidc_atl_version)
 
         parts_downloaded = parts_empty = parts_failed = granules_added = 0
 
