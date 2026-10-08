@@ -4,8 +4,8 @@ Run as a script, it converts each error_map.tif path given on the command line.
 """
 
 import logging
-import os
 import sys
+from pathlib import Path
 
 import geopandas
 import numpy as np
@@ -60,13 +60,13 @@ def convert_ivert_error_map_to_vector(
 
         # Convert the filename to the output vector format.
         output_ext = format_dict[output_format.strip().lower()]
-        vector_fname = os.path.splitext(tif_file)[0] + (
-            output_ext if (output_ext[0] == ".") else ("." + output_ext)
+        vector_fname = Path(tif_file).with_suffix(
+            output_ext if (output_ext[0] == ".") else ("." + output_ext),
         )
 
-        if os.path.exists(vector_fname):
+        if vector_fname.exists():
             if overwrite:
-                os.remove(vector_fname)
+                vector_fname.unlink()
             else:
                 logger.info("%s already exists.", vector_fname)
                 return
