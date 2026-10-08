@@ -75,10 +75,9 @@ similar, pass a pre-formatted argument: `logger.info("%s cells", f"{n:,}")`.
 Don't write `WARNING:` or `ERROR:` into the text — the handler adds the level
 name.
 
-`print()` is reserved for output that is the command's actual result rather
-than a report about it: the CLI's own output (which uses `click.echo`), a
-formatted `tabulate` table, or a module whose point when run as a script is the
-value it writes to stdout. Those few places carry a `# noqa: T201` and a
+Output that is the command's actual result rather than a report about it, such
+as a formatted `tabulate` table, is the CLI's own output and goes through
+`click.echo`. A `print()` that is truly needed carries a `# noqa: T201` and a
 comment saying why; everything else fails the lint.
 
 The verbosity a run uses comes from `--verbosity` or the `verbosity` config
