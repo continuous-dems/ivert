@@ -6,6 +6,7 @@ import os
 import shutil
 import sys
 import time
+from pathlib import Path
 
 import numpy as np
 import psutil
@@ -180,8 +181,8 @@ def process_parallel(
                 strict=True,
             ),
         ):
-            if (outfile is not None) and os.path.exists(outfile) and overwrite_outfiles:
-                os.remove(outfile)
+            if (outfile is not None) and Path(outfile).exists() and overwrite_outfiles:
+                Path(outfile).unlink()
 
             process_started = False
             # Keep looping as long as (a) the process we've iterated to hasn't started yet, or
@@ -226,10 +227,10 @@ def process_parallel(
                     # (c) or just a count using the progress bar.
                     if use_progress_bar_only:
                         update_bar()
-                    elif type(d_outf) is str:
-                        written_qualifier = "" if os.path.exists(d_outf) else "NOT "
+                    elif isinstance(d_outf, (str, Path)):
+                        written_qualifier = "" if Path(d_outf).exists() else "NOT "
                         outf_name = (
-                            os.path.basename(d_outf)
+                            Path(d_outf).name
                             if abbreviate_outfile_names_in_stdout
                             else d_outf
                         )
@@ -246,7 +247,7 @@ def process_parallel(
                         update_bar()
 
                     # Delete the temporary directory if it was created.
-                    if type(d_tdir) is str and os.path.exists(d_tdir):
+                    if isinstance(d_tdir, (str, Path)) and Path(d_tdir).exists():
                         shutil.rmtree(d_tdir, ignore_errors=True)
 
                     running_procs.remove(d_proc)
@@ -256,13 +257,13 @@ def process_parallel(
 
                 if (not process_started) and len(running_procs) < max_nprocs:
                     if (
-                        type(outfile) is str
-                        and os.path.exists(outfile)
+                        isinstance(outfile, (str, Path))
+                        and Path(outfile).exists()
                         and not overwrite_outfiles
                     ):
                         num_finished += 1
                         outfile_name = (
-                            os.path.basename(outfile)
+                            Path(outfile).name
                             if abbreviate_outfile_names_in_stdout
                             else outfile
                         )
@@ -286,8 +287,11 @@ def process_parallel(
                             args=args,
                         )
 
-                    if type(temp_dir) is str and not os.path.exists(temp_dir):
-                        os.mkdir(temp_dir)
+                    if (
+                        isinstance(temp_dir, (str, Path))
+                        and not Path(temp_dir).exists()
+                    ):
+                        Path(temp_dir).mkdir()
 
                     running_procs.append(proc)
                     running_outfiles.append(outfile)
@@ -298,12 +302,12 @@ def process_parallel(
                     # we can simply change the directory of the parent process (temporarily), and then change it back
                     # after starting the funciton.
                     old_cwd = None
-                    if type(temp_dir) is str:
-                        old_cwd = os.getcwd()
+                    if isinstance(temp_dir, (str, Path)):
+                        old_cwd = Path.cwd()
                         os.chdir(temp_dir)
                     proc.start()
                     # Then, change it back to the old one so we stay where we were.
-                    if type(temp_dir) is str:
+                    if isinstance(temp_dir, (str, Path)):
                         os.chdir(old_cwd)
 
                     process_started = True
@@ -322,12 +326,12 @@ def process_parallel(
             rproc.close()
         # Delete all the temp directories we'd created.
         for tdir in running_tempdirs:
-            if type(tdir) is str and os.path.exists(tdir):
+            if isinstance(tdir, (str, Path)) and Path(tdir).exists():
                 shutil.rmtree(tdir, ignore_errors=True)
         if delete_partially_done_files:
             for fn in running_outfiles:
-                if type(fn) is str and os.path.exists(fn):
-                    os.remove(fn)
+                if isinstance(fn, (str, Path)) and Path(fn).exists():
+                    Path(fn).unlink()
         raise
 
     finally:
