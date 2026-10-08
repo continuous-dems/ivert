@@ -23,7 +23,7 @@ import dataclasses
 import json
 import logging
 import math
-import os
+from pathlib import Path
 from typing import Self
 
 import numpy as np
@@ -41,6 +41,7 @@ from scipy.spatial import cKDTree
 import ivert.landmask
 import ivert.transform_points
 import ivert.utils.logging_config
+from ivert.utils.paths import absolute_path
 
 logger = logging.getLogger(__name__)
 
@@ -122,7 +123,15 @@ class BathyFilterSettings:
                 raise ValueError(msg)
             object.__setattr__(self, name, value)
         if self.ref_raster is not None:
-            object.__setattr__(self, "ref_raster", os.path.abspath(self.ref_raster))
+            # '~' is expanded here too, since a quoted command-line value reaches this
+            # unexpanded. Kept a string, not a Path: the settings go into each results
+            # file as JSON.
+            try:
+                ref_raster = Path(self.ref_raster).expanduser()
+            except RuntimeError as exc:
+                msg = f"Bathymetry reference raster {self.ref_raster!r}: {exc}"
+                raise ValueError(msg) from exc
+            object.__setattr__(self, "ref_raster", str(absolute_path(ref_raster)))
 
     @classmethod
     def from_config(cls, config=None, **overrides: object) -> Self:
@@ -356,7 +365,7 @@ class BathyFilterReport:
         )
 
 
-def write_report_to_h5(h5_file: str, report) -> None:
+def write_report_to_h5(h5_file: str | Path, report) -> None:
     """Store a BathyFilterReport as an attribute of the (only) table in an .h5 file.
 
     Does nothing if report is None. An attribute rather than a second table, so
@@ -372,9 +381,9 @@ def write_report_to_h5(h5_file: str, report) -> None:
         )
 
 
-def read_report_from_h5(h5_file: str):
+def read_report_from_h5(h5_file: str | Path):
     """Return the BathyFilterReport stored on a results .h5 file, or None if it has none."""
-    if not h5_file or not os.path.exists(h5_file):
+    if not h5_file or not Path(h5_file).exists():
         return None
     try:
         with pd.HDFStore(h5_file, mode="r") as store:
@@ -609,7 +618,9 @@ def _load_reference(ref_raster, bounds, cache_dir):
                 verbose=False,
             )
         paths = [
-            p for p in paths or [] if str(p).endswith(".tif") and os.path.exists(p)
+            p
+            for p in paths or []
+            if Path(p).suffix.lower() == ".tif" and Path(p).exists()
         ]
         if not paths:
             msg = (
