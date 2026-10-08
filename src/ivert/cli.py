@@ -1550,7 +1550,7 @@ def _export_database_index(index_path, fmt_keys, output, overwrite, filters_give
         msg = f"The database index is empty: {index_path}"
         raise click.ClickException(msg)
 
-    out_base = output or str(Path.cwd() / "ivert_database_index")
+    out_base = output or Path.cwd() / "ivert_database_index"
     written = ev.write_vector_multi(
         gdf,
         out_base,
@@ -1580,7 +1580,7 @@ def _export_single_granule(
         msg = f"No photons left to export from {Path(nc_path).name} after filtering."
         raise click.ClickException(msg)
 
-    out_base = output or str(Path.cwd() / Path(nc_path).stem)
+    out_base = output or Path.cwd() / Path(nc_path).stem
     written = ev.write_vector_multi(gdf, out_base, fmt_keys, overwrite=overwrite)
     _echo_export_summary(written, len(gdf), "photons")
 
@@ -1883,7 +1883,7 @@ def database_convert(
     )
 
     # --- Write the requested format(s). ---
-    out_base = output or str(Path.cwd() / "ivert_photons")
+    out_base = output or Path.cwd() / "ivert_photons"
     written = ev.write_vector_multi(merged, out_base, fmt_keys, overwrite=overwrite)
     _echo_export_summary(written, len(merged), "photons")
 

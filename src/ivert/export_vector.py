@@ -10,7 +10,7 @@ no command-line interface of its own.
 """
 
 import logging
-import os
+from pathlib import Path
 
 import geopandas
 import netCDF4
@@ -136,7 +136,7 @@ def nc_to_geodataframe(
         granule_id = getattr(
             ds,
             "granule_id",
-            os.path.splitext(os.path.basename(nc_path))[0],
+            Path(nc_path).stem,
         )
 
     df = pd.DataFrame(
@@ -212,7 +212,7 @@ def _prepare_for_shapefile(
 
 def write_vector(
     gdf: geopandas.GeoDataFrame,
-    outpath: str,
+    outpath: str | Path,
     fmt_key: str,
     overwrite: bool = False,
     kind: str = KIND_PHOTONS,
@@ -223,14 +223,15 @@ def write_vector(
     polygon layer of granule footprints; it governs the shapefile field
     handling and the wording of the progress message.
     """
-    if os.path.exists(outpath):
+    outpath = Path(outpath)
+    if outpath.exists():
         if not overwrite:
             logger.info(
                 "  Skipping existing %s (use -ow to overwrite).",
-                os.path.basename(outpath),
+                outpath.name,
             )
             return
-        os.remove(outpath)
+        outpath.unlink()
 
     driver, _ = SUPPORTED_FORMATS[fmt_key]
 
@@ -340,24 +341,25 @@ def subset_gdf_to_date_range(
     return gdf[mask].reset_index(drop=True)
 
 
-def output_path_for_format(out_base: str, fmt_key: str) -> str:
+def output_path_for_format(out_base: str | Path, fmt_key: str) -> Path:
     """Build the output path for a format by giving out_base the format's extension.
 
     Any recognized vector extension already on out_base is stripped first, so a
     base of 'photons.gpkg' combined with the 'shp' format yields 'photons.shp'.
     """
     _, ext = SUPPORTED_FORMATS[fmt_key]
-    stem = out_base
+    out_base = Path(out_base)
+    stem = out_base.name
     for _driver, known_ext in SUPPORTED_FORMATS.values():
         if stem.lower().endswith(known_ext):
             stem = stem[: -len(known_ext)]
             break
-    return stem + ext
+    return out_base.with_name(stem + ext)
 
 
 def write_vector_multi(
     gdf: geopandas.GeoDataFrame,
-    out_base: str,
+    out_base: str | Path,
     fmt_keys,
     overwrite: bool = False,
     kind: str = KIND_PHOTONS,
@@ -369,7 +371,7 @@ def write_vector_multi(
     written = []
     for fmt_key in fmt_keys:
         outpath = output_path_for_format(out_base, fmt_key)
-        existed = os.path.exists(outpath)
+        existed = outpath.exists()
         write_vector(gdf, outpath, fmt_key, overwrite=overwrite, kind=kind)
         # write_vector() skips silently when the file exists and overwrite is False.
         if not existed or overwrite:
