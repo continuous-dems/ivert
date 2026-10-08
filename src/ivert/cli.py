@@ -1525,6 +1525,22 @@ def _echo_export_summary(written, count, noun):
         click.echo(f"  {path}")
 
 
+def _convert_output_base(output, default_name):
+    """Return the base path 'ivert database convert' writes to, before each format's extension.
+
+    With no -o, it is default_name in the current directory. A -o that ends in a path
+    separator or names an existing folder gets default_name inside that folder, which
+    is created if needed. Any other -o is used as given.
+    """
+    if not output:
+        return Path.cwd() / default_name
+    if output.endswith(("/", os.sep)) or Path(output).is_dir():
+        folder = Path(output)
+        folder.mkdir(parents=True, exist_ok=True)
+        return folder / default_name
+    return Path(output)
+
+
 def _export_database_index(index_path, fmt_keys, output, overwrite, filters_given):
     """Export an IVERT database index file as a polygon layer of granule footprints."""
     from ivert import export_vector as ev
@@ -1550,7 +1566,7 @@ def _export_database_index(index_path, fmt_keys, output, overwrite, filters_give
         msg = f"The database index is empty: {index_path}"
         raise click.ClickException(msg)
 
-    out_base = output or Path.cwd() / "ivert_database_index"
+    out_base = _convert_output_base(output, "ivert_database_index")
     written = ev.write_vector_multi(
         gdf,
         out_base,
@@ -1580,7 +1596,7 @@ def _export_single_granule(
         msg = f"No photons left to export from {Path(nc_path).name} after filtering."
         raise click.ClickException(msg)
 
-    out_base = output or Path.cwd() / Path(nc_path).stem
+    out_base = _convert_output_base(output, Path(nc_path).stem)
     written = ev.write_vector_multi(gdf, out_base, fmt_keys, overwrite=overwrite)
     _echo_export_summary(written, len(gdf), "photons")
 
@@ -1607,8 +1623,9 @@ def _export_single_granule(
     metavar="PATH",
     help=(
         "Output file path. The correct extension is added per format, so multiple "
-        "formats share this base name. Default: 'ivert_photons' in the current "
-        "directory, or the input file's name when exporting a single .nc file."
+        "formats share this base name. A folder (an existing one, or a path ending "
+        "in '/') gets the default name inside it. Default: 'ivert_photons' in the "
+        "current directory, or the input file's name when exporting a single .nc file."
     ),
 )
 @click.option(
@@ -1883,7 +1900,7 @@ def database_convert(
     )
 
     # --- Write the requested format(s). ---
-    out_base = output or Path.cwd() / "ivert_photons"
+    out_base = _convert_output_base(output, "ivert_photons")
     written = ev.write_vector_multi(merged, out_base, fmt_keys, overwrite=overwrite)
     _echo_export_summary(written, len(merged), "photons")
 

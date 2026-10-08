@@ -345,14 +345,18 @@ def output_path_for_format(out_base: str | Path, fmt_key: str) -> Path:
     """Build the output path for a format by giving out_base the format's extension.
 
     Any recognized vector extension already on out_base is stripped first, so a
-    base of 'photons.gpkg' combined with the 'shp' format yields 'photons.shp'.
+    base of 'photons.gpkg' combined with the 'shp' format yields 'photons.shp'. When
+    out_base already has this format's extension, its spelling is kept ('photons.GPKG').
     """
     _, ext = SUPPORTED_FORMATS[fmt_key]
     out_base = Path(out_base)
     stem = out_base.name
     for _driver, known_ext in SUPPORTED_FORMATS.values():
         if stem.lower().endswith(known_ext):
+            given_ext = stem[-len(known_ext) :]
             stem = stem[: -len(known_ext)]
+            if known_ext == ext:
+                ext = given_ext
             break
     return out_base.with_name(stem + ext)
 
