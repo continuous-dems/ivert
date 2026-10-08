@@ -177,7 +177,7 @@ def apply_vertical_transform(
         ]
 
     # Strings: the cache folder and the grid file are handed to transformez.
-    _cache = cache_dir or str(Path.cwd() / "transformez_cache")
+    _cache = str(cache_dir) if cache_dir else str(Path.cwd() / "transformez_cache")
     Path(_cache).mkdir(parents=True, exist_ok=True)
 
     # ':' is not a legal path character on Windows, so 'vdatum:mllw' becomes

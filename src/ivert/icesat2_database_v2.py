@@ -423,7 +423,7 @@ class IS2Database:
         else:
             self.config = ivert_config
 
-        self.db_fname = self.config.ivert_database_index
+        self.db_fname = Path(self.config.ivert_database_index)
         self.gdf = None
         self.last_gdf_bbox = None
         self.last_gdf_date_range = None
@@ -433,9 +433,9 @@ class IS2Database:
         # Can experiment with other coordinate systems later.
         self.crs = "EPSG:4326+3855"
 
-        self.granules_dir = self.config.ivert_database_directory
-        self.icesat2_download_dir = self.config.icesat2_download_directory
-        self.landmask_dir = self.config.ivert_landmask_directory
+        self.granules_dir = Path(self.config.ivert_database_directory)
+        self.icesat2_download_dir = Path(self.config.icesat2_download_directory)
+        self.landmask_dir = Path(self.config.ivert_landmask_directory)
 
     def create_new_database(
         self,
@@ -455,7 +455,7 @@ class IS2Database:
             pandas.DataFrame containing the granule records from the database.
 
         """
-        index_file = Path(self.db_fname)
+        index_file = self.db_fname
         if overwrite:
             if index_file.exists():
                 logger.info("Removing old %s", index_file.name)
@@ -518,11 +518,11 @@ class IS2Database:
         is explicitly skipped. Returns an empty list if the directory does not
         exist.
         """
-        granules_dir = Path(self.granules_dir)
+        granules_dir = self.granules_dir
         if not granules_dir.is_dir():
             return []
 
-        index_fn = Path(self.db_fname).name
+        index_fn = self.db_fname.name
         return sorted(
             path
             for path in granules_dir.iterdir()
@@ -546,7 +546,7 @@ class IS2Database:
             to rebuild it from.
 
         """
-        if Path(self.db_fname).exists():
+        if self.db_fname.exists():
             return
 
         granule_fnames = self.granule_files()
@@ -566,7 +566,7 @@ class IS2Database:
         logger.warning(
             "The database index '%s' is missing, but %d granule file(s) are present "
             "in %s. Rebuilding the index in place; this may take a few moments.",
-            Path(self.db_fname).name,
+            self.db_fname.name,
             len(granule_fnames),
             self.granules_dir,
         )
@@ -920,7 +920,7 @@ class IS2Database:
             reject_failed_qa=True,
             append_atl24=True,
             atl_version=_normalize_atl_version(self.config.nsidc_atl_version),
-            cache_dir=self.icesat2_download_dir,
+            cache_dir=str(self.icesat2_download_dir),  # a string, for globato
             use_external_masks=use_external_masks,
         )
 
@@ -1259,7 +1259,7 @@ class IS2Database:
             target=_prefetch_aux_granules,
             args=(
                 list(h5_files),
-                self.icesat2_download_dir,
+                str(self.icesat2_download_dir),  # a string, for globato
                 _AUX_PREFETCH_THREADS,
                 ready,
             ),
@@ -1498,7 +1498,7 @@ class IS2Database:
             for col in (*int_cols, *float_cols):
                 encoding[col] = {"zlib": True, "complevel": 4}
 
-        Path(self.db_fname).parent.mkdir(parents=True, exist_ok=True)
+        self.db_fname.parent.mkdir(parents=True, exist_ok=True)
         ds.to_netcdf(self.db_fname, encoding=encoding)
 
     @classmethod
@@ -1534,7 +1534,7 @@ class IS2Database:
 
         Returns None if the index file does not exist.
         """
-        if not Path(self.db_fname).exists():
+        if not self.db_fname.exists():
             return None
 
         return self.read_index_file(self.db_fname)
@@ -1564,7 +1564,7 @@ class IS2Database:
         self.gdf = gdf
         logger.info(
             "Loaded %s with %d records.",
-            Path(self.db_fname).name,
+            self.db_fname.name,
             len(self.gdf),
         )
 
@@ -1735,7 +1735,7 @@ class IS2Database:
 
         logger.debug("Reading %d granules overlapping %r.", len(gdf_subset), bbox)
 
-        granules_dir = Path(self.granules_dir)
+        granules_dir = self.granules_dir
         logger.debug(
             "%d granules exist with %s ground photons and %s bathy_floor photons.",
             sum((granules_dir / fn).exists() for fn in gdf_subset["filename"]),
@@ -2030,7 +2030,7 @@ class IS2Database:
             len(bboxes),
         )
 
-        Path(self.granules_dir).mkdir(parents=True, exist_ok=True)
+        self.granules_dir.mkdir(parents=True, exist_ok=True)
 
         atl_version = _normalize_atl_version(self.config.nsidc_atl_version)
 
@@ -2042,10 +2042,10 @@ class IS2Database:
             logger.info("=" * 85)
 
             # A string: it is handed to fetchez.
-            cache_dir = (
-                str(Path(self.icesat2_download_dir) / cache_subdir)
+            cache_dir = str(
+                self.icesat2_download_dir / cache_subdir
                 if cache_subdir is not None
-                else self.icesat2_download_dir
+                else self.icesat2_download_dir,
             )
             Path(cache_dir).mkdir(parents=True, exist_ok=True)
 
@@ -2240,7 +2240,7 @@ class IS2Database:
                     if nc_basename in existing_filenames and not replace:
                         logger.info("Skipping %s (already in database).", nc_basename)
                     else:
-                        targets.append((tile, Path(self.granules_dir) / nc_basename))
+                        targets.append((tile, self.granules_dir / nc_basename))
                 if targets:
                     files_to_process.append((h5_src, targets))
 
@@ -2310,7 +2310,7 @@ class IS2Database:
                             n_replaced,
                         )
                         for old_fname in existing_gdf.loc[is_replaced, "filename"]:
-                            (Path(self.granules_dir) / old_fname).unlink(
+                            (self.granules_dir / old_fname).unlink(
                                 missing_ok=True,
                             )
                         existing_gdf = existing_gdf[~is_replaced]
@@ -2325,14 +2325,14 @@ class IS2Database:
 
             self._write_index(self.gdf)
 
-            if Path(self.db_fname).exists():
+            if self.db_fname.exists():
                 logger.info(
                     "Updated %s with %d total records.",
-                    Path(self.db_fname).name,
+                    self.db_fname.name,
                     len(self.gdf),
                 )
             else:
-                msg = f"Failed to write {Path(self.db_fname).name}"
+                msg = f"Failed to write {self.db_fname.name}"
                 raise OSError(msg)
 
         return DownloadSummary(
@@ -2455,7 +2455,7 @@ class IS2Database:
     ) -> None:
         """Delete the icesat-2 data downloads and clears the cache directory."""
         # If we only want to get rid of previous ICESat-2 downloads, clearing the CMR sub-directory will do that.
-        cache_dir = Path(self.icesat2_download_dir)
+        cache_dir = self.icesat2_download_dir
         if cache_subdir is not None:
             cache_dir /= cache_subdir
 

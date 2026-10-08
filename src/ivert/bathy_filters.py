@@ -612,7 +612,8 @@ def _load_reference(ref_raster, bounds, cache_dir):
             paths = fetchez.get(
                 "etopo",
                 region=[west, east, south, north],
-                outdir=cache_dir,
+                # A string, for fetchez.
+                outdir=None if cache_dir is None else str(cache_dir),
                 datatype="surface",
                 resolution="15s",
                 verbose=False,

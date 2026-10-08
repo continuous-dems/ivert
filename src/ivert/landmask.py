@@ -179,7 +179,8 @@ def _fetch_osm_landmask(bbox, cache_dir: str) -> None:
         fetchez.get(
             "osm_landmask",
             region=[xmin, xmax, ymin, ymax],
-            outdir=cache_dir,
+            # A string, for fetchez.
+            outdir=None if cache_dir is None else str(cache_dir),
             verbose=False,
         )
 

@@ -276,7 +276,7 @@ class Config:
         return absolute_path(self._configfile.parent / path)
 
     @property
-    def user_config_path(self):
+    def user_config_path(self) -> Path | None:
         """Absolute path of the user config file IVERT reads and writes, or None.
 
         Resolution order:
@@ -291,11 +291,11 @@ class Config:
         """
         env_override = os.environ.get("IVERT_USER_CONFIG", "").strip()
         if env_override:
-            return str(absolute_path(Path(env_override).expanduser()))
+            return absolute_path(Path(env_override).expanduser())
 
         configured = getattr(self, "user_configfile", None)
         if configured:
-            return str(absolute_path(Path(configured).expanduser()))
+            return absolute_path(Path(configured).expanduser())
 
         return None
 
@@ -403,7 +403,7 @@ class Config:
     def _apply_user_config(self):
         """If the user config file exists, overlay its values on top of the defaults."""
         user_path = self.user_config_path
-        if user_path is None or not Path(user_path).exists():
+        if user_path is None or not user_path.exists():
             return
 
         user_config = configparser.ConfigParser()
@@ -440,7 +440,7 @@ class Config:
             sections.append("AWS")
 
         saved_configfile = self._configfile
-        self._configfile = Path(user_path)
+        self._configfile = user_path
         try:
             for section in sections:
                 for k in user_config[section]:
@@ -656,15 +656,15 @@ class Config:
             elif ("~" in value) or ("/" in value) or ("\\" in value):
                 # If it references the home directory, expand it on the local machine.
                 if "~" in value:
-                    setattr(self, key, str(absolute_path(Path(value).expanduser())))
+                    setattr(self, key, absolute_path(Path(value).expanduser()))
                 # If it's already an absolute path, just use it as-is. Recognize both
                 # Unix ("/...") and Windows ("C:\...", "C:/...", or UNC "\\...") roots
                 # so shared config files resolve correctly on either platform.
                 elif _is_absolute_path(value):
-                    setattr(self, key, str(absolute_path(value)))
+                    setattr(self, key, absolute_path(value))
                 # If it's a relative path, make it relative to the _configfile's directory.
                 else:
-                    setattr(self, key, str(self._abspath(value)))
+                    setattr(self, key, self._abspath(value))
                 # Record that this option names a local path, so callers such as
                 # "ivert setup" can find them without a hard-coded list.
                 self._path_keys[key] = None

@@ -44,7 +44,7 @@ class ICESat2RequestsCSV:
             self.config = ivert.utils.configfile.Config()
         else:
             self.config = config
-        self.csv_file = self.config.icesat2_requests_csv
+        self.csv_file = Path(self.config.icesat2_requests_csv)
         self.df = None
 
     # ------------------------------------------------------------------
@@ -187,7 +187,7 @@ class ICESat2RequestsCSV:
         if self.df is not None and not read_again:
             return self.df
 
-        if Path(self.csv_file).exists():
+        if self.csv_file.exists():
             num_tries = 0
             while num_tries < 20:
                 try:
@@ -218,7 +218,7 @@ class ICESat2RequestsCSV:
 
     def export(self):
         """Write self.df back to disk."""
-        Path(self.csv_file).parent.mkdir(parents=True, exist_ok=True)
+        self.csv_file.parent.mkdir(parents=True, exist_ok=True)
         self.df.to_csv(self.csv_file, index=False, header=True)
 
     def clean_csv(self):
