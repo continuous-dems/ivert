@@ -95,7 +95,7 @@ def _pandas_mean(values):
 
 
 def _pandas_std(values):
-    """Return values.std() (ddof=1) exactly as pandas' Series.std() computes it (no NaNs).
+    """Return values.std() (ddof=1) exactly as pandas' Series.std() gives it (no NaNs).
 
     The variance is accumulated in float64 and, for a float array, cast back to
     its dtype before the square root. One value gives NaN.
@@ -498,7 +498,7 @@ def _process_or_none(pid):
 
 
 def _is_running(process):
-    """Return True while a psutil.Process is still running (not exited, reaped or a zombie).
+    """Return True while a psutil.Process is running (not exited, reaped or a zombie).
 
     psutil also checks the process's start time, so a reused PID doesn't count.
     """
@@ -642,7 +642,7 @@ def reset_results_indexes_after_merge(
 
 
 def _resolve_config(config, icesat2_photon_database_obj=None):
-    """Return the Config to use: the one given, else the photon database's, else a fresh one."""
+    """Return the Config given, else the photon database's, else a fresh one."""
     if config is not None:
         return config
     if icesat2_photon_database_obj is not None:
@@ -1140,12 +1140,12 @@ def _default_output_dir(dem_name, output_dir):
 
 
 def _results_dataframe_filename(dem_name, output_dir):
-    """Return the '<dem>_results.h5' path for a DEM's validation results in output_dir."""
+    """Return the '<dem>_results.h5' path in output_dir for a DEM's results."""
     return Path(output_dir) / (dem_source.dem_base_name(dem_name) + "_results.h5")
 
 
 def _empty_results_filename(results_dataframe_file):
-    """Return the '<dem>_results_EMPTY.txt' marker path matching a results dataframe file."""
+    """Return the '<dem>_results_EMPTY.txt' marker path for a results dataframe file."""
     results_dataframe_file = Path(results_dataframe_file)
     return results_dataframe_file.with_name(
         results_dataframe_file.stem + "_EMPTY.txt",
@@ -1388,7 +1388,7 @@ def _resolve_dem_crs(
     dem_projection=None,
     dem_vertical_datum=None,
 ):
-    """Return the DEM's (horizontal CRS, vertical reference), with the user's settings applied.
+    """Return the DEM's (horizontal CRS, vertical reference), user settings applied.
 
     Horizontal: -p/--projection, else the file's. Vertical: -V/--vdatum, else the
         vertical
@@ -1542,7 +1542,7 @@ def _fetch_photons(
 
 
 def _resolve_exclude_geometry(exclude_zones, dem_epsg_str):
-    """Resolve exclude-zone specs into a single shapely geometry in the DEM's horizontal CRS.
+    """Resolve exclude-zone specs into one shapely geometry in the DEM's horizontal CRS.
 
     Each item in exclude_zones is either a 4-value (minx, miny, maxx, maxy) bounding box
     already in the DEM's horizontal CRS, or a path to a vector file (.shp, .geojson,
@@ -1765,7 +1765,7 @@ def _run_photon_level_validation(
     dem_overlap_elevs,
     results_dataframe_file,
 ):
-    """Compute photon-level DEM minus ICESat-2 differences and write an HDF5 results file.
+    """Compute photon-level DEM minus ICESat-2 differences and write an HDF5 file.
 
     'photon_df' has already been subset to the requested photon classes by
     _compute_photon_overlap. Returns the photon results file path.
@@ -2828,7 +2828,7 @@ def _results_cell_centers(results_dataframe, dem_ds):
 
 
 def _export_errors_vector(results_dataframe, dem_ds, out_fname, fmt, crs=None):
-    """Write one point per validated cell (at the cell center) to a GeoPackage or Shapefile."""
+    """Write a point at each validated cell's center to a GeoPackage or Shapefile."""
     driver_name = {"gpkg": "GPKG", "shp": "ESRI Shapefile"}[fmt]
 
     # Remove any previous export (including shapefile sidecar files) before writing.
@@ -2866,7 +2866,7 @@ def _export_errors_vector(results_dataframe, dem_ds, out_fname, fmt, crs=None):
 
 
 def _export_errors_xyz(results_dataframe, dem_ds, out_fname):
-    """Write a whitespace-delimited 'x y error' text file, one cell-center point per line."""
+    """Write a whitespace-delimited 'x y error' text file, one cell center per line."""
     x_centers, y_centers = _results_cell_centers(results_dataframe, dem_ds)
     errors = results_dataframe["diff_mean"].to_numpy()
     np.savetxt(
@@ -2913,7 +2913,7 @@ def _photon_results_filename(results_dataframe_file):
 
 
 def _error_export_filenames(results_dataframe_file, formats):
-    """Return the '<dem>_errors.<ext>' output paths a given format request would produce."""
+    """Return the '<dem>_errors.<ext>' paths a format request would produce."""
     results_dataframe_file = Path(results_dataframe_file)
     base = results_dataframe_file.stem.removesuffix("_results") + "_errors"
     return [

@@ -79,7 +79,7 @@ def db(tmp_path, monkeypatch):
 
 
 def test_a_refused_submission_fails_the_part(db):
-    """Without a job ID, fetchez's run() would submit a job requests.csv never records."""
+    """Without a job ID, fetchez's run() submits a job requests.csv never records."""
     _FakeFetchezIceSat2.accept = False
 
     summary = db.download_new_granules(BBOX)
@@ -90,7 +90,7 @@ def test_a_refused_submission_fails_the_part(db):
 
 
 def test_fetchez_does_not_answer_from_its_cache(db):
-    """The fetchez cache keys links without the job ID, so a new job got an old job's links."""
+    """The fetchez cache ignores the job ID, so a new job got an old job's links."""
     db.download_new_granules(BBOX)
 
     assert [m.get("use_cache") for m in _FakeFetchezIceSat2.built_with] == [False]

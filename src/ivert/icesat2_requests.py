@@ -44,7 +44,7 @@ def normalize_atl_version(value: int | str) -> str:
 
 
 def _atl_version_from_csv(value: str) -> str:
-    """Return a version read from the requests CSV in normalized form, or "" if none is recorded.
+    """Return a version from the requests CSV, normalized, or "" if none is recorded.
 
     A file saved by a spreadsheet program can hold the version as a number, "7" or
     "7.0", and one written before the column existed holds nothing. A value that is not
@@ -204,7 +204,7 @@ class ICESat2RequestsCSV:
         write_file: bool = True,
         fail_quietly: bool = False,
     ):
-        """Replace the JSON for an existing record (matched by dataset + bbox + job_id)."""
+        """Replace an existing record's JSON (matched by dataset + bbox + job_id)."""
         if self.df is None:
             self.open()
 

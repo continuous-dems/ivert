@@ -51,12 +51,18 @@ def _short(description):
 
 
 def class_labels():
-    """Return ``{code: short human label}``, e.g. ``41 -> "Nearshore Water Surface"``."""
+    """Return ``{code: short human label}``.
+
+    For example, ``41 -> "Nearshore Water Surface"``.
+    """
     return {code: _short(desc) for code, desc in photon_classes()}
 
 
 def class_names():
-    """Return ``{code: short snake_case name}``, e.g. ``41 -> "nearshore_water_surface"``."""
+    """Return ``{code: short snake_case name}``.
+
+    For example, ``41 -> "nearshore_water_surface"``.
+    """
     return {
         code: "_".join(_short(desc).split()).lower() for code, desc in photon_classes()
     }

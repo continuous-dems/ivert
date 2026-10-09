@@ -92,7 +92,6 @@ ignore = [
     # Permanent: CPY001 wants a copyright notice at the top of every file. The MIT
     # LICENSE at the repository root already covers all of them.
     "CPY001",   # missing-copyright-notice
-    "E501",     # line-too-long
     "PLR0912",  # too-many-branches
     # Permanent: PLR0913 caps a function at five parameters, keyword-only ones
     # included. Each click option is its own parameter, and the validation functions

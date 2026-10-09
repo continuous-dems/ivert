@@ -386,7 +386,7 @@ def write_report_to_h5(h5_file: str | Path, report) -> None:
 
 
 def read_report_from_h5(h5_file: str | Path):
-    """Return the BathyFilterReport stored on a results .h5 file, or None if it has none."""
+    """Return a results .h5 file's stored BathyFilterReport, or None if it has none."""
     if not h5_file or not Path(h5_file).exists():
         return None
     try:

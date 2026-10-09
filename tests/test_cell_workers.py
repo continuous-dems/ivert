@@ -1,4 +1,4 @@
-"""Tests that validate_dem's cell-validation workers don't outlive the process that runs them.
+"""Tests that validate_dem's cell-validation workers don't outlive their coordinator.
 
 Each worker started here is a real process; every test kills whatever is left on the
 way out, so a failure doesn't leave workers spinning on the test machine.
@@ -46,7 +46,7 @@ def _kill(pids):
 
 
 def _coordinator(pid_queue):
-    """Start two workers that wait for chunks, report their pids, and wait to be killed."""
+    """Start two workers that wait for chunks, report their pids, and await killing."""
     values = np.zeros(10, dtype="float32")
     names = [f"{name}_{os.getpid()}" for name in ARRAY_NAMES]
     # Kept referenced until this process is killed.
@@ -74,7 +74,7 @@ def _coordinator(pid_queue):
     reason="Needs SIGKILL and the fork start method.",
 )
 def test_workers_exit_when_their_coordinator_is_killed():
-    """The OS kills the coordinator when memory runs out, and nobody sends the workers "STOP".
+    """The OS kills the coordinator when memory runs out; nobody sends workers "STOP".
 
     A forked worker holds copies of the coordinator's pipe ends, so it never saw its
     pipe close, and spun at full CPU until killed by hand.
@@ -132,7 +132,7 @@ class _InterruptedProgress:
 
 
 def test_workers_are_stopped_when_the_run_is_interrupted(monkeypatch):
-    """Ctrl-C isn't an Exception, so stopping the workers only on Exception missed it."""
+    """Ctrl-C isn't an Exception, so stopping workers only on Exception missed it."""
     started = []
     real_kick_off = validate_dem.kick_off_new_child_process
 

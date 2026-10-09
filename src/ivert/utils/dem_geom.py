@@ -29,7 +29,7 @@ _AXES_3D = 3
 
 
 def _epsg_equivalent(crs: pyproj.CRS | None) -> pyproj.CRS | None:
-    """Return the EPSG version of a CRS where one exists, so it pairs with EPSG datums."""
+    """Return a CRS's EPSG version where one exists, so it pairs with EPSG datums."""
     if crs is None:
         return None
     authority = crs.list_authority()
@@ -127,7 +127,7 @@ def get_dem_srs_string(
     horz_reference: pyproj.CRS,
     vert_reference: pyproj.CRS | str,
 ) -> str:
-    """Build a compound SRS string like 'EPSG:4326+3855' from a horizontal and a vertical reference.
+    """Build a compound SRS string ('EPSG:4326+3855') from horizontal and vertical CRSs.
 
     Args:
         horz_reference: The horizontal CRS.
@@ -204,7 +204,7 @@ def get_wgs84_bounding_box(
     polygon_bbox_or_dem_fname: shapely.geometry.Polygon | list | tuple | str,
     dem_horz_reference_frame: str | pyproj.CRS | None = None,
 ) -> tuple:
-    """Return a 4-tuple (xmin, xmax, ymin, ymax) in WGS84 from a DEM file, bbox, or polygon.
+    """Return a WGS84 (xmin, xmax, ymin, ymax) tuple from a DEM file, bbox, or polygon.
 
     Args:
         polygon_bbox_or_dem_fname:

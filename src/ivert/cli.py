@@ -1,4 +1,4 @@
-"""Command-line interface for the ICESat-2 Validation of Elevations Reporting Tool (IVERT)."""
+"""Command-line interface for IVERT."""
 
 import configparser
 import contextlib
@@ -471,7 +471,7 @@ def _option_source_label(config, key):
 
 
 def _inherited_options(config, user_config, changed_keys):
-    """Return the settings that would keep their default value after 'changed_keys' change.
+    """Return the settings that keep their default value after 'changed_keys' change.
 
     A setting like "cache_directory = %(user_data_directory)s/cache" lives only
     in ivert_defaults.ini, so it keeps resolving against the *default*
@@ -997,7 +997,7 @@ def database_size():
 
 
 def _check_projection_option(projection):
-    """Check a -p/--projection value; return its (horizontal CRS, vertical part or None).
+    """Check a -p/--projection value; return (horizontal CRS, vertical part or None).
 
     The value may be a horizontal CRS ('EPSG:26910') or a compound one
     ('EPSG:6893', 'EPSG:4326+3855', 'EPSG:4326+vdatum:mllw').
@@ -1558,7 +1558,7 @@ def _echo_export_summary(written, count, noun):
 
 
 def _convert_output_base(output, default_name):
-    """Return the base path 'ivert database convert' writes to, before each format's extension.
+    """Return the base path 'ivert database convert' writes to, without extension.
 
     With no -o, it is default_name in the current directory. A -o that ends in a path
     separator or names an existing folder gets default_name inside that folder, which
@@ -2397,7 +2397,7 @@ _EXCLUDE_VECTOR_EXTENSIONS = (".shp", ".geojson", ".gpkg")
 
 
 def _parse_exclude_spec(value, *, wsen=False):
-    """Parse a single -ex/--exclude value into a (minx, miny, maxx, maxy) tuple or a file path.
+    """Parse one -ex/--exclude value into a (minx, miny, maxx, maxy) tuple or a path.
 
     Accepts either a 4-value slash-separated bounding box or a path to a
     .shp/.geojson/.gpkg vector file of polygons. Bounding-box coordinates are in the
@@ -2437,7 +2437,7 @@ def _parse_exclude_spec(value, *, wsen=False):
 
 
 def _manifest_option_values(ctx, manifest_file):
-    """Return the manifest's values for every tracked option not given on the command line.
+    """Return manifest values for the tracked options not given on the command line.
 
     Options the manifest lacks take their command-line values, or else their defaults
     with a warning for each; unrecognized options in the manifest are warned about and
@@ -2470,7 +2470,7 @@ def _manifest_option_values(ctx, manifest_file):
 
 
 def _real_dem_path(dem_name):
-    """Return a DEM path, or the file inside a subdataset string, as the real path on disk.
+    """Return a DEM path, or a subdataset string's file, as the real path on disk.
 
     Symlinks are followed, so a symlinked folder followed by '..' gives the folder the
     system actually used rather than the one the text names. A subdataset string keeps
@@ -2549,7 +2549,7 @@ def _run_validate(
     variable=None,
     projection=None,
 ):
-    """Branch to validate_dem or validate_list_of_dems based on the number of input files.
+    """Run validate_dem for one input file, or validate_list_of_dems for several.
 
     'manifest_options' maps each tracked option to its value for this run. It is written
     out as the run's manifest, with the values resolved here filled in, but only if

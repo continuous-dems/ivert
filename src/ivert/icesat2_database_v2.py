@@ -168,7 +168,7 @@ def _drop_low_confidence_bathy(
     photons_df: pd.DataFrame,
     min_bathy_confidence: float,
 ) -> pd.DataFrame:
-    """Drop the bathy-floor (class 40) photons whose ATL24 confidence is below the threshold.
+    """Drop the bathy-floor photons whose ATL24 confidence is below the threshold.
 
     Photons of every other class are kept whatever their ``bathy_confidence``. A
     threshold of 0 or less, or photons with no ``bathy_confidence`` column (no ATL24
@@ -367,7 +367,7 @@ class DatabaseNotFoundError(Exception):
 
 
 class IS2Database:
-    """A tiled database of classified ICESat-2 photons, and the index that locates them."""
+    """A tiled database of classified ICESat-2 photons, and the index locating them."""
 
     # The index file's name, in the database directory (ivert_database_directory).
     INDEX_FILENAME = "_ivert_database_index.nc"
@@ -643,7 +643,7 @@ class IS2Database:
 
     @classmethod
     def _empty_db_dict(cls) -> dict:
-        """Return a single-row dict defining the index schema and canonical column order.
+        """Return a one-row dict defining the index schema and canonical column order.
 
         Used to construct a blank DataFrame and as the single source of truth for
         column ordering (its key order) throughout the index read/write code.
@@ -768,7 +768,7 @@ class IS2Database:
         return cls._granule_stem(h5_fn) + cls._query_bbox_suffix(query_bbox) + ".h5"
 
     def storage_tiles(self) -> list[tuple[float, float, float, float]]:
-        """Return the distinct (xmin, xmax, ymin, ymax) storage tiles the database holds."""
+        """Return the database's distinct (xmin, xmax, ymin, ymax) storage tiles."""
         gdf = self.open_gdf()
         if gdf is None or len(gdf) == 0:
             return []
@@ -805,7 +805,7 @@ class IS2Database:
 
     @classmethod
     def _nc_filename(cls, h5_fn: str, query_bbox: tuple) -> str:
-        """Build a unique .nc filename by appending the query bbox to the granule base name.
+        """Build a unique .nc filename: the granule base name plus the query bbox.
 
         Format:
         <granule_base>_<W|E><xmin>_<W|E><xmax>_<S|N><ymin>_<S|N><ymax>_<tmin>_<tmax>.nc
@@ -835,7 +835,7 @@ class IS2Database:
 
     @staticmethod
     def _h5_along_track_m(h5_fn: str, beams) -> dict:
-        """Read what is needed to give each photon of the given beams its along-track distance.
+        """Read what each photon of the given beams needs for its along-track distance.
 
         Cumulative along-track distance is the sum of ``segment_length`` over the
         geolocation segments before the photon's, plus the photon's own
@@ -868,7 +868,7 @@ class IS2Database:
 
     @staticmethod
     def _along_track_of_photons(df: pd.DataFrame, tables: dict) -> np.ndarray:
-        """Look each photon's along-track distance up by its beam, segment and place in it.
+        """Look up each photon's along-track distance by beam, segment and place in it.
 
         The lookup is by the photon's row in the file (``ph_segment_id`` and
         ``ph_index_within_seg``, which globato carries through), not by its
@@ -1191,12 +1191,12 @@ class IS2Database:
 
     @classmethod
     def is_empty_tile(cls, filename: str | Path) -> bool:
-        """Return True if filename names an empty-tile marker rather than a granule file."""
+        """Return True if filename names an empty-tile marker, not a granule file."""
         return Path(filename).name.startswith(cls.EMPTY_TILE_PREFIX)
 
     @classmethod
     def empty_tile_rows(cls, gdf: pd.DataFrame) -> pd.Series:
-        """Return a boolean Series marking the empty-tile markers among an index's rows."""
+        """Return a boolean Series marking the empty-tile markers in an index's rows."""
         return gdf["filename"].map(cls.is_empty_tile).astype(bool)
 
     def _write_empty_tile(self, tile_bbox: tuple, vertical_datum: str) -> dict:
@@ -1230,7 +1230,7 @@ class IS2Database:
 
     @classmethod
     def clip_granule_file(cls, nc_fn: str, cuboids, out_dir: str) -> list[dict]:
-        """Write the photons of a granule file that fall in each cuboid to a file of its own.
+        """Write a granule file's photons in each cuboid to a file of its own.
 
         Each (xmin, xmax, ymin, ymax, tmin, tmax) cuboid, with tmin/tmax as YYYYMMDD,
         becomes the query_bbox of a new file in out_dir, named like any granule file
@@ -1284,7 +1284,7 @@ class IS2Database:
 
     @staticmethod
     def _photons_in_bbox(df: pd.DataFrame, bbox: tuple) -> pd.DataFrame:
-        """Return the photons inside a box, with the same edge rule read_granule() uses."""
+        """Return the photons inside a box, by the same edge rule as read_granule()."""
         return df[
             (df["x"] >= bbox[0])
             & (df["x"] < bbox[1])
@@ -1437,7 +1437,7 @@ class IS2Database:
         min_bathy_confidence: float = 0.0,
         use_external_masks: bool = True,
     ) -> tuple[list[dict], list[str]]:
-        """Classify each downloaded subset and store its tiles, in parallel when the machine allows.
+        """Classify each downloaded subset and store its tiles, in parallel if possible.
 
         ``files_to_process`` holds ``(h5_fn, tiles)`` pairs as
         :meth:`_process_h5_to_nc_tiles` takes them. The subsets are taken largest
@@ -1559,7 +1559,7 @@ class IS2Database:
         total_granules: int | None = None,
         use_external_masks: bool = True,
     ) -> dict | None:
-        """Classify an ATL03 HDF5 file with globato and save the result as one NetCDF file.
+        """Classify an ATL03 HDF5 file with globato and save it as one NetCDF file.
 
         The single-tile form of :meth:`_process_h5_to_nc_tiles`: the whole box goes
         into one file. Returns its index record, or None if no photons survived.
@@ -1995,7 +1995,7 @@ class IS2Database:
             raise TypeError(msg)
 
     def query_granules(self, bbox: list | tuple) -> pd.DataFrame | None:
-        """Return a sub-dataframe of granules in the database that possibly intersect the bounding box, using data bounding boxes."""
+        """Return the granules whose data bounding boxes may intersect the bbox."""
         gdf = self.open_gdf()
         if gdf is None or len(gdf) == 0:
             return None
@@ -2027,7 +2027,7 @@ class IS2Database:
         return gdf[int_mask]
 
     def get_photon_src_epsg(self) -> str:
-        """Return the compound EPSG src string for photon coordinates stored in this database.
+        """Return the compound EPSG string for the photon coordinates in this database.
 
         Reads horizontal_datum and vertical_datum from the first database record and
         builds a compound string (e.g. 'EPSG:4326+3855' or 'EPSG:4326+4979'). Falls back
@@ -2064,7 +2064,7 @@ class IS2Database:
         replace: bool = False,
         geometry: shapely.Geometry | None = None,
     ) -> DownloadSummary:
-        """Download ICESat-2 ATL03 granules from NASA using fetchez and register them in the database.
+        """Download ATL03 granules from NASA with fetchez and add them to the database.
 
         Downloads raw HDF5 files into granules_dir; classification is deferred to read
         time via globato. Only downloads granules covering bboxes not already in the
@@ -2559,7 +2559,7 @@ class IS2Database:
         return tuple(record[c] for c in cls.bbox_cols("query_bbox"))
 
     def _record_empty_tiles(self, storage_tiles, new_records, vertical_datum) -> int:
-        """Write a marker for each storage tile of a part that has no record, and index them.
+        """Write and index a marker for each storage tile of a part that has no record.
 
         Called only for a part whose downloads all succeeded. A tile counts as
         covered if any record, new or already in the index, has it as its query box.
@@ -2613,7 +2613,7 @@ class IS2Database:
         return gdf[~stale]
 
     def bounds(self, axis: str, data_or_query: str = "data") -> tuple | None:
-        """Return the min, max bounds of each entry in the database, on the axis requested ('x', 'y', or 't').
+        """Return each database entry's min, max bounds on one axis ('x', 'y' or 't').
 
         Args:
             axis: The axis to get bounds for. Must be one of 'x', 'y', or 't'.
@@ -2737,7 +2737,7 @@ class IS2Database:
         return (xmin < xmax) and (ymin < ymax) and (tmin <= tmax)
 
     def filter_query_bbox(self, query_bbox: list | tuple) -> list[tuple]:
-        """Given an (x,y,t) ICESat-2 bounding box, remove existing regions and return bboxes for the rest of the data.
+        """Return bboxes for the parts of an (x,y,t) box not already in the database.
 
         Args:
             query_bbox: The input bounding box to filter, in [xmin, xmax, ymin, ymax,
@@ -2758,7 +2758,7 @@ class IS2Database:
         return self.filter_query_bboxes([query_bbox])
 
     def filter_query_bboxes(self, query_bboxes: list | tuple) -> list[tuple]:
-        """Remove the regions already in the database from several (x,y,t) bounding boxes at once.
+        """Remove the regions already in the database from several (x,y,t) boxes.
 
         The same as :meth:`filter_query_bbox`, but the database's existing coverage
         is read once and subtracted from every box, and the remainders of all the

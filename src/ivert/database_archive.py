@@ -84,7 +84,7 @@ def _move(src, dst) -> None:
 
 
 def _intersection(a, b):
-    """Return the overlap of two same-length axis-order boxes, or None if it has no volume."""
+    """Return the overlap of two same-length axis-order boxes, or None if it's empty."""
     out = []
     for i in range(0, len(a), 2):
         lo, hi = max(a[i], b[i]), min(a[i + 1], b[i + 1])
@@ -103,7 +103,7 @@ def _contains(outer, inner) -> bool:
 
 
 def _subtract_all(box, others) -> list:
-    """Return what is left of an axis-order (x, y, t) cuboid after removing all of others."""
+    """Return what is left of an axis-order (x, y, t) cuboid minus others."""
     pieces = [tuple(box)]
     for other in others:
         remaining = []
@@ -120,7 +120,7 @@ def _subtract_all(box, others) -> list:
 
 
 def _subtract_all_2d(rect, others) -> list:
-    """Return what is left of an (xmin, xmax, ymin, ymax) rectangle after removing others."""
+    """Return what is left of an (xmin, xmax, ymin, ymax) rectangle minus others."""
     pieces = _subtract_all((*rect, 0, 1), [(*o, 0, 1) for o in others])
     return [p[:4] for p in pieces]
 
@@ -133,7 +133,7 @@ def _query_cuboid(record) -> tuple:
 
 
 def _data_cuboid(data_bbox) -> tuple:
-    """Return a granule's data box as a half-open (x, y, t) cuboid that holds all its photons.
+    """Return a granule's data box as a half-open (x, y, t) cuboid around its photons.
 
     The stored data box runs from the first photon to the last, both included, so
     it is widened by a hair in x and y and by a day in t.
@@ -354,7 +354,7 @@ def summarize(manifest: dict) -> str:
 
 
 def read_manifest(archive: str | Path) -> dict:
-    """Return the manifest of an archive, checked for a format this IVERT can restore."""
+    """Return an archive's manifest, checked for a format this IVERT can restore."""
     try:
         with zipfile.ZipFile(archive) as zf:
             manifest = json.loads(zf.read(MANIFEST_NAME))

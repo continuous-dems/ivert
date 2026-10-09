@@ -1,4 +1,7 @@
-"""Tests for picking the elevation variable out of NetCDF and HDF5 DEMs, and checking it is georeferenced."""
+"""Tests for picking the elevation variable out of NetCDF and HDF5 DEMs.
+
+They also check that the variable is georeferenced.
+"""
 
 import h5py
 import netCDF4
@@ -95,7 +98,7 @@ def test_resolved_subdataset_opens_as_a_one_band_raster(tmp_path):
 
 
 def test_file_path_and_base_name_of_a_subdataset():
-    """Output names include the variable, so two variables of one file don't overwrite each other."""
+    """Output names include the variable, so one file's two variables don't collide."""
     sds = 'NETCDF:"/data/dems/coast.nc":elev'
 
     assert dem_source.dem_file_path(sds) == "/data/dems/coast.nc"
@@ -129,7 +132,10 @@ def test_possible_base_names():
 
 
 def test_needs_validation_checks_names_without_opening_the_file(tmp_path):
-    """Collections find what is left without opening every DEM; another --variable is not done yet."""
+    """Collections find what is left without opening every DEM.
+
+    A DEM validated for another --variable is not done yet.
+    """
     dem = tmp_path / "coast.nc"
     dem.write_bytes(b"not a netcdf file")
     out = tmp_path / "out"
@@ -142,7 +148,7 @@ def test_needs_validation_checks_names_without_opening_the_file(tmp_path):
 
 
 def test_collection_logs_no_errors_when_every_dem_runs(tmp_path, monkeypatch, caplog):
-    """The closing ERROR that counts the DEMs that didn't run is logged only when some didn't."""
+    """The closing ERROR counting DEMs that didn't run is logged only if some didn't."""
     _make_netcdf(tmp_path / "a.nc", ["elev", "uncert"])
     _make_netcdf(tmp_path / "b.nc", ["Band1"])
 
@@ -174,7 +180,7 @@ def test_collection_skips_a_file_without_an_elevation_variable(
     monkeypatch,
     caplog,
 ):
-    """One bad file is skipped and named, then and again at the end, without stopping the run."""
+    """One bad file is skipped and named, then and at the end; the run goes on."""
     good = _make_netcdf(tmp_path / "a.nc", ["elev", "uncert"])
     _make_netcdf(tmp_path / "b.nc", ["a", "b"])
     validated = []
@@ -223,7 +229,10 @@ def test_hdf5_default_name_is_found(tmp_path):
 
 
 def test_hdf5_dataset_in_a_group_is_found_by_name_or_path(tmp_path):
-    """HDF5 DEMs often keep their grids in groups; the last part of the path is enough if unique."""
+    """HDF5 DEMs often keep their grids in groups.
+
+    The last part of the path is enough if it is unique.
+    """
     path = _make_hdf5(tmp_path / "dem.h5", ["grid/elev", "grid/uncert"])
     expected = f'HDF5:"{path}"://grid/elev'
 
@@ -286,12 +295,12 @@ def test_hdf5_subdataset_base_name_and_possible_names():
     ],
 )
 def test_dem_display_name(dem_name, expected):
-    """The name in logs and the collection CSV, without GDAL's driver prefix and quotes."""
+    """The name used in logs and the collection CSV, minus GDAL's prefix and quotes."""
     assert dem_source.dem_display_name(dem_name) == expected
 
 
 def test_collection_table_names_dems_without_gdal_prefixes(tmp_path):
-    """Two variables of one file must keep apart: the summary CSV groups by this name."""
+    """One file's two variables must stay apart: the summary CSV groups by this name."""
     h5_files = []
     for i in range(3):
         h5_files.append(str(tmp_path / f"r{i}_results.h5"))
@@ -330,7 +339,7 @@ def test_netcdf4_file_named_h5_opens_through_the_netcdf_driver(tmp_path):
 
 
 def test_plain_hdf5_stays_hdf5_and_is_not_georeferenced(tmp_path):
-    """A bare HDF5 array has no coordinates, so it is refused rather than validated at 0, 0."""
+    """A bare HDF5 array has no coordinates, so it's refused, not validated at 0, 0."""
     path = _make_hdf5(tmp_path / "dem.h5", ["grid/elev", "grid/uncert"])
     sds = dem_source.resolve_dem_source(path)
 
@@ -348,7 +357,7 @@ def test_validate_dem_refuses_an_ungeoreferenced_dem(tmp_path):
 
 
 def test_collection_skips_an_ungeoreferenced_dem(tmp_path, monkeypatch, caplog):
-    """In a collection it is skipped and named, like any DEM that can't run, without stopping the run."""
+    """A collection skips and names it, like any DEM that can't run, and goes on."""
     good = _make_netcdf(tmp_path / "a.nc", ["elev", "uncert"])
     _make_hdf5(tmp_path / "b.h5", ["elev", "uncert"])
     validated = []
@@ -380,7 +389,7 @@ def test_collection_skips_an_ungeoreferenced_dem(tmp_path, monkeypatch, caplog):
 
 
 def test_collection_lists_hdf5_dems_but_not_ivert_results(tmp_path):
-    """IVERT writes its results and photons as .h5, which a rerun must not take for DEMs."""
+    """IVERT writes results and photons as .h5, which a rerun must not take for DEMs."""
     for name in ("a.h5", "b.HDF5", "a_results.h5", "a_photons.h5", "run_results.h5"):
         (tmp_path / name).write_bytes(b"")
 

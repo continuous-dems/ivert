@@ -271,7 +271,7 @@ def _absolute_dem_name(dem):
 
 
 def _write_error_marker(path, dem, message, traceback_text=None):
-    """Write a DEM's error marker: the DEM, when it failed, the error, and any traceback."""
+    """Write a DEM's error marker: the DEM, the time, the error and any traceback."""
     failed_at = datetime.datetime.now(datetime.UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
     text = (
         f"DEM: {_absolute_dem_name(dem)}\n"
@@ -322,7 +322,7 @@ def dems_needing_validation(
     fname_omit=None,
     variable=None,
 ):
-    """Split a collection's DEMs into those validate_list_of_dems() would validate and those it would reuse.
+    """Sort DEMs into those validate_list_of_dems() would validate or would reuse.
 
     'output_dir' must be the absolute output directory, as 'ivert validate' passes it.
     A DEM is reused if it already has results there (see
@@ -379,7 +379,7 @@ def validate_list_of_dems(
     export_error_formats: str | list | None = None,
     exclude_zones: list | None = None,
 ):
-    """Take a list of DEMs, presumably in a single area, and output validation files for those DEMs.
+    """Validate a list of DEMs, presumably in one area, and write their output files.
 
     DEMs should encompass a contiguous area so as to use the same set of ICESat-2
     granules for validation. 'bathy_filter_settings' is passed to

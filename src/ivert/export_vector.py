@@ -253,7 +253,7 @@ def write_vector(
 # Multi-format helpers (used by 'ivert database convert')
 # ---------------------------------------------------------------------------
 def normalize_format_keys(output_format: str, allowed=None) -> list:
-    """Parse a comma-separated output-format string into a validated list of format keys.
+    """Parse a comma-separated output-format string into a list of valid format keys.
 
     Args:
         output_format: One format key or a comma-separated combination (e.g.

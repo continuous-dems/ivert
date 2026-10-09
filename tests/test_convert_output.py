@@ -23,7 +23,7 @@ def test_without_output_the_default_name_is_used_here(in_tmp, output):
 
 @pytest.mark.parametrize("output", ["mydir/", f"mydir{os.sep}"])
 def test_a_trailing_separator_names_a_folder_that_is_created(in_tmp, output):
-    """'-o mydir/' wrote the hidden file 'mydir/.gpkg', or 'mydir.gpkg' beside the folder."""
+    """'-o mydir/' wrote the hidden file 'mydir/.gpkg', or 'mydir.gpkg' next to it."""
     base = cli._convert_output_base(output, "ivert_photons")
 
     assert base.absolute() == in_tmp / "mydir" / "ivert_photons"

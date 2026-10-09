@@ -36,7 +36,7 @@ def get_data_from_h5_or_list(
     *,
     include_filenames: bool = False,
 ) -> pd.DataFrame:
-    """Return the data either from a single hdf5 results file, or a list of them. Filter out empty (bad data) values."""
+    """Return the data from one HDF5 results file, or from a list of them."""
     if isinstance(h5_name_or_list, (str, Path)):
         data = pd.read_hdf(h5_name_or_list)
         if include_filenames:

@@ -1,4 +1,4 @@
-"""Tests for settling a manifest's options against the current 'ivert validate' options."""
+"""Tests for settling a manifest's options against the current 'ivert validate'."""
 
 import click
 import pytest
@@ -51,13 +51,16 @@ def test_missing_options_warn_only_when_they_fall_back_to_defaults(caplog):
 
 
 def test_unrecognized_options_stop_without_a_terminal():
-    """Dropping an option IVERT doesn't recognize could change results, so a run that can't ask stops."""
+    """Dropping an option IVERT doesn't recognize could change results.
+
+    A run that can't ask the user stops instead.
+    """
     with pytest.raises(click.ClickException, match="doesn't recognize"):
         _reconcile({"band_num": "1", "projection": "", "variable": "", "old": "x"})
 
 
 def test_unrecognized_options_are_dropped_if_the_user_agrees(monkeypatch):
-    """At a terminal the user is asked, and agreeing replays the manifest without them."""
+    """At a terminal the user is asked; agreeing replays the manifest without them."""
     monkeypatch.setattr(click, "confirm", lambda *_args, **_kwargs: True)
 
     options = _reconcile(
@@ -69,7 +72,10 @@ def test_unrecognized_options_are_dropped_if_the_user_agrees(monkeypatch):
 
 
 def test_write_manifest_through_a_symlinked_folder(tmp_path):
-    """Writing through "symlink/../out" once crashed: the temp file went in a different folder from the manifest."""
+    """Writing through "symlink/../out" once crashed.
+
+    The temporary file went in a different folder from the manifest.
+    """
     (tmp_path / "real").mkdir()
     (tmp_path / "dems").mkdir()
     (tmp_path / "dems" / "link").symlink_to(tmp_path / "real")

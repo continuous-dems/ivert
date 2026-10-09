@@ -1,4 +1,4 @@
-"""Read IVERT's layered configuration: packaged defaults, then the user config, then per-job settings.
+"""Read IVERT's layered configuration: packaged defaults, user config, per-job settings.
 
 The Config class exposes every option as a read-only attribute.
 """
@@ -193,7 +193,7 @@ def comment_out_options(
 
 
 class Config:
-    r"""A configparser.ConfigParser() subclass whose options are read as object attributes.
+    r"""A configparser.ConfigParser subclass whose options are read as attributes.
 
     Config attributes are referenced as object attributes rather than in a dictionary.
 
@@ -318,7 +318,7 @@ class Config:
         return list(self._path_keys)
 
     def raw_default(self, key):
-        """Return the un-interpolated default of an option, as written in the configfile.
+        """Return an option's un-interpolated default, as written in the configfile.
 
         Unlike the parsed attribute, this keeps any "%(other_option)s" embedding
         intact, so the value can be copied into a user config file and continue
@@ -335,11 +335,11 @@ class Config:
         return list(self._config["DEFAULT"])
 
     def is_user_set(self, key) -> bool:
-        """Return True if the user config sets the option, rather than leaving the default."""
+        """Return True if the user config sets the option, False if it's the default."""
         return key in self._user_set_keys
 
     def _raw_defaults(self) -> dict:
-        """Every [DEFAULT] option's raw value, in the order the configfile lists them."""
+        """Every [DEFAULT] option's raw value, in the configfile's order."""
         return {k: self.raw_default(k) for k in self._config["DEFAULT"]}
 
     def dependent_options(self, keys) -> list[str]:

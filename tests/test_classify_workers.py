@@ -42,7 +42,10 @@ def _auto(tmp_path, sizes=(100 << 20, 448 << 20), **machine: object):
 
 
 def test_an_integer_setting_is_taken_as_given():
-    """A number overrides auto, as an int or as the string a config file gives; 0 still means one."""
+    """A number overrides auto, as an int or as the string a config file gives.
+
+    0 still means one.
+    """
     assert is2db.classify_worker_count(3, [], cpu_count=1)[0] == 3
     assert is2db.classify_worker_count("3", [], cpu_count=1)[0] == 3
     assert is2db.classify_worker_count(0, [], cpu_count=1)[0] == 1
@@ -63,7 +66,7 @@ def test_a_setting_that_is_not_a_number_falls_back_to_auto(tmp_path, caplog):
 
 
 def test_auto_leaves_one_core_free(tmp_path):
-    """The machine stays usable during a download, and one core still gets one worker."""
+    """The machine stays usable during a download; one core still gets one worker."""
     assert _auto(tmp_path, cpu_count=4)[0] == 3
     assert _auto(tmp_path, cpu_count=1)[0] == 1
 
@@ -74,7 +77,7 @@ def test_auto_is_capped_on_a_big_machine(tmp_path):
 
 
 def test_auto_fits_the_pool_to_the_memory_available(tmp_path):
-    """A laptop with a few GB free runs one or two workers rather than running out of memory."""
+    """A laptop with a few GB free runs one or two workers, not out of memory."""
     # A subset as large as the per-worker minimum, so its own budget, a multiple
     # of its size, sets what each worker needs.
     largest = is2db._CLASSIFY_MIN_WORKER_BYTES
@@ -91,7 +94,10 @@ def test_auto_fits_the_pool_to_the_memory_available(tmp_path):
 
 
 def test_small_files_still_budget_the_minimum_each(tmp_path):
-    """A tiny or missing subset still budgets _CLASSIFY_MIN_WORKER_BYTES per worker, not almost nothing."""
+    """A tiny or missing subset still budgets _CLASSIFY_MIN_WORKER_BYTES per worker.
+
+    Not almost nothing.
+    """
     # Just enough memory for three workers at the minimum each.
     room_for_three = 3 * is2db._CLASSIFY_MIN_WORKER_BYTES
     available = math.ceil(room_for_three / is2db._CLASSIFY_MEMORY_SHARE) + 1
@@ -101,7 +107,10 @@ def test_small_files_still_budget_the_minimum_each(tmp_path):
 
 
 def test_auto_is_serial_where_fork_is_unavailable(tmp_path):
-    """Workers are forked to share the trees globato builds in the parent; without fork, one process."""
+    """Workers are forked to share the trees globato builds in the parent.
+
+    Without fork, there is one process.
+    """
     count, reason = _auto(tmp_path, fork_available=False)
     assert count == 1
     assert "fork" in reason
@@ -181,7 +190,7 @@ def test_granules_are_classified_by_forked_workers(
     caplog,
     fake_globato,
 ):
-    """The pool really runs in other processes, numbers each granule once, and logs an empty one."""
+    """The pool runs in other processes, numbers granules once and logs an empty one."""
     monkeypatch.setattr(is2db.IS2Database, "_process_h5_to_nc_tiles", _fake_classify)
     monkeypatch.setattr(is2db, "classify_worker_count", lambda *_a, **_k: (3, "test"))
     files = _files(tmp_path, 5 << 20, 9 << 20, 1 << 20, 3 << 20, 7 << 20)
@@ -219,7 +228,7 @@ def test_granules_are_classified_as_their_aux_files_arrive(
     monkeypatch,
     fake_globato,
 ):
-    """Work follows the prefetch, so a granule whose ATL08/ATL24 are slow doesn't hold up the rest."""
+    """Work follows the prefetch: a granule with slow aux files doesn't block others."""
     monkeypatch.setattr(is2db.IS2Database, "_process_h5_to_nc_tiles", _fake_classify)
     monkeypatch.setattr(is2db, "classify_worker_count", lambda *_a, **_k: (2, "test"))
     files = _files(tmp_path, 5 << 20, 9 << 20, 1 << 20)
@@ -240,7 +249,7 @@ def test_granules_are_classified_as_their_aux_files_arrive(
 @pytest.mark.usefixtures("fake_globato")
 @forks
 def test_one_worker_means_everything_runs_here(tmp_path, monkeypatch):
-    """A setting of 1 is the old one-granule-at-a-time path, with no worker processes."""
+    """Setting 1 is the old one-granule-at-a-time path, with no worker processes."""
     monkeypatch.setattr(is2db.IS2Database, "_process_h5_to_nc_tiles", _fake_classify)
     monkeypatch.setattr(is2db, "classify_worker_count", lambda *_a, **_k: (1, "test"))
     files = _files(tmp_path, 5 << 20, 9 << 20, 1 << 20)
@@ -263,7 +272,7 @@ def test_a_granule_without_its_aux_data_is_reported_and_the_rest_go_on(
     caplog,
     workers,
 ):
-    """Here or in a worker, the failure comes back as that granule's, not as the end of the request."""
+    """Here or in a worker, the failure is that granule's, not the request's end."""
     monkeypatch.setattr(is2db.IS2Database, "_process_h5_to_nc_tiles", _fake_classify)
     monkeypatch.setattr(
         is2db,
@@ -283,12 +292,12 @@ def test_a_granule_without_its_aux_data_is_reported_and_the_rest_go_on(
 
 
 def test_no_files_means_no_records(tmp_path):
-    """An empty list must return at once; without the guard, next() raises StopIteration."""
+    """An empty list must return at once; unguarded, next() raises StopIteration."""
     assert _db(tmp_path)._classify_files([], BBOX) == ([], [])
 
 
 def test_prefetch_asks_globato_for_both_aux_products(tmp_path, caplog, fake_globato):
-    """The prefetch fetches ATL08 and ATL24 through globato, so the files land where its reader looks.
+    """The prefetch gets ATL08 and ATL24 via globato, landing where its reader looks.
 
     The queue ends with None, which tells the classifiers the prefetch is done.
     """
@@ -312,7 +321,7 @@ def test_prefetch_asks_globato_for_both_aux_products(tmp_path, caplog, fake_glob
 @pytest.mark.usefixtures("fake_globato")
 @forks
 def test_prefetch_runs_in_a_child_that_reports_each_subset(tmp_path):
-    """The forked child reports every subset on the queue and exits cleanly when done."""
+    """The forked child reports each subset on the queue and exits cleanly when done."""
     files = _files(tmp_path, 1 << 20, 3 << 20, 2 << 20)
 
     child, ready = _db(tmp_path)._start_aux_prefetch(files)
@@ -333,7 +342,10 @@ def test_subsets_the_prefetch_never_reported_are_still_classified(
     monkeypatch,
     caplog,
 ):
-    """If the prefetch dies, the subsets it never reported are classified anyway, with a warning."""
+    """If the prefetch dies, the subsets it never reported are classified anyway.
+
+    A warning is logged.
+    """
     monkeypatch.setattr(is2db, "_READY_POLL_SECONDS", 0.05)
     files = ["a.h5", "b.h5", "c.h5"]
     ready = queue.Queue()
@@ -348,5 +360,5 @@ def test_subsets_the_prefetch_never_reported_are_still_classified(
 
 
 def test_without_a_prefetch_the_given_order_is_kept():
-    """Where fork is unavailable there is no prefetch, and subsets go in the order given."""
+    """Without fork there is no prefetch, and subsets go in the order given."""
     assert list(is2db.IS2Database._as_ready(["a", "b"], None)) == ["a", "b"]

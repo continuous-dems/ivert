@@ -58,7 +58,7 @@ def _expected(beam, segment_id, idx):
 
 
 def test_tables_cover_every_beam_and_photon(tmp_path):
-    """A beam missing from the file is skipped, and an empty segment still adds its length."""
+    """A beam not in the file is skipped, and an empty segment still adds its length."""
     h5 = _write_h5(tmp_path / "ATL03_test.h5")
 
     tables = is2db.IS2Database._h5_along_track_m(h5, ["gt1l", "gt3r", "gt2l"])
@@ -99,7 +99,7 @@ def test_photons_are_looked_up_by_beam_segment_and_place(tmp_path):
 
 
 def test_beam_names_may_be_str(tmp_path):
-    """Beam names come from globato as bytes, but a str name must find the same table."""
+    """Beam names come from globato as bytes, but a str must find the same table."""
     h5 = _write_h5(tmp_path / "ATL03_test.h5")
     tables = is2db.IS2Database._h5_along_track_m(h5, list(BEAMS))
     df = pd.DataFrame(
@@ -165,7 +165,7 @@ def test_classified_photons_carry_along_track_m(tmp_path, fake_globato_read):
 
 
 def test_no_along_track_without_the_segment_columns(tmp_path, fake_globato_read):
-    """Without globato's segment columns the granule is still classified, just without the column."""
+    """A granule missing globato's segment columns is classified without the column."""
     h5 = _write_h5(tmp_path / "ATL03_test.h5")
     query_bbox = (-81.0, -79.0, 24.0, 26.0, 20220101, 20220201)
     delta_time = is2db._yyyymmdd_to_delta_time(20220115)

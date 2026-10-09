@@ -1,4 +1,4 @@
-"""Quick utility for splitting a large DEM into sub-segments to ease processing constraints."""
+"""Split a large DEM into sub-segments to ease processing constraints."""
 
 import glob
 import logging
@@ -23,7 +23,9 @@ def split(
     factor: int = 2,
     output_dir: str | Path | None = None,
 ) -> list[str]:
-    """Split a DEM into sub-segments, each side split by a factor. 2 will create 4 sub-segments.
+    """Split a DEM into sub-segments, each side split by a factor.
+
+    A factor of 2 creates 4 sub-segments.
 
     Args:
         dem_name: The name of the DEM, with path, or a list of DEM names.

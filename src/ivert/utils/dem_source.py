@@ -1,4 +1,4 @@
-"""Work out which raster a DEM path refers to: a plain file, or one variable inside a NetCDF or HDF5 file.
+"""Work out which raster a DEM path refers to: a file, or a NetCDF/HDF5 variable.
 
 A NetCDF or HDF5 file with a single data variable opens as an ordinary raster. One with
 several variables opens with no bands of its own, so the elevation variable has to be
@@ -45,7 +45,7 @@ class DEMSourceError(ValueError):
 
 
 class DEMVariableError(DEMSourceError):
-    """The DEM variable asked for (or any default elevation variable) isn't in the file."""
+    """The DEM variable asked for (or every default one) isn't in the file."""
 
 
 class DEMNotGeoreferencedError(DEMSourceError):
@@ -53,11 +53,11 @@ class DEMNotGeoreferencedError(DEMSourceError):
 
 
 class DEMUnreadableError(DEMSourceError):
-    """GDAL can't open the DEM file as a raster (corrupt, truncated, or not a raster)."""
+    """GDAL can't open the DEM file as a raster (corrupt, truncated, or not one)."""
 
 
 def _open_dem(dem_name):
-    """Return rasterio.open(dem_name), raising DEMUnreadableError if GDAL can't open it."""
+    """Return rasterio.open(dem_name); raise DEMUnreadableError if GDAL can't."""
     try:
         return rasterio.open(dem_name)
     except rasterio.errors.RasterioIOError as exc:
@@ -66,7 +66,7 @@ def _open_dem(dem_name):
 
 
 def _parse_subdataset(dem_name):
-    """Return (driver, file path, variable) for a subdataset string, or None for a plain path."""
+    """Return (driver, path, variable) of a subdataset string; None for a plain path."""
     m = _SUBDATASET_RE.match(dem_name)
     if m is None:
         return None
@@ -74,7 +74,7 @@ def _parse_subdataset(dem_name):
 
 
 def _variable_path(var):
-    """Return a subdataset's variable without the leading '/'s HDF5 puts on it ('grid/elev')."""
+    """Return a subdataset's variable without HDF5's leading '/'s ('grid/elev')."""
     return var.strip("/")
 
 
@@ -117,7 +117,7 @@ def dem_display_name(dem_name):
 
 
 def _variable_file_driver(dem_name):
-    """Return the subdataset driver prefix for a plain NetCDF or HDF5 path, else None."""
+    """Return the subdataset driver prefix of a plain NetCDF or HDF5 path, or None."""
     if _parse_subdataset(dem_name) is not None:
         return None
     return VARIABLE_FILE_DRIVERS.get(Path(dem_name).suffix.lower())
@@ -183,7 +183,7 @@ def _opens(subdataset):
 
 
 def _georeferenced_source(subdataset):
-    """Return the NetCDF form of an HDF5 subdataset string if only that one is georeferenced.
+    """Return an HDF5 subdataset string's NetCDF form if only that one is georeferenced.
 
     GDAL's HDF5 driver never reads coordinate variables, so a NetCDF-4 file (which is an
     HDF5 file) with CF latitude/longitude or x/y coordinates opens through 'HDF5:' with
