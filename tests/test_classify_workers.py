@@ -139,6 +139,9 @@ def _fake_classify(_self, h5_fn, **kwargs: object):
     """Stands in for _process_h5_to_nc_tiles: says which process did the work."""
     if "empty" in h5_fn:
         return []
+    if "no_aux" in h5_fn:
+        msg = "ATL24 granule could not be fetched"
+        raise is2db.AuxiliaryDataError(msg)
     return [
         {
             "filename": Path(h5_fn).name,
@@ -187,7 +190,8 @@ def test_granules_are_classified_by_forked_workers(
     Path(files[-1]).touch()
 
     with caplog.at_level(logging.INFO):
-        records = _db(tmp_path)._classify_files(_work(files), BBOX)
+        records, failed = _db(tmp_path)._classify_files(_work(files), BBOX)
+        assert failed == []
 
     # Every file with photons gave one record, each with its own number out of 6.
     by_name = {r["filename"]: r for r in records}
@@ -223,7 +227,9 @@ def test_granules_are_classified_as_their_aux_files_arrive(
     # The largest file's aux granules take longest to fetch, so it is ready last.
     fake_globato.delay = {"ATL03_1_subsetted.h5": 1.5}
 
-    records = _db(tmp_path)._classify_files(_work(files), BBOX)
+    records, failed = _db(tmp_path)._classify_files(_work(files), BBOX)
+
+    assert failed == []
 
     by_name = {r["filename"]: r for r in records}
     assert by_name["ATL03_1_subsetted.h5"]["granule_num"] == 3
@@ -240,16 +246,46 @@ def test_one_worker_means_everything_runs_here(tmp_path, monkeypatch):
     monkeypatch.setattr(is2db, "classify_worker_count", lambda *_a, **_k: (1, "test"))
     files = _files(tmp_path, 5 << 20, 9 << 20, 1 << 20)
 
-    records = _db(tmp_path)._classify_files(_work(files), BBOX)
+    records, failed = _db(tmp_path)._classify_files(_work(files), BBOX)
+
+    assert failed == []
 
     assert len(records) == 3
     assert {r["pid"] for r in records} == {os.getpid()}
     assert sorted(r["granule_num"] for r in records) == [1, 2, 3]
 
 
+@pytest.mark.usefixtures("fake_globato")
+@forks
+@pytest.mark.parametrize("workers", [1, 3])
+def test_a_granule_without_its_aux_data_is_reported_and_the_rest_go_on(
+    tmp_path,
+    monkeypatch,
+    caplog,
+    workers,
+):
+    """Here or in a worker, the failure comes back as that granule's, not as the end of the request."""
+    monkeypatch.setattr(is2db.IS2Database, "_process_h5_to_nc_tiles", _fake_classify)
+    monkeypatch.setattr(
+        is2db,
+        "classify_worker_count",
+        lambda *_a, **_k: (workers, "test"),
+    )
+    files = _files(tmp_path, 5 << 20, 9 << 20, 1 << 20, 3 << 20)
+    no_aux = str(tmp_path / "ATL03_no_aux_subsetted.h5")
+    Path(no_aux).touch()
+
+    with caplog.at_level(logging.ERROR):
+        records, failed = _db(tmp_path)._classify_files(_work([*files, no_aux]), BBOX)
+
+    assert failed == [no_aux]
+    assert sorted(r["filename"] for r in records) == sorted(Path(f).name for f in files)
+    assert "Could not classify ATL03_no_aux_subsetted.h5: ATL24 granule" in caplog.text
+
+
 def test_no_files_means_no_records(tmp_path):
     """An empty list must return at once; without the guard, next() raises StopIteration."""
-    assert _db(tmp_path)._classify_files([], BBOX) == []
+    assert _db(tmp_path)._classify_files([], BBOX) == ([], [])
 
 
 def test_prefetch_asks_globato_for_both_aux_products(tmp_path, caplog, fake_globato):

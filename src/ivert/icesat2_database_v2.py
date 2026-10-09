@@ -44,6 +44,14 @@ from ivert.utils.paths import absolute_path
 
 logger = logging.getLogger(__name__)
 
+try:
+    from globato.streams.readers.icesat2 import AuxiliaryDataError
+except ImportError:  # globato before #273, which never raises it
+
+    class AuxiliaryDataError(Exception):
+        """Stands in for globato's, which older releases don't have."""
+
+
 # ICESat-2 epoch: all delta_time values are seconds since 2018-01-01T00:00:00Z
 _ICESAT2_EPOCH = datetime.datetime(2018, 1, 1, 0, 0, 0, tzinfo=datetime.UTC)
 
@@ -53,7 +61,8 @@ class DownloadSummary(NamedTuple):
 
     A download is split into one sub-region ("part") per tile, and each part is
     counted in exactly one of the first three fields. ``parts_failed`` counts
-    only real errors -- a Harmony request that came back with nothing -- while
+    only real errors -- a Harmony request that came back with nothing, or
+    granules none of which could be downloaded or classified -- while
     ``parts_empty`` counts the parts Harmony served correctly that added no new
     granules, either because the region holds no ICESat-2 data or because every
     granule over it is already in the database. Only ``parts_failed`` means
@@ -308,10 +317,22 @@ def _start_classify_worker(config, nice: int) -> None:
     _WORKER_DB = IS2Database(ivert_config=config)
 
 
+def _classify_granule(db, kwargs: dict) -> tuple[list | None, str | None]:
+    """Classify one subset, as (its tile records, None).
+
+    If globato could not fetch or apply the subset's ATL08 or ATL24 granule, it is
+    (None, the reason) instead, so the rest of the request goes on without it.
+    """
+    try:
+        return db._process_h5_to_nc_tiles(**kwargs), None  # noqa: SLF001
+    except AuxiliaryDataError as e:
+        return None, str(e)
+
+
 def _classify_in_worker(job: tuple) -> tuple:
     """Classify one subset in a worker; ``job`` is (granule index, kwargs)."""
     index, kwargs = job
-    return index, kwargs["h5_fn"], _WORKER_DB._process_h5_to_nc_tiles(**kwargs)  # noqa: SLF001
+    return index, kwargs["h5_fn"], *_classify_granule(_WORKER_DB, kwargs)
 
 
 class DatabaseNotFoundError(Exception):
@@ -1383,7 +1404,7 @@ class IS2Database:
         min_confidence_level: int = 1,
         min_bathy_confidence: float = 0.0,
         use_external_masks: bool = True,
-    ) -> list[dict]:
+    ) -> tuple[list[dict], list[str]]:
         """Classify each downloaded subset and store its tiles, in parallel when the machine allows.
 
         ``files_to_process`` holds ``(h5_fn, tiles)`` pairs as
@@ -1395,9 +1416,11 @@ class IS2Database:
         by a pool sized by :func:`classify_worker_count`, or here one after
         another when that size is 1. So only the prefetch downloads, and its
         progress bars are the only ones on the screen. Granules that produce no
-        photons are logged.
+        photons are logged, as are those whose ATL08 or ATL24 granule globato
+        could not fetch or apply; the others are classified all the same.
 
-        Returns the index records of every tile written.
+        Returns (the index records of every tile written, the subsets that could
+        not be classified for want of their ATL08 or ATL24).
         """
         total = len(files_to_process)
         ordered = sorted(
@@ -1407,8 +1430,9 @@ class IS2Database:
         )
         tiles_of = dict(ordered)
         records = []
+        failed = []
         if not ordered:
-            return records
+            return records, failed
 
         def job(index, h5_fn):
             return {
@@ -1423,8 +1447,17 @@ class IS2Database:
                 "use_external_masks": use_external_masks,
             }
 
-        def take(index, h5_fn, metas):
-            if metas:
+        def take(index, h5_fn, metas, error=None):
+            if error is not None:
+                failed.append(h5_fn)
+                logger.error(
+                    "%d/%d Could not classify %s: %s",
+                    index,
+                    total,
+                    Path(h5_fn).name,
+                    error,
+                )
+            elif metas:
                 records.extend(metas)
             else:
                 logger.info(
@@ -1439,9 +1472,9 @@ class IS2Database:
         try:
             ready = self._as_ready(h5_files, prefetch)
             first = next(ready)
-            take(1, first, self._process_h5_to_nc_tiles(**job(1, first)))
+            take(1, first, *_classify_granule(self, job(1, first)))
             if total == 1:
-                return records
+                return records, failed
 
             workers, why = classify_worker_count(
                 getattr(self.config, "icesat2_classify_workers", "auto"),
@@ -1451,12 +1484,8 @@ class IS2Database:
             numbered = ((index, h5_fn) for index, h5_fn in enumerate(ready, start=2))
             if workers <= 1:
                 for index, h5_fn in numbered:
-                    take(
-                        index,
-                        h5_fn,
-                        self._process_h5_to_nc_tiles(**job(index, h5_fn)),
-                    )
-                return records
+                    take(index, h5_fn, *_classify_granule(self, job(index, h5_fn)))
+                return records, failed
 
             logger.info(
                 "Classifying the remaining %d granules with %d worker processes (%s).",
@@ -1471,18 +1500,15 @@ class IS2Database:
                 initargs=(self.config, _CLASSIFY_NICE),
             )
             try:
-                for index, h5_fn, metas in pool.imap_unordered(
-                    _classify_in_worker,
-                    jobs,
-                ):
-                    take(index, h5_fn, metas)
+                for result in pool.imap_unordered(_classify_in_worker, jobs):
+                    take(*result)
                 pool.close()
             except BaseException:
                 pool.terminate()
                 raise
             finally:
                 pool.join()
-            return records
+            return records, failed
         finally:
             if prefetch is not None:
                 prefetch[0].join()
@@ -2330,7 +2356,7 @@ class IS2Database:
                 if targets:
                     files_to_process.append((h5_src, targets))
 
-            new_records = self._classify_files(
+            new_records, unclassified = self._classify_files(
                 files_to_process,
                 sbbox,
                 classes_to_keep=classes_to_keep,
@@ -2351,11 +2377,22 @@ class IS2Database:
                     n_failed,
                     sbbox,
                 )
-            else:
+            if unclassified:
+                logger.warning(
+                    "%d granule(s) for bbox %s could not be classified, so its tiles "
+                    "without photons are not recorded as downloaded; a later run "
+                    "tries them again.",
+                    len(unclassified),
+                    sbbox,
+                )
+            if not (n_failed or unclassified):
                 self._record_empty_tiles(storage_tiles, new_records, target_vd)
 
             if not new_records:
-                parts_empty += 1
+                if unclassified:
+                    parts_failed += 1
+                else:
+                    parts_empty += 1
                 continue
 
             existing_gdf = self._drop_empty_tiles_now_filled(new_records)

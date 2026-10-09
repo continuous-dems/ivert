@@ -257,7 +257,7 @@ def _download(db, monkeypatch, granule_names):
 
     def fake_classify(files_to_process, _query_bbox, **_kwargs: object):
         processed.extend(Path(h5_fn).name for h5_fn, _ in files_to_process)
-        return []
+        return [], []
 
     monkeypatch.setattr(db, "_classify_files", fake_classify)
 

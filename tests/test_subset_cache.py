@@ -23,6 +23,7 @@ import xarray
 from ivert import icesat2_database_v2 as is2db
 
 GRANULE = "ATL03_20211102061743_06231306_007_01_subsetted.h5"
+NO_AUX_GRANULE = "ATL03_20211226033808_00591406_007_01_subsetted.h5"
 STEM = "ATL03_20211102061743_06231306_007_01_subsetted"
 PART_1 = (-121.0, -116.5, 32.0, 33.0, 20211101, 20241101)
 PART_2 = (-122.0, -116.5, 33.0, 34.0, 20211101, 20241101)
@@ -376,6 +377,51 @@ def test_a_part_whose_downloads_all_failed_counts_as_failed(db, monkeypatch):
     summary = db.download_new_granules(PART_1)
 
     assert (summary.parts_failed, summary.parts_empty) == (1, 0)
+    assert _markers(db) == []
+
+
+def _no_aux(*_a: object, **_k: object):
+    msg = "ATL08 granule could not be fetched"
+    raise is2db.AuxiliaryDataError(msg)
+
+
+def test_a_part_whose_granules_could_not_be_classified_counts_as_failed(
+    db,
+    monkeypatch,
+):
+    """Without its ATL08 or ATL24 a granule has no photons to give, which is not an empty tile."""
+    monkeypatch.setattr(db, "_classify_h5", _no_aux)
+
+    summary = db.download_new_granules(PART_1)
+
+    assert (summary.parts_failed, summary.parts_empty) == (1, 0)
+    assert _markers(db) == []
+    _FakeFetchezIceSat2.built = []
+    db.download_new_granules(PART_1)
+    assert _FakeFetchezIceSat2.built != []
+
+
+def test_a_granule_that_could_not_be_classified_leaves_the_rest(db, monkeypatch):
+    """The other granules of the part are stored, but no tile is recorded as empty."""
+
+    def run_fetchez_two(mods):
+        results = _fake_run_fetchez(mods)
+        second = Path(results[0][1]["dst_fn"]).with_name(NO_AUX_GRANULE)
+        second.touch()
+        return [*results, (mods[0], {"dst_fn": str(second), "status": 0})]
+
+    def classify(h5_fn, *_a: object, **_k: object):
+        if Path(h5_fn).name == NO_AUX_GRANULE:
+            _no_aux()
+        return _photons([-120.5]), "EPSG:4979"
+
+    monkeypatch.setattr(is2db.fetchez.core, "run_fetchez", run_fetchez_two)
+    monkeypatch.setattr(db, "_classify_h5", classify)
+
+    summary = db.download_new_granules(PART_1)
+
+    assert summary.parts_downloaded == 1
+    assert summary.granules_added > 0
     assert _markers(db) == []
 
 
