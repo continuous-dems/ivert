@@ -94,9 +94,10 @@ files = ["src/ivert"]
 python_version = "3.12"
 warn_unused_ignores = true
 warn_redundant_casts = true
-# Two of the --strict checks, which already pass.
+# The checks from --strict that are on so far; #180 tracks the rest.
 strict_equality = true
 extra_checks = true
+no_implicit_reexport = true
 
 # Dependencies that ship no type information. Listing them by name, rather than
 # setting ignore_missing_imports for everything, keeps a new untyped dependency

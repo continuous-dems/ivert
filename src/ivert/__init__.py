@@ -3,6 +3,8 @@
 Validates DEMs against ICESat-2 photons.
 """
 
+__all__ = ["__version__"]
+
 try:
     from ivert._version import __version__
 except ImportError:
