@@ -732,10 +732,10 @@ class IS2Database:
         Format: _<W|E><xmin>_<W|E><xmax>_<S|N><ymin>_<S|N><ymax>_<tmin>_<tmax>
         """
 
-        def _lon_tag(v):
+        def _lon_tag(v) -> str:
             return f"{'W' if v < 0 else 'E'}{abs(float(v)):09.5f}"
 
-        def _lat_tag(v):
+        def _lat_tag(v) -> str:
             return f"{'S' if v < 0 else 'N'}{abs(float(v)):08.5f}"
 
         xmin, xmax, ymin, ymax, tmin, tmax = query_bbox
@@ -1480,7 +1480,7 @@ class IS2Database:
                 "use_external_masks": use_external_masks,
             }
 
-        def take(index, h5_fn, metas, error=None):
+        def take(index, h5_fn, metas, error=None) -> None:
             if error is not None:
                 failed.append(h5_fn)
                 logger.error(

@@ -616,7 +616,7 @@ def _buffered_bounds(lon, lat, buffer_m):
     )
 
 
-def preload_reference_fetcher(settings):
+def preload_reference_fetcher(settings) -> None:
     """Load what fetching the ETOPO reference needs, if these settings will fetch it.
 
     fetchez loads its whole module registry, every data source and plugin, the first

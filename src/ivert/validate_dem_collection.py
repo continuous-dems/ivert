@@ -168,7 +168,7 @@ def _is_dem_raster(fname):
     return fname.suffix.lower() in DEM_RASTER_EXTENSIONS
 
 
-def _log_failed_dems(failed_dems, num_dems):
+def _log_failed_dems(failed_dems, num_dems) -> None:
     """Log, as the run's last word, which DEMs were skipped because of errors.
 
     Each skip was already logged when it happened. This repeats it at the end, where
@@ -270,7 +270,7 @@ def _absolute_dem_name(dem):
     return dem.replace(file_path, str(absolute_path(file_path)), 1)
 
 
-def _write_error_marker(path, dem, message, traceback_text=None):
+def _write_error_marker(path, dem, message, traceback_text=None) -> None:
     """Write a DEM's error marker: the DEM, the time, the error and any traceback."""
     failed_at = datetime.datetime.now(datetime.UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
     text = (

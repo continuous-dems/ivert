@@ -218,7 +218,7 @@ def write_vector(
     *,
     overwrite: bool = False,
     kind: str = KIND_PHOTONS,
-):
+) -> None:
     """Write a GeoDataFrame to the requested vector format.
 
     kind is KIND_PHOTONS for a point layer of photons or KIND_INDEX for a

@@ -64,7 +64,7 @@ logger = logging.getLogger(__name__)
         "Change the persistent default with 'ivert options verbosity=<level>'."
     ),
 )
-def ivert_cli(user_config, verbosity):
+def ivert_cli(user_config, verbosity) -> None:
     """IVERT: ICESat-2 Validation of Elevations Reporting Tool.
 
     Run 'ivert <command> --help' for detailed help on any command.
@@ -114,7 +114,7 @@ def _netrc_path():
     return Path.home() / ".netrc"
 
 
-def _has_earthdata_credentials(netrc_path, machine=_EARTHDATA_MACHINE):
+def _has_earthdata_credentials(netrc_path, machine=_EARTHDATA_MACHINE) -> bool:
     """Return True if netrc_path has a login and password for the given machine.
 
     Parses the .netrc token stream directly rather than using the stdlib netrc
@@ -161,7 +161,7 @@ def _append_earthdata_credentials(
     username,
     password,
     machine=_EARTHDATA_MACHINE,
-):
+) -> None:
     """Append a machine entry for the given credentials to netrc_path.
 
     Existing content is preserved (the file is opened in append mode). The file
@@ -192,7 +192,7 @@ def _stdin_is_interactive():
         return False
 
 
-def _check_netrc_permissions(netrc_path):
+def _check_netrc_permissions(netrc_path) -> None:
     """Warn, and offer to fix, if .netrc is readable by anyone but its owner.
 
     Downloads read credentials through the stdlib netrc module, which refuses
@@ -227,7 +227,7 @@ def _check_netrc_permissions(netrc_path):
         click.echo(f"Could not change the permissions on {netrc_path}: {e}", err=True)
 
 
-def _setup_earthdata_credentials(*, announce_if_present=True, prompt_note=None):
+def _setup_earthdata_credentials(*, announce_if_present=True, prompt_note=None) -> bool:
     """Check for NASA Earthdata credentials in .netrc, offering to save them.
 
     Returns True if credentials are in place afterwards. Callers that only want
@@ -287,7 +287,7 @@ def _setup_earthdata_credentials(*, announce_if_present=True, prompt_note=None):
 
 
 @ivert_cli.command("classes")
-def classes():
+def classes() -> None:
     """List the ICESat-2 photon classification codes and their meanings.
 
     These are the class codes assigned to ICESat-2 photons during
@@ -325,7 +325,7 @@ def classes():
 
 
 @ivert_cli.command("setup")
-def setup():
+def setup() -> None:
     """Create IVERT's local data directories and check NASA Earthdata credentials.
 
     Run once on a new machine. Creates the ~/.ivert data directories and verifies
@@ -418,7 +418,7 @@ class _OptionsGroup(click.Group):
             return []
         return super().parse_args(ctx, args)
 
-    def invoke(self, ctx):
+    def invoke(self, ctx) -> None:
         # Only a key=value passthrough runs the group callback directly. A real
         # subcommand (e.g. "info <name>") also populates ctx.args with its
         # positional arguments, so those must route through normal dispatch.
@@ -440,7 +440,7 @@ class _OptionsGroup(click.Group):
     ),
 )
 @click.pass_context
-def options(ctx, yes):
+def options(ctx, yes) -> None:
     """Configure IVERT settings and local data directories.
 
     Typically, run once before using IVERT on a new machine, or when
@@ -539,7 +539,7 @@ def _confirm_inherited_copy(config, dependents, changed_keys, assume_yes):
     )
 
 
-def _options_set_values(assignments, *, assume_yes=False):
+def _options_set_values(assignments, *, assume_yes=False) -> None:
     """Write one or more key=value pairs to the user config file."""
     config = Config()
 
@@ -627,7 +627,7 @@ def _options_set_values(assignments, *, assume_yes=False):
     default=False,
     help="Show a description of what each setting means.",
 )
-def options_list(details):
+def options_list(details) -> None:
     """List all configurable settings and their current values."""
     config = Config()
     keys = [k for k in config.option_names() if k not in _OPTIONS_EXCLUDED_KEYS]
@@ -677,7 +677,7 @@ def options_list(details):
 
 @options.command("info")
 @click.argument("option_name")
-def options_info(option_name):
+def options_info(option_name) -> None:
     """Show a description of a single setting, its current value, and default."""
     config = Config()
     key = option_name.strip().lower()
@@ -732,7 +732,7 @@ def options_info(option_name):
     default=False,
     help="Skip confirmation prompt.",
 )
-def options_reset(yes):
+def options_reset(yes) -> None:
     """Reset all settings to IVERT defaults by deleting the user config file."""
     config = Config()
     user_path = config.user_config_path
@@ -758,7 +758,7 @@ def options_reset(yes):
 
 @ivert_cli.group("database", invoke_without_command=True)
 @click.pass_context
-def database(ctx):
+def database(ctx) -> None:
     """Manage the local IVERT ICESat-2 photon database.
 
     Subcommands download new data, list, size, rebuild and delete what is
@@ -790,7 +790,7 @@ def database(ctx):
         "--all."
     ),
 )
-def database_list(show_all, boxes):
+def database_list(show_all, boxes) -> None:
     """List granules currently in the IVERT ICESat-2 database."""
     import tabulate as tabulate_mod  # noqa: PLC0415 - slow import
 
@@ -820,7 +820,7 @@ def database_list(show_all, boxes):
 
     if boxes:
 
-        def _fmt_date(d):
+        def _fmt_date(d) -> str:
             s = str(int(d))
             return f"{s[:4]}.{s[4:6]}.{s[6:]}"
 
@@ -866,7 +866,7 @@ def database_list(show_all, boxes):
 
 
 @database.command("rebuild")
-def database_rebuild():
+def database_rebuild() -> None:
     """Rebuild the database index from existing .nc granule files on disk."""
     from ivert import icesat2_database_v2 as is2db_mod  # noqa: PLC0415 - slow import
 
@@ -892,7 +892,7 @@ def database_rebuild():
     default=False,
     help="Skip confirmation prompt and delete immediately.",
 )
-def database_delete(delete_all, yes):
+def database_delete(delete_all, yes) -> None:
     """Delete the NetCDF database index file.
 
     The downloaded .nc granule files are kept unless --all is specified.
@@ -948,7 +948,7 @@ def database_delete(delete_all, yes):
 
 
 @database.command("size")
-def database_size():
+def database_size() -> None:
     """Report the number of files and disk size for each part of the database."""
     from ivert import icesat2_database_v2 as is2db_mod  # noqa: PLC0415 - slow import
 
@@ -1155,7 +1155,7 @@ def database_download(
     confidence_level,
     bathy_confidence,
     force,
-):
+) -> None:
     """Download ICESat-2 photon data for a region of interest.
 
     BBOX_OR_FILES: A 4-value bounding box in W/E/S/N order (slash-separated,
@@ -1549,7 +1549,7 @@ def _resolve_export_target(tokens, projection, wsen):
     return _ExportTarget("region", bbox, geometry, None)
 
 
-def _echo_export_summary(written, count, noun):
+def _echo_export_summary(written, count, noun) -> None:
     """Report the files a conversion wrote (or that it wrote none)."""
     if not written:
         click.echo(
@@ -1579,7 +1579,13 @@ def _convert_output_base(output, default_name):
     return Path(output)
 
 
-def _export_database_index(index_path, fmt_keys, output, overwrite, filters_given):
+def _export_database_index(
+    index_path,
+    fmt_keys,
+    output,
+    overwrite,
+    filters_given,
+) -> None:
     """Export an IVERT database index file as a polygon layer of granule footprints."""
     from ivert import export_vector as ev  # noqa: PLC0415 - slow import
 
@@ -1623,7 +1629,7 @@ def _export_single_granule(
     overwrite,
     class_list,
     delta_time_range,
-):
+) -> None:
     """Export one IVERT .nc photon granule file in its entirety."""
     from ivert import export_vector as ev  # noqa: PLC0415 - slow import
 
@@ -1748,7 +1754,7 @@ def database_convert(
     wsen,
     overwrite,
     force,
-):
+) -> None:
     """Convert IVERT ICESat-2 photons to GIS vector formats.
 
     BBOX_OR_FILE (optional) says what to convert. It is one of:
@@ -2059,7 +2065,7 @@ def database_dump(
     wsen,
     overwrite,
     force,
-):
+) -> None:
     """Pack the IVERT database, or part of it, into a zip archive.
 
     The archive holds the database's ICESat-2 photon granule files and its
@@ -2203,7 +2209,7 @@ _MAX_OVERLAPS_LISTED = 20
         "nothing."
     ),
 )
-def database_restore(archive, on_overlap, dry_run):
+def database_restore(archive, on_overlap, dry_run) -> None:
     """Unpack an 'ivert database dump' archive into the IVERT database.
 
     ARCHIVE is a zip written by 'ivert database dump'. Its photon granule files
@@ -2295,7 +2301,7 @@ def _cache_dir():
     return Path(Config().cache_directory)
 
 
-def _fmt_size(nbytes):
+def _fmt_size(nbytes) -> str:
     """Format a byte count as a human-readable string."""
     for unit in ("B", "KB", "MB", "GB"):
         if nbytes < _KIB:
@@ -2306,7 +2312,7 @@ def _fmt_size(nbytes):
 
 @ivert_cli.group("cache", invoke_without_command=True)
 @click.pass_context
-def cache(ctx):
+def cache(ctx) -> None:
     """Manage the IVERT local file cache.
 
     Run 'ivert cache <subcommand> --help' for details.
@@ -2316,7 +2322,7 @@ def cache(ctx):
 
 
 @cache.command("list")
-def cache_list():
+def cache_list() -> None:
     """Show the number of files and total size of the cache."""
     import tabulate as tabulate_mod  # noqa: PLC0415 - slow import
 
@@ -2373,7 +2379,7 @@ def cache_list():
     default=False,
     help="Skip the confirmation prompt.",
 )
-def cache_delete(force):
+def cache_delete(force) -> None:
     """Delete all files in the IVERT cache directory."""
     cache_dir = _cache_dir()
     if not cache_dir.is_dir():
@@ -2493,7 +2499,15 @@ def _real_dem_path(dem_name):
     return real if file_part == dem_name else dem_name.replace(file_part, real, 1)
 
 
-def _write_run_manifest(path, options, inputs, outdir, *, num_reused=0, num_dems=1):
+def _write_run_manifest(
+    path,
+    options,
+    inputs,
+    outdir,
+    *,
+    num_reused=0,
+    num_dems=1,
+) -> None:
     """Write a run's manifest, warning first if it replaces one with different settings.
 
     Without --overwrite, DEMs that already have results are reused rather than
@@ -2558,7 +2572,7 @@ def _run_validate(
     manifest_options=None,
     variable=None,
     projection=None,
-):
+) -> None:
     """Run validate_dem for one input file, or validate_list_of_dems for several.
 
     'manifest_options' maps each tracked option to its value for this run. It is written
@@ -3219,7 +3233,7 @@ def validate(
     exclude,
     wsen,
     manifest,
-):
+) -> None:
     """Validate one or more DEMs against ICESat-2 photon data.
 
     FILES_OR_DIRECTORY can be one or more DEM raster paths, a directory, or a

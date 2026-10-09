@@ -436,7 +436,7 @@ def plot_beam(
     title_extra="",
     dem_profiles=None,
     ylabel=None,
-):
+) -> None:
     """Plot one beam's photon curtain (along-track km vs elevation).
 
     classes: None  → plot all class codes present
@@ -612,7 +612,7 @@ def main(
     h5_only,
     dem,
     vdatum,
-):
+) -> None:
     """Plot classified ICESat-2 photon curtains.
 
     INPUT_FILE is the path to the .nc granule file, or an ATL03 .h5 file

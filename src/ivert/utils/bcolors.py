@@ -43,7 +43,7 @@ class Bcolors:
     ITALIC = "\033[3m"
     UNDERLINE = "\033[4m"
 
-    def disable(self):
+    def disable(self) -> None:
         """Disable color output."""
         self.HEADER = ""
         self.OKBLUE = ""

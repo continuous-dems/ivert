@@ -114,7 +114,7 @@ def subtract_cuboids(a, b, tol=1e-10, bbox_order="point"):
     return clean
 
 
-def _normalize_merge_preference(prefer):
+def _normalize_merge_preference(prefer) -> str | None:
     """Return None, "row" or "column" for a merge_cuboids ``prefer`` value."""
     if prefer is None:
         return None
