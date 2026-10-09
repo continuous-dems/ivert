@@ -230,10 +230,10 @@ def test_overwrite_deletes_an_empty_marker(tmp_path):
 
     validate_dem._check_existing_outputs(
         str(tmp_path / "dem.tif"),
-        str(results),
-        str(empty),
-        None,
-        None,
+        results_dataframe_file=str(results),
+        empty_results_filename=str(empty),
+        summary_stats_filename=None,
+        plot_filename=None,
         write_summary_stats=False,
         plot_results=False,
         location_name=None,

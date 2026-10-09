@@ -84,6 +84,7 @@ class ICESat2RequestsCSV:
         self,
         atl_dataset: str,
         bbox,
+        *,
         auto_clean_csv: bool = False,
         only_unexpired: bool = True,
         tolerance: float = 1e-9,

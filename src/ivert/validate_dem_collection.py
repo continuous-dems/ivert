@@ -308,6 +308,7 @@ def _dem_is_done(dem, dem_output_dir, include_photons=False, variable=None):
 def dems_needing_validation(
     dem_list_or_dir,
     output_dir,
+    *,
     include_photons=False,
     overwrite=False,
     fname_filter=None,
@@ -344,6 +345,7 @@ def dems_needing_validation(
 
 def validate_list_of_dems(
     dem_list_or_dir: str | Path | list[str],
+    *,
     classes: list[int] | tuple[int, ...] = (1, 6, 40),
     output_dir: str | Path | None = None,
     fname_filter: str | None = None,

@@ -400,6 +400,7 @@ def read_report_from_h5(h5_file: str | Path):
 def apply_bathy_filters(
     photon_df: pd.DataFrame,
     settings: BathyFilterSettings,
+    *,
     photon_src_epsg: str = "EPSG:4326+4979",
     cache_dir: str | None = None,
     landmask_store_dir: str | None = None,
@@ -458,7 +459,14 @@ def apply_bathy_filters(
             database_tiles=database_tiles,
         )
 
-    flags = _evaluate_rules(lon, lat, ortho_h, settings, cache_dir, get_landmask)
+    flags = _evaluate_rules(
+        lon,
+        lat,
+        ortho_h,
+        settings,
+        cache_dir=cache_dir,
+        get_landmask=get_landmask,
+    )
 
     fails = np.zeros(n_bathy, dtype=bool)
     for rule, mask in flags.items():
@@ -473,7 +481,7 @@ def apply_bathy_filters(
     return photon_df.loc[~drop], report
 
 
-def _evaluate_rules(lon, lat, ortho_h, settings, cache_dir, get_landmask):
+def _evaluate_rules(lon, lat, ortho_h, settings, *, cache_dir, get_landmask):
     """Flag, per enabled rule, the photons that fail it.
 
     get_landmask(bounds) returns (land, covered area, coastline) over a

@@ -31,6 +31,7 @@ def transform_points(
     z: list | tuple | np.ndarray,
     src_epsg: str | int,
     dst_epsg: str | int,
+    *,
     src_region: list | tuple | np.ndarray | None = None,
     cache_dir: str | None = None,
 ) -> tuple:
@@ -156,6 +157,7 @@ def apply_vertical_transform(
     z: np.ndarray,
     src_vert: str,
     dst_vert: str,
+    *,
     src_region: list | tuple | np.ndarray | None,
     cache_dir: str | None,
 ) -> np.ndarray:

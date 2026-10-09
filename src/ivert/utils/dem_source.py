@@ -233,6 +233,7 @@ def _resolve_named_variable(
     candidates,
     file_path,
     driver,
+    *,
     single_var,
     single_variable_file,
 ):
@@ -329,7 +330,7 @@ def resolve_dem_source(dem_name, variable=None):
                 candidates,
                 file_path,
                 driver,
-                single_var if count else None,
+                single_var=single_var if count else None,
                 single_variable_file=not candidates and count > 0,
             ),
         )

@@ -86,6 +86,7 @@ def get_data_from_h5_or_list(
 def plot_histograms_and_line(
     results_h5_or_list_or_df,
     output_figure_name,
+    *,
     place_name=None,
     figsize=(10.0, 4.0),  # Width/height, in inches
     labels_uppercase=True,

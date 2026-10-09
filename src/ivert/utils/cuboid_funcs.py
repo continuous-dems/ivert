@@ -346,6 +346,7 @@ def cuboids_intersect(c1, c2, tol=1e-10, bbox_order="point"):
 
 
 def cuboids_intersect_vectorized(
+    *,
     xmin,
     xmax,
     ymin,
