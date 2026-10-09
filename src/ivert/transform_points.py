@@ -11,6 +11,7 @@ import numpy as np
 import pyproj
 import rasterio
 import transformez
+from scipy.interpolate import RegularGridInterpolator
 
 from ivert.utils import dem_geom
 
@@ -166,8 +167,6 @@ def apply_vertical_transform(
     'src_vert' and 'dst_vert' are vertical references as split_srs_string() returns
     them: a bare EPSG code ('5703') or a transformez reference ID ('vdatum:mllw').
     """
-    from scipy.interpolate import RegularGridInterpolator
-
     if src_region is None:
         region_bounds = [float(x.min()), float(x.max()), float(y.min()), float(y.max())]
     else:

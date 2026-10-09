@@ -21,6 +21,7 @@ import re
 import tempfile
 from pathlib import Path
 
+import fetchez
 import numpy as np
 import pyogrio
 import shapely
@@ -172,8 +173,6 @@ def _fill_from_cache(bbox, store_dir: str, cache_dir: str) -> bool:
 
 def _fetch_osm_landmask(bbox, cache_dir: str) -> None:
     """Fetch the OSM landmask of bbox into the cache, the way globato does."""
-    import fetchez
-
     xmin, xmax, ymin, ymax = bbox
     with ivert.utils.logging_config.keep_root_logging():
         fetchez.get(

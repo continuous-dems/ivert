@@ -1,11 +1,14 @@
 """Command-line interface for the ICESat-2 Validation of Elevations Reporting Tool (IVERT)."""
 
+import configparser
 import contextlib
+import datetime
 import glob
 import inspect
 import logging
 import os
 import shlex
+import shutil
 import sys
 import typing
 import warnings
@@ -19,10 +22,20 @@ if "NUMEXPR_MAX_THREADS" not in os.environ:
     os.environ["NUMEXPR_MAX_THREADS"] = str(_physical_cpu_count())
 
 import click
+from click.core import ParameterSource
 
 from ivert import __version__ as ivert_version
-from ivert.photon_classes import BUILDINGS
+from ivert import vdatum_lookup
+from ivert.photon_classes import BUILDINGS, photon_classes
+from ivert.utils import logging_config
+from ivert.utils.configfile import Config, parse_option_descriptions
 from ivert.utils.paths import absolute_path
+from ivert.utils.sizeof_format import sizeof_fmt
+
+# The heavier modules (IVERT's own and libraries such as pandas, geopandas and
+# globato) are imported inside the commands that use them, so that `ivert --help`
+# and the quick commands start in a fraction of a second. Those imports are marked
+# "noqa: PLC0415".
 
 logger = logging.getLogger(__name__)
 
@@ -61,15 +74,11 @@ def ivert_cli(user_config, verbosity):
             absolute_path(Path(user_config).expanduser()),
         )
 
-    from ivert.utils import logging_config
-
     if verbosity is None:
         # Reading the user config can itself emit warnings (an unparseable file, an
         # unrecognized setting), so install a handler at the default level before
         # asking it for the verbosity we actually want.
         logging_config.configure_logging(logging_config.DEFAULT_VERBOSITY)
-
-        from ivert.utils.configfile import Config
 
         verbosity = Config().verbosity
 
@@ -286,8 +295,6 @@ def classes():
     Definitions come from the globato ICESat-2 reader so they always match the
     classifier.
     """
-    from ivert.photon_classes import photon_classes
-
     try:
         classes_list = photon_classes()
     except ImportError as e:
@@ -324,8 +331,6 @@ def setup():
     that NASA Earthdata Login credentials are stored in your ~/.netrc file, offering
     to save them if they are not.
     """
-    from ivert.utils.configfile import Config
-
     config = Config()
 
     # Derived from the settings IVERT resolved as local paths, so a new path
@@ -535,10 +540,6 @@ def _confirm_inherited_copy(config, dependents, changed_keys, assume_yes):
 
 def _options_set_values(assignments, *, assume_yes=False):
     """Write one or more key=value pairs to the user config file."""
-    import configparser as _cp
-
-    from ivert.utils.configfile import Config
-
     config = Config()
 
     parsed = []
@@ -563,11 +564,11 @@ def _options_set_values(assignments, *, assume_yes=False):
         parsed.append((key, value))
 
     user_path = Path(config.user_config_path)
-    user_config = _cp.ConfigParser()
+    user_config = configparser.ConfigParser()
     if user_path.exists():
         try:
             user_config.read(user_path)
-        except _cp.Error as e:
+        except configparser.Error as e:
             msg = (
                 f"Could not parse the IVERT user config file {user_path}:\n  {e}\n"
                 "Fix or delete that file, or run 'ivert options reset' to start over."
@@ -618,8 +619,6 @@ def _options_set_values(assignments, *, assume_yes=False):
 )
 def options_list(details):
     """List all configurable settings and their current values."""
-    from ivert.utils.configfile import Config, parse_option_descriptions
-
     config = Config()
     keys = [k for k in config.option_names() if k not in _OPTIONS_EXCLUDED_KEYS]
 
@@ -670,8 +669,6 @@ def options_list(details):
 @click.argument("option_name")
 def options_info(option_name):
     """Show a description of a single setting, its current value, and default."""
-    from ivert.utils.configfile import Config, parse_option_descriptions
-
     config = Config()
     key = option_name.strip().lower()
 
@@ -727,8 +724,6 @@ def options_info(option_name):
 )
 def options_reset(yes):
     """Reset all settings to IVERT defaults by deleting the user config file."""
-    from ivert.utils.configfile import Config
-
     config = Config()
     user_path = config.user_config_path
 
@@ -784,9 +779,9 @@ def database(ctx):
 )
 def database_list(show_all, boxes):
     """List granules currently in the IVERT ICESat-2 database."""
-    import tabulate as tabulate_mod
+    import tabulate as tabulate_mod  # noqa: PLC0415 - slow import
 
-    from ivert import icesat2_database_v2 as is2db_mod
+    from ivert import icesat2_database_v2 as is2db_mod  # noqa: PLC0415 - slow import
 
     db = is2db_mod.IS2Database()
     gdf = db.open_gdf()
@@ -860,7 +855,7 @@ def database_list(show_all, boxes):
 @database.command("rebuild")
 def database_rebuild():
     """Rebuild the database index from existing .nc granule files on disk."""
-    from ivert import icesat2_database_v2 as is2db_mod
+    from ivert import icesat2_database_v2 as is2db_mod  # noqa: PLC0415 - slow import
 
     db = is2db_mod.IS2Database()
     gdf = db.create_new_database(populate=True, overwrite=True)
@@ -889,8 +884,7 @@ def database_delete(delete_all, yes):
 
     The downloaded .nc granule files are kept unless --all is specified.
     """
-    from ivert import icesat2_database_v2 as is2db_mod
-    from ivert.utils.sizeof_format import sizeof_fmt
+    from ivert import icesat2_database_v2 as is2db_mod  # noqa: PLC0415 - slow import
 
     db = is2db_mod.IS2Database()
 
@@ -941,8 +935,7 @@ def database_delete(delete_all, yes):
 @database.command("size")
 def database_size():
     """Report the number of files and disk size for each part of the database."""
-    from ivert import icesat2_database_v2 as is2db_mod
-    from ivert.utils.sizeof_format import sizeof_fmt
+    from ivert import icesat2_database_v2 as is2db_mod  # noqa: PLC0415 - slow import
 
     db = is2db_mod.IS2Database()
 
@@ -983,7 +976,7 @@ def database_size():
             ),
         )
 
-    import tabulate as tabulate_mod
+    import tabulate as tabulate_mod  # noqa: PLC0415 - slow import
 
     click.echo(
         tabulate_mod.tabulate(
@@ -1003,9 +996,9 @@ def _check_projection_option(projection):
     Raises:
         click.ClickException: if it can't be read or has no horizontal CRS.
     """
-    import pyproj
+    import pyproj  # noqa: PLC0415 - slow import
 
-    from ivert.utils import dem_geom
+    from ivert.utils import dem_geom  # noqa: PLC0415 - slow import
 
     try:
         horz_crs, vert = dem_geom.split_srs_string(projection)
@@ -1175,8 +1168,8 @@ def database_download(
     (Note: Use the '--' delimiter to explicitly end your command-line options if coordinates begin with a negative '-')
 
     """
-    from ivert import icesat2_database_v2 as is2db_mod
-    from ivert.utils import dem_geom, dem_source
+    from ivert import icesat2_database_v2 as is2db_mod  # noqa: PLC0415 - slow import
+    from ivert.utils import dem_geom, dem_source  # noqa: PLC0415 - slow import
 
     projection_horz = None
     if projection is not None:
@@ -1368,7 +1361,7 @@ def _region_from_vector_file(path):
     Raises:
         ValueError: If the file holds no features.
     """
-    import geopandas
+    import geopandas  # noqa: PLC0415 - slow import
 
     gdf = geopandas.read_file(path)
     if len(gdf) == 0:
@@ -1405,7 +1398,7 @@ def _region_from_file(path, variable=None, projection_horz=None):
         return _region_from_vector_file(path)
 
     # Otherwise treat it as a raster.
-    from ivert.utils import dem_geom, dem_source
+    from ivert.utils import dem_geom, dem_source  # noqa: PLC0415 - slow import
 
     dem_name = dem_source.resolve_dem_source(path, variable)
     # Its extent would otherwise be in pixels, putting the region near 0°N, 0°E.
@@ -1442,7 +1435,7 @@ def _dissolve_region_files(paths, variable=None, projection_horz=None):
     Raises:
         click.ClickException: If a file cannot be read as a region.
     """
-    import shapely
+    import shapely  # noqa: PLC0415 - slow import
 
     footprints = []
     for path in paths:
@@ -1495,7 +1488,7 @@ def _resolve_export_target(tokens, projection, wsen):
             if projection.upper() in ("EPSG:4326", "4326"):
                 bbox = (xmin, xmax, ymin, ymax)
             else:
-                from ivert.utils import dem_geom
+                from ivert.utils import dem_geom  # noqa: PLC0415 - slow import
 
                 bbox = dem_geom.get_wgs84_bounding_box(
                     (xmin, xmax, ymin, ymax),
@@ -1516,7 +1509,7 @@ def _resolve_export_target(tokens, projection, wsen):
 
     # An IVERT .nc file is exported directly; which kind it is comes from its contents.
     if Path(path).suffix.lower() == ".nc":
-        from ivert import export_vector as ev
+        from ivert import export_vector as ev  # noqa: PLC0415 - slow import
 
         kind = ev.detect_nc_kind(path)
         if kind == ev.KIND_INDEX:
@@ -1566,7 +1559,7 @@ def _convert_output_base(output, default_name):
 
 def _export_database_index(index_path, fmt_keys, output, overwrite, filters_given):
     """Export an IVERT database index file as a polygon layer of granule footprints."""
-    from ivert import export_vector as ev
+    from ivert import export_vector as ev  # noqa: PLC0415 - slow import
 
     point_formats = [key for key in fmt_keys if key in ("xyz", "csv")]
     if point_formats:
@@ -1610,7 +1603,7 @@ def _export_single_granule(
     delta_time_range,
 ):
     """Export one IVERT .nc photon granule file in its entirety."""
-    from ivert import export_vector as ev
+    from ivert import export_vector as ev  # noqa: PLC0415 - slow import
 
     gdf = ev.nc_to_geodataframe(nc_path, classes=class_list)
     if delta_time_range is not None:
@@ -1770,9 +1763,11 @@ def database_convert(
     with a negative '-')
 
     """  # noqa: D301  (\b is click's no-rewrap marker; r""" would break it)
-    from ivert import export_vector as ev
-    from ivert import icesat2_database_v2 as is2db_mod
-    from ivert.icesat2_database_v2 import _yyyymmdd_to_delta_time
+    from ivert import export_vector as ev  # noqa: PLC0415 - slow import
+    from ivert import icesat2_database_v2 as is2db_mod  # noqa: PLC0415 - slow import
+    from ivert.icesat2_database_v2 import (  # noqa: PLC0415 - slow import
+        _yyyymmdd_to_delta_time,
+    )
 
     # --- Parse output formats. ---
     try:
@@ -1881,8 +1876,8 @@ def database_convert(
             raise click.Abort
 
     # --- Read, subset, and merge granules. ---
-    import geopandas
-    import pandas as pd
+    import geopandas  # noqa: PLC0415 - slow import
+    import pandas as pd  # noqa: PLC0415 - slow import
 
     dt_min = _yyyymmdd_to_delta_time(tmin) if date_filtering else None
     dt_max = _yyyymmdd_to_delta_time(tmax) if date_filtering else None
@@ -2065,10 +2060,8 @@ def database_dump(
     (Note: Use the '--' delimiter to end command-line options if coordinates begin
     with a negative '-')
     """  # noqa: D301  (\b is click's no-rewrap marker; r""" would break it)
-    import datetime
-
-    from ivert import database_archive
-    from ivert import icesat2_database_v2 as is2db_mod
+    from ivert import database_archive  # noqa: PLC0415 - slow import
+    from ivert import icesat2_database_v2 as is2db_mod  # noqa: PLC0415 - slow import
 
     target = _resolve_export_target(list(bbox_or_file), projection, wsen)
     if target.kind in ("granule", "index"):
@@ -2189,7 +2182,7 @@ def database_restore(archive, on_overlap, dry_run):
     lists the overlap and asks what to do, unless -oo/--on-overlap says. The
     archive must use the same vertical datum as the database.
     """
-    from ivert import database_archive
+    from ivert import database_archive  # noqa: PLC0415 - slow import
 
     try:
         plan = database_archive.plan_restore(archive)
@@ -2267,8 +2260,6 @@ def database_restore(archive, on_overlap, dry_run):
 
 def _cache_dir():
     """Return the configured cache directory path."""
-    from ivert.utils.configfile import Config
-
     return Path(Config().cache_directory)
 
 
@@ -2295,7 +2286,7 @@ def cache(ctx):
 @cache.command("list")
 def cache_list():
     """Show the number of files and total size of the cache."""
-    import tabulate as tabulate_mod
+    import tabulate as tabulate_mod  # noqa: PLC0415 - slow import
 
     cache_dir = _cache_dir()
     if not cache_dir.is_dir():
@@ -2352,8 +2343,6 @@ def cache_list():
 )
 def cache_delete(force):
     """Delete all files in the IVERT cache directory."""
-    import shutil
-
     cache_dir = _cache_dir()
     if not cache_dir.is_dir():
         click.echo(f"Cache directory does not exist: {cache_dir}")
@@ -2432,9 +2421,7 @@ def _manifest_option_values(ctx, manifest_file):
     with a warning for each; unrecognized options in the manifest are warned about and asked
     about before going on (see manifest.reconcile_options()).
     """
-    from click.core import ParameterSource
-
-    from ivert import manifest as manifest_module
+    from ivert import manifest as manifest_module  # noqa: PLC0415 - slow import
 
     manifest_version, manifest_options = manifest_module.read_manifest(manifest_file)
     params = manifest_module.tracked_params(ctx.command)
@@ -2467,7 +2454,7 @@ def _real_dem_path(dem_name):
     system actually used rather than the one the text names. A subdataset string keeps
     its driver and variable around the resolved file ('NETCDF:"/abs/dem.nc":elev').
     """
-    from ivert.utils import dem_source
+    from ivert.utils import dem_source  # noqa: PLC0415 - slow import
 
     file_part = dem_source.dem_file_path(dem_name)
     real = str(Path(file_part).resolve())
@@ -2481,7 +2468,7 @@ def _write_run_manifest(path, options, inputs, outdir, *, num_reused=0, num_dems
     re-validated, so their results still reflect the old manifest's settings. The
     warning is only given when 'num_reused' of the run's 'num_dems' DEMs are reused.
     """
-    from ivert import manifest as manifest_module
+    from ivert import manifest as manifest_module  # noqa: PLC0415 - slow import
 
     if num_reused and Path(path).exists():
         old_options = manifest_module.read_manifest_options(path)
@@ -2546,10 +2533,11 @@ def _run_validate(
     out as the run's manifest, with the values resolved here filled in, but only if
     there is validation work to do.
     """
-    from ivert import manifest as manifest_module
-    from ivert import validate_dem as vd_module
-    from ivert import validate_dem_collection as vdc_module
-    from ivert import vdatum_lookup
+    from ivert import manifest as manifest_module  # noqa: PLC0415 - slow import
+    from ivert import validate_dem as vd_module  # noqa: PLC0415 - slow import
+    from ivert import (  # noqa: PLC0415 - slow import
+        validate_dem_collection as vdc_module,
+    )
 
     # Check -p/--projection once here, rather than failing on every DEM. It may carry
     # a vertical datum too ('EPSG:6893', 'EPSG:4326+3855', 'EPSG:4326+vdatum:mllw');
@@ -2614,8 +2602,6 @@ def _run_validate(
             export_error_formats = export_formats
 
     if outdir is None:
-        from ivert.utils.configfile import Config
-
         # Config keeps this setting relative, so it resolves against each DEM's
         # directory rather than the config file's.
         outdir = Config().ivert_results_subdir
@@ -2650,8 +2636,6 @@ def _run_validate(
 
     if manifest_options is not None:
         if export_error_formats is None:
-            from ivert.utils.configfile import Config
-
             export_error_formats_resolved = Config().export_error_formats
         else:
             export_error_formats_resolved = export_error_formats
@@ -2667,14 +2651,14 @@ def _run_validate(
 
     # Fail early, and legibly, if there is no photon database to validate against.
     # If the granules are on disk but the index file isn't, this rebuilds it.
-    from ivert import icesat2_database_v2 as is2db_mod
+    from ivert import icesat2_database_v2 as is2db_mod  # noqa: PLC0415 - slow import
 
     try:
         is2db_mod.IS2Database().ensure_index_exists()
     except is2db_mod.DatabaseNotFoundError as exc:
         raise click.ClickException(str(exc)) from exc
 
-    from ivert.utils import dem_source
+    from ivert.utils import dem_source  # noqa: PLC0415 - slow import
 
     if len(expanded) == 1 and Path(dem_source.dem_file_path(expanded[0])).is_file():
         # A multi-variable file (e.g. NetCDF) becomes the subdataset string of the
@@ -3214,8 +3198,6 @@ def validate(
     option_values = dict(locals())
 
     if list_vdatums:
-        from ivert import vdatum_lookup
-
         click.echo(
             "Recognised vertical datum names (reference → common names, description):\n",
         )
@@ -3260,7 +3242,9 @@ def validate(
         for value, zone in zip(exclude, exclude_zones or [], strict=True)
     )
 
-    from ivert import bathy_filters as bathy_filters_module
+    from ivert import (  # noqa: PLC0415 - slow import
+        bathy_filters as bathy_filters_module,
+    )
 
     try:
         bathy_filter_settings = bathy_filters_module.BathyFilterSettings.from_config(
@@ -3306,13 +3290,13 @@ def validate(
             "bathy_ref_raster": bathy_filter_settings.ref_raster or "none",
         },
     )
-    from ivert import manifest as manifest_module
+    from ivert import manifest as manifest_module  # noqa: PLC0415 - slow import
 
     manifest_options = {
         name: option_values[name] for name in manifest_module.tracked_params(validate)
     }
 
-    from ivert.utils.dem_source import DEMSourceError
+    from ivert.utils.dem_source import DEMSourceError  # noqa: PLC0415 - slow import
 
     try:
         _run_validate(

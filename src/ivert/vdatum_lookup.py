@@ -99,7 +99,7 @@ def resolve_vdatum(name: str | int | None) -> str | None:
 def _reference_errors() -> tuple[type[Exception], ...]:
     """Return the exceptions transformez raises for a reference it cannot use."""
     # transformez derives these from the built-in ReferenceError, not ValueError.
-    from transformez.reference.parser import (
+    from transformez.reference.parser import (  # noqa: PLC0415 - slow import
         InvalidReferenceError,
         ReferenceInputError,
         UnsupportedReferenceError,
@@ -118,8 +118,12 @@ def check_vdatum(reference: str) -> None:
         ValueError: If transformez cannot parse the reference, it has no vertical
             component, or transformez has no operation registered to transform it.
     """
-    from transformez.reference.parser import parse_reference
-    from transformez.reference.resolver import resolve_reference
+    from transformez.reference.parser import (  # noqa: PLC0415 - slow import
+        parse_reference,
+    )
+    from transformez.reference.resolver import (  # noqa: PLC0415 - slow import
+        resolve_reference,
+    )
 
     try:
         parsed = parse_reference(reference)
@@ -133,7 +137,9 @@ def check_vdatum(reference: str) -> None:
 
 def describe_vdatum(reference: str) -> str:
     """Return transformez's name for a vertical reference, or an empty string."""
-    from transformez.reference.parser import parse_reference
+    from transformez.reference.parser import (  # noqa: PLC0415 - slow import
+        parse_reference,
+    )
 
     try:
         vertical = parse_reference(reference).vertical
