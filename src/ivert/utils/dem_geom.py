@@ -15,6 +15,7 @@ import shapely
 import shapely.geometry
 
 from ivert.utils import dem_source
+from ivert.utils.cuboid_funcs import BBOX_LEN
 
 logger = logging.getLogger(__name__)
 
@@ -22,6 +23,9 @@ logger = logging.getLogger(__name__)
 # formats (ASCII Grid, ESRI .hdr/.flt). pyproj finds no EPSG match for them, since
 # their axis order differs, but IVERT always transforms in x/y (lon/lat) order.
 _OGC_LON_LAT_TO_EPSG = {"CRS84": 4326, "CRS83": 4269, "CRS27": 4267}
+
+# A CRS with this many axes (two horizontal and a height) is 3-D.
+_AXES_3D = 3
 
 
 def _epsg_equivalent(crs: pyproj.CRS | None) -> pyproj.CRS | None:
@@ -67,7 +71,7 @@ def get_dem_reference_frame_from_user_input(
         horz, vert = None, None
     elif crs_obj.is_compound:
         horz, vert = crs_obj.sub_crs_list
-    elif len(crs_obj.axis_info) == 3:
+    elif len(crs_obj.axis_info) == _AXES_3D:
         horz, vert = crs_obj, crs_obj
     elif crs_obj.is_vertical:
         horz, vert = None, crs_obj
@@ -187,7 +191,7 @@ def split_srs_string(
         return None, code(crs)
     # pyproj marks a 3D geographic CRS (e.g. EPSG:4979, WGS84 with ellipsoidal
     # height) as neither compound nor vertical.
-    if crs.is_geographic and len(crs.axis_info) == 3:
+    if crs.is_geographic and len(crs.axis_info) == _AXES_3D:
         return crs, code(crs)
     return _epsg_equivalent(crs), None
 
@@ -226,10 +230,10 @@ def get_wgs84_bounding_box(
 
     elif type(polygon_bbox_or_dem_fname) in (list, tuple):
         bbox = polygon_bbox_or_dem_fname
-        if len(bbox) == 4:
+        if len(bbox) == BBOX_LEN:
             # Convert (xmin, xmax, ymin, ymax) → shapely box expects (xmin, ymin, xmax, ymax)
             polygon = shapely.geometry.box(bbox[0], bbox[2], bbox[1], bbox[3])
-        elif len(bbox) > 4 and len(bbox) % 2 == 0:
+        elif len(bbox) > BBOX_LEN and len(bbox) % 2 == 0:
             polygon = shapely.geometry.Polygon(bbox)
         else:
             msg = (

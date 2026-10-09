@@ -4,9 +4,24 @@ The authoritative definitions are globato's ``PHOTON_CLASSES`` constant. Reading
 them here keeps IVERT's CLI help, vector exports, and plot legends in sync with
 the upstream classifier instead of each module carrying its own (drift-prone)
 copy of the code list.
+
+The named constants below are for code that tests one class by name. They are
+written out here, not read from globato, because importing globato takes over a
+second; ``tests/test_photon_classes.py`` checks that they match globato's codes.
 """
 
 import re
+
+UNCLASSIFIED = -1
+NOISE = 0
+GROUND = 1
+CANOPY = 2
+TOP_CANOPY = 3
+LAND_ICE = 6
+BUILDINGS = 7
+SEAFLOOR = 40
+NEARSHORE_WATER_SURFACE = 41
+INLAND_WATER_SURFACE = 42
 
 
 def photon_classes():

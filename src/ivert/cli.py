@@ -21,6 +21,7 @@ if "NUMEXPR_MAX_THREADS" not in os.environ:
 import click
 
 from ivert import __version__ as ivert_version
+from ivert.photon_classes import BUILDINGS
 from ivert.utils.paths import absolute_path
 
 logger = logging.getLogger(__name__)
@@ -91,6 +92,12 @@ def ivert_cli(user_config, verbosity):
 
 # NASA Earthdata Login host used for authenticating ICESat-2 data downloads.
 _EARTHDATA_MACHINE = "urs.earthdata.nasa.gov"
+# A bounding box on the command line is four "/"-separated numbers.
+_CLI_BBOX_VALUES = 4
+# WGS84 longitude/latitude, the CRS bounding boxes and region files default to.
+_WGS84_EPSG = 4326
+# Bytes in a kibibyte, for printing sizes.
+_KIB = 1024
 
 
 def _netrc_path():
@@ -1185,7 +1192,7 @@ def database_download(
     # A WGS84 (Multi)Polygon of the area to download, when files defined it.
     geometry = None
 
-    if len(values) == 4:
+    if len(values) == _CLI_BBOX_VALUES:
         try:
             nums = [float(v) for v in values]
             if wsen:
@@ -1193,7 +1200,7 @@ def database_download(
                 xmin, ymin, xmax, ymax = nums
             else:
                 xmin, xmax, ymin, ymax = nums
-            if projection_horz is None or projection_horz.to_epsg() == 4326:
+            if projection_horz is None or projection_horz.to_epsg() == _WGS84_EPSG:
                 wgs84_bbox = (xmin, xmax, ymin, ymax)
             else:
                 wgs84_bbox = dem_geom.get_wgs84_bounding_box(
@@ -1372,8 +1379,8 @@ def _region_from_vector_file(path):
             "'%s' has no coordinate reference system; assuming WGS84 (EPSG:4326).",
             path,
         )
-    elif gdf.crs.to_epsg() != 4326:
-        gdf = gdf.to_crs(epsg=4326)
+    elif gdf.crs.to_epsg() != _WGS84_EPSG:
+        gdf = gdf.to_crs(epsg=_WGS84_EPSG)
 
     minx, miny, maxx, maxy = (float(v) for v in gdf.total_bounds)
     bbox = (minx, maxx, miny, maxy)
@@ -1471,7 +1478,7 @@ def _resolve_export_target(tokens, projection, wsen):
         values.extend(token.split("/"))
 
     # Try a 4-value numeric bounding box first.
-    if len(values) == 4:
+    if len(values) == _CLI_BBOX_VALUES:
         try:
             nums = [float(v) for v in values]
         except ValueError:
@@ -2145,6 +2152,8 @@ _OVERLAP_CHOICES = {
     3: ("replace", "Import everything, and remove the existing data it overlaps."),
     4: ("cancel", "Import nothing and exit."),
 }
+# Overlapping boxes listed one by one before the rest are summed up in one line.
+_MAX_OVERLAPS_LISTED = 20
 
 
 @database.command("restore")
@@ -2195,13 +2204,13 @@ def database_restore(archive, on_overlap, dry_run):
             f"\n{len(plan.overlaps):,} of the archive's query boxes overlap data "
             "already in the database:",
         )
-        for c in plan.overlaps[:20]:
+        for c in plan.overlaps[:_MAX_OVERLAPS_LISTED]:
             click.echo(
                 f"  W {c[0]:g} to E {c[1]:g}, S {c[2]:g} to N {c[3]:g}, "
                 f"dates {c[4]} to {c[5]}",
             )
-        if len(plan.overlaps) > 20:
-            click.echo(f"  ... and {len(plan.overlaps) - 20:,} more")
+        if len(plan.overlaps) > _MAX_OVERLAPS_LISTED:
+            click.echo(f"  ... and {len(plan.overlaps) - _MAX_OVERLAPS_LISTED:,} more")
     elif not dry_run:
         mode = "all"
 
@@ -2266,9 +2275,9 @@ def _cache_dir():
 def _fmt_size(nbytes):
     """Format a byte count as a human-readable string."""
     for unit in ("B", "KB", "MB", "GB"):
-        if nbytes < 1024:
+        if nbytes < _KIB:
             return f"{nbytes:.1f} {unit}"
-        nbytes /= 1024
+        nbytes /= _KIB
     return f"{nbytes:.1f} TB"
 
 
@@ -2386,7 +2395,7 @@ def _parse_exclude_spec(value, *, wsen=False):
     (minx/miny/maxx/maxy). Either way, a (minx, miny, maxx, maxy) tuple is returned.
     """
     parts = value.split("/")
-    if len(parts) == 4:
+    if len(parts) == _CLI_BBOX_VALUES:
         try:
             nums = [float(p) for p in parts]
         except ValueError:
@@ -2635,8 +2644,8 @@ def _run_validate(
             "Run 'ivert classes' for the full list of codes."
         )
         raise click.ClickException(msg)
-    if buildings and 7 not in class_list:
-        class_list.append(7)
+    if buildings and BUILDINGS not in class_list:
+        class_list.append(BUILDINGS)
     class_list = sorted(set(class_list))
 
     if manifest_options is not None:

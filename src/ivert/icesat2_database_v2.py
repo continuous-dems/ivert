@@ -40,6 +40,19 @@ import ivert.landmask
 import ivert.utils.configfile
 import ivert.utils.cuboid_funcs
 from ivert.icesat2_requests import ICESat2RequestsCSV, normalize_atl_version
+from ivert.photon_classes import (
+    BUILDINGS,
+    CANOPY,
+    GROUND,
+    INLAND_WATER_SURFACE,
+    LAND_ICE,
+    NEARSHORE_WATER_SURFACE,
+    NOISE,
+    SEAFLOOR,
+    TOP_CANOPY,
+    UNCLASSIFIED,
+)
+from ivert.utils.cuboid_funcs import BBOX_LEN, BBOX_WITH_DATES_LEN
 from ivert.utils.paths import absolute_path
 
 logger = logging.getLogger(__name__)
@@ -106,6 +119,10 @@ _NO_PHOTONS = pd.DataFrame(
 _READ_MAX_WORKERS = 8
 # Fewer granules than this are read in this process: starting workers costs more.
 _READ_MIN_GRANULES_FOR_POOL = 4
+# A pool of fewer workers than this is only slower than reading in this process.
+_READ_MIN_WORKERS_FOR_POOL = 2
+# The position of the release field in an ATL granule filename's "_"-separated parts.
+_ATL_RELEASE_FIELD = 3
 
 
 def _read_granules(paths, subset_bbox=None, photon_classes=None):
@@ -120,7 +137,7 @@ def _read_granules(paths, subset_bbox=None, photon_classes=None):
         photon_classes=photon_classes,
     )
     workers = min(len(paths), _READ_MAX_WORKERS, os.cpu_count() or 1)
-    if len(paths) < _READ_MIN_GRANULES_FOR_POOL or workers < 2:
+    if len(paths) < _READ_MIN_GRANULES_FOR_POOL or workers < _READ_MIN_WORKERS_FOR_POOL:
         return [read(path) for path in paths]
     with multiprocessing.get_context("fork").Pool(workers) as pool:
         return pool.map(read, paths)
@@ -132,7 +149,7 @@ def _atl_release_from_filename(filename: str) -> str | None:
     "ATL03_20241107234251_08052501_007_01_subsetted.h5" -> "007".
     """
     parts = Path(filename).name.split("_")
-    return parts[3] if len(parts) >= 4 else None
+    return parts[_ATL_RELEASE_FIELD] if len(parts) > _ATL_RELEASE_FIELD else None
 
 
 def _delta_time_to_yyyymmdd(delta_time: float) -> int:
@@ -157,7 +174,7 @@ def _drop_low_confidence_bathy(
     if min_bathy_confidence <= 0.0 or "bathy_confidence" not in photons_df.columns:
         return photons_df
     return photons_df[
-        (photons_df["class_code"] != 40)
+        (photons_df["class_code"] != SEAFLOOR)
         | (photons_df["bathy_confidence"] >= min_bathy_confidence)
     ]
 
@@ -1055,16 +1072,20 @@ class IS2Database:
             "data_bbox": [xmin, xmax, ymin, ymax, tmin, tmax],
             "zbounds": [zmin, zmax],
             "numphotons": len(df),
-            "numphotons_unclassified": int(np.count_nonzero(cc == -1)),
-            "numphotons_noise": int(np.count_nonzero(cc == 0)),
-            "numphotons_ground": int(np.count_nonzero(cc == 1)),
-            "numphotons_canopy": int(np.count_nonzero(cc == 2)),
-            "numphotons_canopy_top": int(np.count_nonzero(cc == 3)),
-            "numphotons_ice_surface": int(np.count_nonzero(cc == 6)),
-            "numphotons_buildings": int(np.count_nonzero(cc == 7)),
-            "numphotons_bathy_floor": int(np.count_nonzero(cc == 40)),
-            "numphotons_bathy_surface": int(np.count_nonzero(cc == 41)),
-            "numphotons_inland_water_surface": int(np.count_nonzero(cc == 42)),
+            "numphotons_unclassified": int(np.count_nonzero(cc == UNCLASSIFIED)),
+            "numphotons_noise": int(np.count_nonzero(cc == NOISE)),
+            "numphotons_ground": int(np.count_nonzero(cc == GROUND)),
+            "numphotons_canopy": int(np.count_nonzero(cc == CANOPY)),
+            "numphotons_canopy_top": int(np.count_nonzero(cc == TOP_CANOPY)),
+            "numphotons_ice_surface": int(np.count_nonzero(cc == LAND_ICE)),
+            "numphotons_buildings": int(np.count_nonzero(cc == BUILDINGS)),
+            "numphotons_bathy_floor": int(np.count_nonzero(cc == SEAFLOOR)),
+            "numphotons_bathy_surface": int(
+                np.count_nonzero(cc == NEARSHORE_WATER_SURFACE),
+            ),
+            "numphotons_inland_water_surface": int(
+                np.count_nonzero(cc == INLAND_WATER_SURFACE),
+            ),
             "downloaded_on_utc": int(base_attrs["downloaded_on_utc"]),
             "horizontal_datum": str(base_attrs["horizontal_datum"]),
             "vertical_datum": str(base_attrs["vertical_datum"]),
@@ -1080,7 +1101,8 @@ class IS2Database:
         df = df.reset_index(drop=True)
         if "class_code" in df.columns:
             cc = df["class_code"]
-            if len(cc) and (cc.min() < -128 or cc.max() > 127):
+            int8 = np.iinfo(np.int8)
+            if len(cc) and (cc.min() < int8.min or cc.max() > int8.max):
                 msg = f"class_code values {cc.min()}..{cc.max()} don't fit in int8."
                 raise ValueError(msg)
             df = df.assign(class_code=cc.astype(np.int8))
@@ -1724,7 +1746,7 @@ class IS2Database:
         y = dataframe["y"]
         dt = dataframe["delta_time"]
 
-        if len(bbox_to_exclude) == 6:
+        if len(bbox_to_exclude) == BBOX_WITH_DATES_LEN:
             bbox_dt_min = _yyyymmdd_to_delta_time(bbox_to_exclude[4])
             bbox_dt_max = _yyyymmdd_to_delta_time(bbox_to_exclude[5])
             df_sub = dataframe[
@@ -1736,7 +1758,7 @@ class IS2Database:
                 | (dt >= bbox_dt_max)
             ]
 
-        elif len(bbox_to_exclude) == 4:
+        elif len(bbox_to_exclude) == BBOX_LEN:
             df_sub = dataframe[
                 (x < bbox_to_exclude[0])
                 | (x >= bbox_to_exclude[1])
@@ -1776,7 +1798,7 @@ class IS2Database:
         df = df[df["class_code"].isin(photon_classes)]
 
         if subset_bbox is not None:
-            if len(subset_bbox) != 6:
+            if len(subset_bbox) != BBOX_WITH_DATES_LEN:
                 msg = "subset_bbox must have 6 values (xmin, xmax, ymin, ymax, tmin, tmax)."
                 raise ValueError(msg)
             x, y = df["x"], df["y"]
@@ -1832,7 +1854,7 @@ class IS2Database:
             If no photons are found, return None.
 
         """
-        if len(bbox) != 6:
+        if len(bbox) != BBOX_WITH_DATES_LEN:
             msg = "bbox must be a list or tuple of length 6 (xmin, xmax, ymin, ymax, tmin, tmax)."
             raise ValueError(msg)
 
@@ -1884,8 +1906,8 @@ class IS2Database:
                 "Trimmed granules from %s to %s photons (%s ground, %s bathy).",
                 f"{gdf_subset['numphotons'].sum():,}",
                 f"{len(photons_df):,}",
-                f"{np.count_nonzero(photons_df['class_code'] == 1):,}",
-                f"{np.count_nonzero(photons_df['class_code'] == 40):,}",
+                f"{np.count_nonzero(photons_df['class_code'] == GROUND):,}",
+                f"{np.count_nonzero(photons_df['class_code'] == SEAFLOOR):,}",
             )
         else:
             logger.info("No photons in bbox.")
@@ -1901,12 +1923,12 @@ class IS2Database:
         """Convert date range to the format required by the database."""
         if date_range is None:
             return None
-        if len(date_range) == 2:
-            return self.convert_date_to_yyyymmdd(
-                date_range[0],
-            ), self.convert_date_to_yyyymmdd(date_range[1])
-        msg = "Date range must be a list or tuple of length 2."
-        raise ValueError(msg)
+        try:
+            start, end = date_range
+        except ValueError:
+            msg = "Date range must be a list or tuple of length 2."
+            raise ValueError(msg) from None
+        return self.convert_date_to_yyyymmdd(start), self.convert_date_to_yyyymmdd(end)
 
     def convert_date_to_yyyymmdd(
         self,
@@ -1920,7 +1942,7 @@ class IS2Database:
         """
         if isinstance(date, int):
             # If it's an integer, make sure it's 8 digits and then return as-is.
-            if len(str(date)) != 8:
+            if len(str(date)) != len("YYYYMMDD"):
                 msg = "Date must be an 8 digit integer in YYYYMMDD."
                 raise ValueError(msg)
             return date
@@ -2776,7 +2798,9 @@ def _tile_edges(
     edges.append(float(vmax))
     # Floating-point stepping can land an edge a hair short of vmax; that is
     # also a sliver and is merged away by the same rule.
-    if len(edges) >= 3 and (edges[-1] - edges[-2]) < sliver_fraction * tile_size:
+    # A sliver can only be merged when it has a neighbouring tile to merge into.
+    num_tiles = len(edges) - 1
+    if num_tiles > 1 and (edges[-1] - edges[-2]) < sliver_fraction * tile_size:
         del edges[-2]
     return edges
 
@@ -2847,10 +2871,10 @@ def split_bbox_into_parts(
     """Split a bounding box into parts of size approximately deg_size degrees.."""
     # if we included a 6-value bbox, save the last two and append them at the end.
     tmin, tmax = None, None
-    if len(bbox) == 6:
+    if len(bbox) == BBOX_WITH_DATES_LEN:
         tmin, tmax = bbox[4], bbox[5]
         bbox = bbox[:4]
-    if len(bbox) != 4:
+    if len(bbox) != BBOX_LEN:
         msg = "bbox must be a 4-tuple or 6-tuple."
         raise ValueError(msg)
 

@@ -40,6 +40,7 @@ import ivert.utils.configfile
 import ivert.utils.logging_config
 import ivert.utils.split_dem
 import ivert.vdatum_lookup
+from ivert.photon_classes import SEAFLOOR
 from ivert.utils import dem_geom, dem_source, parallel_funcs
 from ivert.utils.paths import absolute_path
 
@@ -51,6 +52,10 @@ logger = logging.getLogger(__name__)
 # the signal, so every photon in the cell is used instead.
 INTERDECILE_MIN_PHOTONS = 5
 
+# The smallest per-cell photon limit allowed: a cell needs two or more photons for
+# its elevation statistics to be meaningful.
+_MIN_PHOTON_LIMIT = 2
+
 # Longest (s) the coordinating loop waits for a worker's result or exit before looking
 # round again. Results and exits wake it at once; this is only a safety net.
 _COORDINATOR_WAIT_S = 1.0
@@ -60,6 +65,15 @@ _CHUNKS_PER_WORKER = 4
 _MIN_CHUNK_CELLS = 20
 _MAX_CHUNK_CELLS = 2000
 _MIN_CELLS_PER_WORKER = 1000
+
+# A cell validation that takes at least this long (s) logs its time in minutes.
+_LOG_MINUTES_AFTER_S = 100
+
+# Statistics smaller than this, but not zero, get extra decimal places.
+_SMALL_STAT = 0.10
+
+# Bytes in a kilobyte, for logging file sizes in decimal units.
+_KB = 1000
 
 
 # The percentages pandas' Series.describe(percentiles=[0.10, 0.90]) hands to
@@ -88,7 +102,7 @@ def _pandas_std(values):
     """
     n = len(values)
     nan = values.dtype.type(np.nan) if values.dtype.kind == "f" else np.nan
-    if n < 2:
+    if n <= 1:
         return nan
     avg = values.sum(dtype=np.float64) / n
     var = ((avg - values) ** 2).sum(dtype=np.float64) / (n - 1)
@@ -169,10 +183,10 @@ def _check_cell_validation_params(photon_limit, min_photons, num_subdivisions):
     if photon_limit is None:
         return
 
-    if photon_limit < 2:
+    if photon_limit < _MIN_PHOTON_LIMIT:
         msg = (
-            f"photon_limit must be at least 2, not {photon_limit}. A cell needs "
-            "two or more photons for its elevation statistics to be meaningful."
+            f"photon_limit must be at least {_MIN_PHOTON_LIMIT}, not {photon_limit}. A cell "
+            "needs two or more photons for its elevation statistics to be meaningful."
         )
         raise ValueError(msg)
     if photon_limit < min_photons:
@@ -399,7 +413,7 @@ def validate_dem_child_process(
                 r_keep[counter] = True
                 r_numphotons[counter] = n_photons
                 r_dem_elev[counter] = dem_elev_list[counter]
-                r_numphotons_bathy[counter] = np.count_nonzero(cell_codes == 40)
+                r_numphotons_bathy[counter] = np.count_nonzero(cell_codes == SEAFLOOR)
                 r_range[counter] = cell_heights.max() - cell_heights.min()
 
                 if n_photons >= INTERDECILE_MIN_PHOTONS:
@@ -835,15 +849,16 @@ def validate_dem(
             parent_band_ndv = parent_ds.nodatavals[band_num - 1]
 
         # Split up the DEM into 4 parts.
+        factor = 2
         sub_dem_names = subdivide_dem(
             dem_name,
-            factor=2,
+            factor=factor,
             output_dir=output_dir,
         )
 
         sub_shared_ret_values = [manager.dict() for i in range(len(sub_dem_names))]
-        if len(sub_dem_names) != 4:
-            msg = f"Splitting {dem_name} gave {len(sub_dem_names)} pieces, not 4."
+        if len(sub_dem_names) != factor**2:
+            msg = f"Splitting {dem_name} gave {len(sub_dem_names)} pieces, not {factor**2}."
             raise RuntimeError(msg)
 
         # Pre-read the photon database. This is easier than reading it in 4 separate times.
@@ -2053,7 +2068,7 @@ def _run_parallel_cell_validation(
 
     t_end = time.perf_counter()
     total_time_s = t_end - t_start
-    if total_time_s >= 100:
+    if total_time_s >= _LOG_MINUTES_AFTER_S:
         total_time_m = int(total_time_s / 60)
         partial_time_s = total_time_s % 60
         logger.info(
@@ -2525,7 +2540,7 @@ def _format_stat(value) -> str:
     x = float(value)
     if not np.isfinite(x):
         return str(x)
-    if x != 0 and abs(x) < 0.10:
+    if x != 0 and abs(x) < _SMALL_STAT:
         # Enough decimals to show 2 significant digits for small magnitudes.
         decimals = 1 - int(np.floor(np.log10(abs(x))))
         return f"{x:.{decimals}f}"
@@ -2534,12 +2549,12 @@ def _format_stat(value) -> str:
 
 def _format_file_size(num_bytes: int) -> str:
     """Format a file size in decimal units, e.g. '512 B', '2.34 kB', '1.24 MB'."""
-    if num_bytes < 1000:
+    if num_bytes < _KB:
         return f"{num_bytes:d} B"
     size = float(num_bytes)
     for unit in ("kB", "MB", "GB", "TB"):
-        size /= 1000.0
-        if size < 1000.0 or unit == "TB":
+        size /= _KB
+        if size < _KB or unit == "TB":
             break
     return f"{size:.2f} {unit}"
 
