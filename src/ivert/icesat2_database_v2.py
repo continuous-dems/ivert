@@ -21,7 +21,7 @@ import sys
 from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
-from typing import ClassVar, NamedTuple
+from typing import ClassVar, NamedTuple, overload
 
 import fetchez
 import fetchez.core
@@ -64,7 +64,7 @@ try:
     from globato.streams.readers.icesat2 import AuxiliaryDataError
 except ImportError:  # globato before #273, which never raises it
 
-    class AuxiliaryDataError(Exception):
+    class AuxiliaryDataError(Exception):  # type: ignore[no-redef]
         """Stands in for globato's, which older releases don't have."""
 
 
@@ -489,9 +489,10 @@ class IS2Database:
         else:
             self.config = ivert_config
 
-        self.gdf = None
-        self.last_gdf_bbox = None
-        self.last_gdf_date_range = None
+        # The index, once read.
+        self.gdf: pd.DataFrame | None = None
+        self.last_gdf_bbox: tuple | None = None
+        self.last_gdf_date_range: tuple[int, int] | None = None
         self.last_gdf_result = None
 
         # For now, we only build this database in WGS84 / EGM2008 coordinates.
@@ -648,7 +649,7 @@ class IS2Database:
         Used to construct a blank DataFrame and as the single source of truth for
         column ordering (its key order) throughout the index read/write code.
         """
-        d = {
+        d: dict[str, list] = {
             "granule_id": ["placeholder"],
             "filename": ["placeholder"],
             "source_granule": ["placeholder"],
@@ -675,7 +676,7 @@ class IS2Database:
         values matching the index schema (see _empty_db_dict). The polygon
         footprint is omitted; it is always box(data_bbox).
         """
-        record = {
+        record: dict[str, str | float | int] = {
             "granule_id": str(
                 attrs.get("granule_id", Path(filename).stem),
             ),
@@ -779,8 +780,8 @@ class IS2Database:
             "query_bbox_ymax",
         ]
         return [
-            tuple(float(v) for v in row)
-            for row in gdf[cols].drop_duplicates().to_numpy()
+            (float(xmin), float(xmax), float(ymin), float(ymax))
+            for xmin, xmax, ymin, ymax in gdf[cols].drop_duplicates().to_numpy()
         ]
 
     def _store_landmasks(self, storage_tiles) -> None:
@@ -1046,7 +1047,7 @@ class IS2Database:
     def _granule_attrs(
         cls,
         df: pd.DataFrame,
-        nc_fn: str,
+        nc_fn: str | Path,
         query_bbox: tuple,
         base_attrs: dict,
     ) -> dict:
@@ -1097,7 +1098,7 @@ class IS2Database:
         }
 
     @staticmethod
-    def _save_nc(df: pd.DataFrame, nc_fn: str, attrs: dict) -> None:
+    def _save_nc(df: pd.DataFrame, nc_fn: str | Path, attrs: dict) -> None:
         """Write photons and their global attributes to a NetCDF granule file.
 
         class_code is stored as int8, the row-number 'index' coordinate is left
@@ -1461,8 +1462,8 @@ class IS2Database:
             reverse=True,
         )
         tiles_of = dict(ordered)
-        records = []
-        failed = []
+        records: list[dict] = []
+        failed: list[str] = []
         if not ordered:
             return records, failed
 
@@ -1875,7 +1876,7 @@ class IS2Database:
             and date range. If no photons are found, return None.
 
         """
-        if len(bbox) != BBOX_WITH_DATES_LEN:
+        if bbox is None or len(bbox) != BBOX_WITH_DATES_LEN:
             msg = (
                 "bbox must be a list or tuple of length 6 (xmin, xmax, ymin, ymax, "
                 "tmin, tmax)."
@@ -1942,10 +1943,14 @@ class IS2Database:
         # returning it will be cleaner, without pointing to larger datasets and masks.
         return photons_df.copy()
 
+    @overload
+    def convert_date_range(self, date_range: None) -> None: ...
+    @overload
+    def convert_date_range(self, date_range: list | tuple) -> tuple[int, int]: ...
     def convert_date_range(
         self,
         date_range: list | tuple | None,
-    ) -> list | tuple | None:
+    ) -> tuple[int, int] | None:
         """Convert date range to the format required by the database."""
         if date_range is None:
             return None
@@ -2915,7 +2920,7 @@ def split_bbox_into_parts(
     bbox: list | tuple,
     tile_size_deg: float = 2.0,
     max_tile_scale_factor: float = 1.5,
-) -> list | None:
+) -> list[tuple]:
     """Split a bounding box into parts of size approximately deg_size degrees.."""
     # if we included a 6-value bbox, save the last two and append them at the end.
     tmin, tmax = None, None
@@ -2950,6 +2955,7 @@ def split_bbox_into_parts(
     bin_ymins = binys[:-1, :-1].flatten()
     bin_ymaxs = binys[1:, 1:].flatten()
 
+    bboxes: list[tuple]
     if tmin is not None and tmax is not None:
         bboxes = [
             (

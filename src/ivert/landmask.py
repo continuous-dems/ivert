@@ -153,7 +153,7 @@ def clip_stored_landmask(path: str | Path, bbox, store_dir: str | Path) -> Path:
     return out
 
 
-def _fill_from_cache(bbox, store_dir: str, cache_dir: str) -> bool:
+def _fill_from_cache(bbox, store_dir: str | Path, cache_dir: str | Path) -> bool:
     """Store the landmask of bbox from cached OSM landmasks, if they cover all of it."""
     need = _box(bbox)
     cached = {
@@ -171,7 +171,7 @@ def _fill_from_cache(bbox, store_dir: str, cache_dir: str) -> bool:
     return True
 
 
-def _fetch_osm_landmask(bbox, cache_dir: str) -> None:
+def _fetch_osm_landmask(bbox, cache_dir: str | Path) -> None:
     """Fetch the OSM landmask of bbox into the cache, the way globato does."""
     xmin, xmax, ymin, ymax = bbox
     with ivert.utils.logging_config.keep_root_logging():
@@ -186,8 +186,8 @@ def _fetch_osm_landmask(bbox, cache_dir: str) -> None:
 
 def ensure_landmasks(
     tiles,
-    store_dir: str,
-    cache_dir: str,
+    store_dir: str | Path,
+    cache_dir: str | Path,
     *,
     fetch: bool = True,
 ) -> list:

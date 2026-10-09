@@ -11,6 +11,7 @@ import logging
 import math
 import os
 import re
+import typing
 from pathlib import Path
 
 from ivert import __version__
@@ -74,7 +75,7 @@ def parse_option_descriptions(configfile: str | Path = ivert_default_configfile)
     Options with no preceding comment are omitted.
     """
     descriptions = {}
-    comment_buffer = []
+    comment_buffer: list[str] = []
 
     with Path(configfile).open(encoding="utf-8") as f:
         for raw_line in f:
@@ -193,7 +194,7 @@ def comment_out_options(
 
 
 class Config:
-    r"""A configparser.ConfigParser subclass whose options are read as attributes.
+    r"""IVERT's layered configuration, with each option read as an attribute.
 
     Config attributes are referenced as object attributes rather than in a dictionary.
 
@@ -230,7 +231,7 @@ class Config:
         self._configfile = Path(configfile).resolve()
         self._config = configparser.ConfigParser()
         self.is_aws = is_aws.is_aws()
-        self._user_set_keys = set()
+        self._user_set_keys: set[str] = set()
         # Options whose values were resolved as local filesystem paths, in the
         # order the configfile lists them. A dict is used as an ordered set;
         # read it through the 'path_options' property.
@@ -268,6 +269,17 @@ class Config:
             )
             raise AttributeError(msg)
         object.__setattr__(self, name, value)
+
+    if typing.TYPE_CHECKING:
+
+        def __getattr__(self, name: str) -> typing.Any:  # noqa: ANN401 - see below
+            """Tell type checkers that any attribute may exist.
+
+            Each option becomes an attribute only when the configfile is read, so
+            a type checker can't see them, and an option's type depends on its value.
+            Defined only for type checking: at run time a missing option is still an
+            AttributeError.
+            """
 
     def _abspath(self, path) -> Path:
         """Return the absolute path of a relative path written in the configfile.

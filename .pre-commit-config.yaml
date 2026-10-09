@@ -1,6 +1,9 @@
 ci:
   autoupdate_schedule: quarterly
   autofix_prs: false
+  # mypy needs IVERT's dependencies installed, which pre-commit.ci can't do; the
+  # "Type check" GitHub workflow runs it instead.
+  skip: [mypy]
 
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
@@ -25,6 +28,17 @@ repos:
       - id: ruff-check
         args: ['--fix']
       - id: ruff-format
+
+  # Runs the mypy in your own environment (see "Type checking" in CONTRIBUTING.md),
+  # so it sees IVERT's installed dependencies.
+  - repo: local
+    hooks:
+      - id: mypy
+        name: mypy
+        entry: mypy
+        language: system
+        types: [python]
+        pass_filenames: false
 
   - repo: https://github.com/citation-file-format/cffconvert
     rev: "b6045d78aac9e02b039703b030588d54d53262ac"

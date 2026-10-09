@@ -389,16 +389,22 @@ def validate_list_of_dems(
     given, without a default elevation variable) is logged and skipped. 'dem_projection'
     is the DEMs' CRS, as in validate_dem.validate_dem().
     """
-    single_input = isinstance(dem_list_or_dir, (str, Path))
+    # A single file or directory, or else a list of DEMs.
+    single_input: str | Path | None = None
+    dem_names: list[str] = []
+    if isinstance(dem_list_or_dir, (str, Path)):
+        single_input = dem_list_or_dir
+    else:
+        dem_names = list(dem_list_or_dir)
     if output_dir is None:
-        if single_input and Path(dem_list_or_dir).is_dir():
-            stats_and_plots_dir = Path(dem_list_or_dir)
-        elif single_input:
-            stats_and_plots_dir = Path(dem_source.dem_file_path(dem_list_or_dir)).parent
+        if single_input is not None and Path(single_input).is_dir():
+            stats_and_plots_dir = Path(single_input)
+        elif single_input is not None:
+            stats_and_plots_dir = Path(dem_source.dem_file_path(single_input)).parent
         else:
             dem_list_fitting_filter = [
                 fn
-                for fn in dem_list_or_dir
+                for fn in dem_names
                 if (
                     (
                         (fname_filter is None)
@@ -416,14 +422,14 @@ def validate_list_of_dems(
     elif Path(output_dir).is_dir():
         stats_and_plots_dir = Path(output_dir)
     # If the output dir appears to be a relative path, then join it with the input dir.
-    elif single_input:
+    elif single_input is not None:
         stats_and_plots_dir = (
-            Path(dem_source.dem_file_path(dem_list_or_dir)).parent / output_dir
+            Path(dem_source.dem_file_path(single_input)).parent / output_dir
         )
     else:
         dem_list_fitting_filter = [
             fn
-            for fn in dem_list_or_dir
+            for fn in dem_names
             if (
                 (
                     (fname_filter is None)
@@ -583,7 +589,7 @@ def validate_list_of_dems(
         error_fname = this_output_dir / (dem_base + ERROR_MARKER_SUFFIX)
 
         try:
-            shared_ret_values = {}
+            shared_ret_values: dict = {}
             # Do the validation.
             # Note: We automatically skip the icesat-2 download here because we already
             # downloaded it above for the whole directory.

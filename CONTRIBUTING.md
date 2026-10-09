@@ -53,6 +53,26 @@ raise the rule on #40 if it needs discussion.
 `TODO` comments fail the lint (`FIX002`). Open a GitHub issue for unfinished
 work instead; if a note really belongs in the code, mark it `# noqa: FIX002`.
 
+### Type checking
+
+[mypy](https://mypy.readthedocs.io/) checks the type annotations in `src/ivert`,
+configured under `[tool.mypy]` in `pyproject.toml` and pinned in its `typecheck`
+dependency group. The settings are gentle for now: it checks the code that has
+annotations and skips the bodies of functions that have none. It needs IVERT's
+dependencies to understand their types, so run it in your development environment:
+
+```bash
+pip install --group typecheck   # --group needs pip 25.1 or newer
+mypy
+```
+
+prek runs it too, once it is installed (`prek run --all-files`). pre-commit.ci
+skips it, since it can't install IVERT's dependencies; the "Type check" GitHub
+workflow runs it on every pull request instead.
+
+A dependency that ships no type information goes in the list under
+`[[tool.mypy.overrides]]`, so that mypy doesn't fail on importing it.
+
 ### Output and logging
 
 Library code reports through the standard `logging` module, never `print()`.
