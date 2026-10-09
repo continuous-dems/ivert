@@ -23,6 +23,7 @@ import xarray
 from ivert import icesat2_database_v2 as is2db
 
 GRANULE = "ATL03_20211102061743_06231306_007_01_subsetted.h5"
+NO_AUX_GRANULE = "ATL03_20211226033808_00591406_007_01_subsetted.h5"
 STEM = "ATL03_20211102061743_06231306_007_01_subsetted"
 PART_1 = (-121.0, -116.5, 32.0, 33.0, 20211101, 20241101)
 PART_2 = (-122.0, -116.5, 33.0, 34.0, 20211101, 20241101)
@@ -198,10 +199,16 @@ def test_a_plain_box_and_the_same_box_as_a_geometry_make_the_same_request(
     monkeypatch.setattr(db, "_classify_h5", lambda *_a, **_k: None)
     box = (-121.0, -116.5, 32.0, 33.0, 20230101, 20230201)
 
-    db.download_new_granules(box)
+    # replace=True: the first download records the box as covered, which would
+    # otherwise leave the second nothing to request.
+    db.download_new_granules(box, replace=True)
     as_plain = [_region(b) for b in _FakeFetchezIceSat2.built]
     _FakeFetchezIceSat2.built = []
-    db.download_new_granules(box, geometry=shapely.box(-121.0, 32.0, -116.5, 33.0))
+    db.download_new_granules(
+        box,
+        geometry=shapely.box(-121.0, 32.0, -116.5, 33.0),
+        replace=True,
+    )
     as_geometry = [_region(b) for b in _FakeFetchezIceSat2.built]
 
     assert as_plain == as_geometry == [(-121.0, -116.5, 32.0, 33.0)]
@@ -292,3 +299,175 @@ def test_each_part_fetches_and_reads_its_own_copy_of_a_shared_granule(db, monkey
     assert len(set(read)) == 2, read
     assert all(name.startswith(STEM + "_W") for name in read)
     assert sorted(p.name for p in db.icesat2_download_dir.iterdir()) == sorted(read)
+
+
+# ---------------------------------------------------------------------------
+# Tiles left without photons are recorded as downloaded (#145)
+# ---------------------------------------------------------------------------
+
+
+def _photons_in_first_tile(db, monkeypatch):
+    """Classify every subset to one photon, in the first of PART_1's two tiles."""
+    monkeypatch.setattr(
+        db,
+        "_classify_h5",
+        lambda *_a, **_k: (_photons([-120.5]), "EPSG:4979"),
+    )
+
+
+def _markers(db):
+    return sorted(p.name for p in db.granules_dir.iterdir() if db.is_empty_tile(p.name))
+
+
+def test_a_tile_left_without_photons_is_not_requested_again(db, monkeypatch):
+    """It used to have no record, so every later download asked Harmony for it again."""
+    _photons_in_first_tile(db, monkeypatch)
+    tiles = is2db.split_bbox_into_parts(PART_1)
+
+    db.download_new_granules(PART_1)
+
+    assert _markers(db) == [
+        db.EMPTY_TILE_PREFIX + db._query_bbox_suffix(tiles[1]) + ".nc",
+    ]
+    _FakeFetchezIceSat2.built = []
+    db.download_new_granules(PART_1)
+    assert _FakeFetchezIceSat2.built == []
+
+
+def test_a_part_with_no_granules_records_every_tile(db, monkeypatch):
+    """Harmony serving no granules at all is an answer too: no track crossed the box."""
+    monkeypatch.setattr(
+        is2db.fetchez.core,
+        "run_fetchez",
+        lambda mods: [(mods[0], {"status": 0})],
+    )
+
+    summary = db.download_new_granules(PART_1)
+
+    assert summary.parts_empty == 1
+    assert len(_markers(db)) == len(is2db.split_bbox_into_parts(PART_1))
+
+
+def test_a_part_with_a_failed_download_records_no_tile(db, monkeypatch):
+    """The subset that failed might have had photons for the empty-looking tile."""
+    _photons_in_first_tile(db, monkeypatch)
+
+    def run_fetchez_one_failed(mods):
+        results = _fake_run_fetchez(mods)
+        return [*results, (mods[0], {"dst_fn": "lost.h5", "status": "failed"})]
+
+    monkeypatch.setattr(is2db.fetchez.core, "run_fetchez", run_fetchez_one_failed)
+
+    db.download_new_granules(PART_1)
+
+    assert _markers(db) == []
+    _FakeFetchezIceSat2.built = []
+    db.download_new_granules(PART_1)
+    assert _FakeFetchezIceSat2.built != []
+
+
+def test_a_part_whose_downloads_all_failed_counts_as_failed(db, monkeypatch):
+    """It used to count as empty, as if Harmony had found nothing there."""
+    monkeypatch.setattr(
+        is2db.fetchez.core,
+        "run_fetchez",
+        lambda mods: [(mods[0], {"dst_fn": "lost.h5", "status": "failed"})],
+    )
+
+    summary = db.download_new_granules(PART_1)
+
+    assert (summary.parts_failed, summary.parts_empty) == (1, 0)
+    assert _markers(db) == []
+
+
+def _no_aux(*_a: object, **_k: object):
+    msg = "ATL08 granule could not be fetched"
+    raise is2db.AuxiliaryDataError(msg)
+
+
+def test_a_part_whose_granules_could_not_be_classified_counts_as_failed(
+    db,
+    monkeypatch,
+):
+    """Without its ATL08 or ATL24 a granule has no photons to give, which is not an empty tile."""
+    monkeypatch.setattr(db, "_classify_h5", _no_aux)
+
+    summary = db.download_new_granules(PART_1)
+
+    assert (summary.parts_failed, summary.parts_empty) == (1, 0)
+    assert _markers(db) == []
+    _FakeFetchezIceSat2.built = []
+    db.download_new_granules(PART_1)
+    assert _FakeFetchezIceSat2.built != []
+
+
+def test_a_granule_that_could_not_be_classified_leaves_the_rest(db, monkeypatch):
+    """The other granules of the part are stored, but no tile is recorded as empty."""
+
+    def run_fetchez_two(mods):
+        results = _fake_run_fetchez(mods)
+        second = Path(results[0][1]["dst_fn"]).with_name(NO_AUX_GRANULE)
+        second.touch()
+        return [*results, (mods[0], {"dst_fn": str(second), "status": 0})]
+
+    def classify(h5_fn, *_a: object, **_k: object):
+        if Path(h5_fn).name == NO_AUX_GRANULE:
+            _no_aux()
+        return _photons([-120.5]), "EPSG:4979"
+
+    monkeypatch.setattr(is2db.fetchez.core, "run_fetchez", run_fetchez_two)
+    monkeypatch.setattr(db, "_classify_h5", classify)
+
+    summary = db.download_new_granules(PART_1)
+
+    assert summary.parts_downloaded == 1
+    assert summary.granules_added > 0
+    assert _markers(db) == []
+
+
+def test_markers_survive_a_rebuild_and_are_never_queried(db, monkeypatch):
+    """'ivert database rebuild' reads the files, and a marker's data box has no extent."""
+    _photons_in_first_tile(db, monkeypatch)
+    db.download_new_granules(PART_1)
+
+    gdf = db.create_new_database(populate=True, overwrite=True)
+
+    assert db.empty_tile_rows(gdf).sum() == 1
+    found = db.query_granules(PART_1)
+    assert not db.empty_tile_rows(found).any()
+    assert len(found) == 1
+
+
+def test_a_marker_is_dropped_once_its_tile_has_photons(db, monkeypatch):
+    """A later run that finds photons there (here with --replace) replaces the marker."""
+    _photons_in_first_tile(db, monkeypatch)
+    db.download_new_granules(PART_1)
+    monkeypatch.setattr(
+        db,
+        "_classify_h5",
+        lambda *_a, **_k: (_photons([-120.5, -117.0]), "EPSG:4979"),
+    )
+
+    db.download_new_granules(PART_1, replace=True)
+
+    assert _markers(db) == []
+    assert not db.empty_tile_rows(db.open_gdf()).any()
+
+
+def test_a_marker_cut_to_a_region_stays_a_marker(db, monkeypatch, tmp_path):
+    """'ivert database dump' of part of a marker's tile keeps that part recorded as covered."""
+    _photons_in_first_tile(db, monkeypatch)
+    db.download_new_granules(PART_1)
+    marker = db.granules_dir / _markers(db)[0]
+    out = tmp_path / "clipped"
+    out.mkdir()
+
+    records = db.clip_granule_file(
+        marker,
+        [(-118.0, -117.0, 32.0, 33.0, 20211101, 20221101)],
+        out,
+    )
+
+    assert [db.is_empty_tile(r["filename"]) for r in records] == [True]
+    assert records[0]["numphotons"] == 0
+    assert records[0]["query_bbox_xmin"] == -118.0

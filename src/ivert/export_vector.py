@@ -178,6 +178,8 @@ def index_to_geodataframe(index_path: str) -> geopandas.GeoDataFrame:
     from ivert.icesat2_database_v2 import IS2Database
 
     df = IS2Database.read_index_file(index_path)
+    # Empty-tile markers have no photons, so no footprint to draw.
+    df = df[~IS2Database.empty_tile_rows(df)].reset_index(drop=True)
 
     if len(df) == 0:
         return geopandas.GeoDataFrame(df, geometry=[], crs=WGS84_EPSG)

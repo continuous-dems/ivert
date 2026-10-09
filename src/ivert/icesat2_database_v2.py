@@ -44,6 +44,14 @@ from ivert.utils.paths import absolute_path
 
 logger = logging.getLogger(__name__)
 
+try:
+    from globato.streams.readers.icesat2 import AuxiliaryDataError
+except ImportError:  # globato before #273, which never raises it
+
+    class AuxiliaryDataError(Exception):
+        """Stands in for globato's, which older releases don't have."""
+
+
 # ICESat-2 epoch: all delta_time values are seconds since 2018-01-01T00:00:00Z
 _ICESAT2_EPOCH = datetime.datetime(2018, 1, 1, 0, 0, 0, tzinfo=datetime.UTC)
 
@@ -53,7 +61,8 @@ class DownloadSummary(NamedTuple):
 
     A download is split into one sub-region ("part") per tile, and each part is
     counted in exactly one of the first three fields. ``parts_failed`` counts
-    only real errors -- a Harmony request that came back with nothing -- while
+    only real errors -- a Harmony request that came back with nothing, or
+    granules none of which could be downloaded or classified -- while
     ``parts_empty`` counts the parts Harmony served correctly that added no new
     granules, either because the region holds no ICESat-2 data or because every
     granule over it is already in the database. Only ``parts_failed`` means
@@ -81,6 +90,16 @@ def _yyyymmdd_to_delta_time(yyyymmdd: int | str) -> float:
         - _ICESAT2_EPOCH
     ).total_seconds()
 
+
+# The photons of an empty-tile marker: none, in the columns every granule file has.
+_NO_PHOTONS = pd.DataFrame(
+    {
+        "x": np.array([], dtype=np.float64),
+        "y": np.array([], dtype=np.float64),
+        "z": np.array([], dtype=np.float32),
+        "class_code": np.array([], dtype=np.int8),
+    },
+)
 
 # Granule files read at once by query_photons(). Each is opened and decoded on its
 # own, so a handful of processes reads many granules several times faster.
@@ -298,10 +317,22 @@ def _start_classify_worker(config, nice: int) -> None:
     _WORKER_DB = IS2Database(ivert_config=config)
 
 
+def _classify_granule(db, kwargs: dict) -> tuple[list | None, str | None]:
+    """Classify one subset, as (its tile records, None).
+
+    If globato could not fetch or apply the subset's ATL08 or ATL24 granule, it is
+    (None, the reason) instead, so the rest of the request goes on without it.
+    """
+    try:
+        return db._process_h5_to_nc_tiles(**kwargs), None  # noqa: SLF001
+    except AuxiliaryDataError as e:
+        return None, str(e)
+
+
 def _classify_in_worker(job: tuple) -> tuple:
     """Classify one subset in a worker; ``job`` is (granule index, kwargs)."""
     index, kwargs = job
-    return index, kwargs["h5_fn"], _WORKER_DB._process_h5_to_nc_tiles(**kwargs)  # noqa: SLF001
+    return index, kwargs["h5_fn"], *_classify_granule(_WORKER_DB, kwargs)
 
 
 class DatabaseNotFoundError(Exception):
@@ -1124,6 +1155,49 @@ class IS2Database:
 
         return self._index_record_from_attrs(metadata_attrs, Path(nc_fn).name)
 
+    # The start of the name of a file that records a storage tile as downloaded
+    # though no photons were kept for it; see _write_empty_tile().
+    EMPTY_TILE_PREFIX = "EMPTY_TILE"
+
+    @classmethod
+    def is_empty_tile(cls, filename: str | Path) -> bool:
+        """Return True if filename names an empty-tile marker rather than a granule file."""
+        return Path(filename).name.startswith(cls.EMPTY_TILE_PREFIX)
+
+    @classmethod
+    def empty_tile_rows(cls, gdf: pd.DataFrame) -> pd.Series:
+        """Return a boolean Series marking the empty-tile markers among an index's rows."""
+        return gdf["filename"].map(cls.is_empty_tile).astype(bool)
+
+    def _write_empty_tile(self, tile_bbox: tuple, vertical_datum: str) -> dict:
+        """Record a storage tile as downloaded although no photons were kept for it.
+
+        The download only requests what the index does not cover yet, and coverage
+        comes from the records' query boxes, so a tile left with no photons would
+        otherwise be requested again by every later download. The marker is a granule
+        file with no photons: its query_bbox is the tile and the part's dates, and its
+        data_bbox has no extent (NaN), so no query ever reads it. Being a file, it
+        survives 'ivert database rebuild'. Returns its index record.
+        """
+        nc_fn = self.granules_dir / (
+            self.EMPTY_TILE_PREFIX + self._query_bbox_suffix(tile_bbox) + ".nc"
+        )
+        attrs = self._granule_attrs(
+            _NO_PHOTONS,
+            nc_fn,
+            tile_bbox,
+            {
+                "source_granule": self.EMPTY_TILE_PREFIX,
+                "downloaded_on_utc": datetime.datetime.now(datetime.UTC).strftime(
+                    "%Y%m%d",
+                ),
+                "horizontal_datum": "EPSG:4326",
+                "vertical_datum": vertical_datum,
+            },
+        )
+        self._save_nc(_NO_PHOTONS, nc_fn, attrs)
+        return self._index_record_from_attrs(attrs, nc_fn.name)
+
     @classmethod
     def clip_granule_file(cls, nc_fn: str, cuboids, out_dir: str) -> list[dict]:
         """Write the photons of a granule file that fall in each cuboid to a file of its own.
@@ -1134,7 +1208,9 @@ class IS2Database:
         and dates before tmax, so a photon on a shared edge goes to exactly one
         piece. Every column is kept. The new files keep the original's source
         granule, download date and datums; their photon bounds and per-class counts
-        are recomputed. A cuboid holding no photons writes no file.
+        are recomputed. A cuboid holding no photons writes no file, except that an
+        empty-tile marker (see _write_empty_tile) is cut into markers of its own, so
+        the coverage it records is kept.
 
         Returns:
             The index records (see _index_record_from_attrs) of the files written.
@@ -1156,6 +1232,7 @@ class IS2Database:
             "vertical_datum": attrs.get("vertical_datum", "EPSG:4979"),
         }
 
+        is_marker = cls.is_empty_tile(nc_fn)
         records = []
         for cuboid in cuboids:
             piece = cls._photons_in_bbox(df, cuboid)
@@ -1165,7 +1242,7 @@ class IS2Database:
                     (dt >= _yyyymmdd_to_delta_time(cuboid[4]))
                     & (dt < _yyyymmdd_to_delta_time(cuboid[5]))
                 ]
-            if len(piece) == 0:
+            if len(piece) == 0 and not is_marker:
                 continue
             out_fn = Path(out_dir) / (
                 cls._granule_stem(nc_fn) + cls._query_bbox_suffix(cuboid) + ".nc"
@@ -1327,7 +1404,7 @@ class IS2Database:
         min_confidence_level: int = 1,
         min_bathy_confidence: float = 0.0,
         use_external_masks: bool = True,
-    ) -> list[dict]:
+    ) -> tuple[list[dict], list[str]]:
         """Classify each downloaded subset and store its tiles, in parallel when the machine allows.
 
         ``files_to_process`` holds ``(h5_fn, tiles)`` pairs as
@@ -1339,9 +1416,11 @@ class IS2Database:
         by a pool sized by :func:`classify_worker_count`, or here one after
         another when that size is 1. So only the prefetch downloads, and its
         progress bars are the only ones on the screen. Granules that produce no
-        photons are logged.
+        photons are logged, as are those whose ATL08 or ATL24 granule globato
+        could not fetch or apply; the others are classified all the same.
 
-        Returns the index records of every tile written.
+        Returns (the index records of every tile written, the subsets that could
+        not be classified for want of their ATL08 or ATL24).
         """
         total = len(files_to_process)
         ordered = sorted(
@@ -1351,8 +1430,9 @@ class IS2Database:
         )
         tiles_of = dict(ordered)
         records = []
+        failed = []
         if not ordered:
-            return records
+            return records, failed
 
         def job(index, h5_fn):
             return {
@@ -1367,8 +1447,17 @@ class IS2Database:
                 "use_external_masks": use_external_masks,
             }
 
-        def take(index, h5_fn, metas):
-            if metas:
+        def take(index, h5_fn, metas, error=None):
+            if error is not None:
+                failed.append(h5_fn)
+                logger.error(
+                    "%d/%d Could not classify %s: %s",
+                    index,
+                    total,
+                    Path(h5_fn).name,
+                    error,
+                )
+            elif metas:
                 records.extend(metas)
             else:
                 logger.info(
@@ -1383,9 +1472,9 @@ class IS2Database:
         try:
             ready = self._as_ready(h5_files, prefetch)
             first = next(ready)
-            take(1, first, self._process_h5_to_nc_tiles(**job(1, first)))
+            take(1, first, *_classify_granule(self, job(1, first)))
             if total == 1:
-                return records
+                return records, failed
 
             workers, why = classify_worker_count(
                 getattr(self.config, "icesat2_classify_workers", "auto"),
@@ -1395,12 +1484,8 @@ class IS2Database:
             numbered = ((index, h5_fn) for index, h5_fn in enumerate(ready, start=2))
             if workers <= 1:
                 for index, h5_fn in numbered:
-                    take(
-                        index,
-                        h5_fn,
-                        self._process_h5_to_nc_tiles(**job(index, h5_fn)),
-                    )
-                return records
+                    take(index, h5_fn, *_classify_granule(self, job(index, h5_fn)))
+                return records, failed
 
             logger.info(
                 "Classifying the remaining %d granules with %d worker processes (%s).",
@@ -1415,18 +1500,15 @@ class IS2Database:
                 initargs=(self.config, _CLASSIFY_NICE),
             )
             try:
-                for index, h5_fn, metas in pool.imap_unordered(
-                    _classify_in_worker,
-                    jobs,
-                ):
-                    take(index, h5_fn, metas)
+                for result in pool.imap_unordered(_classify_in_worker, jobs):
+                    take(*result)
                 pool.close()
             except BaseException:
                 pool.terminate()
                 raise
             finally:
                 pool.join()
-            return records
+            return records, failed
         finally:
             if prefetch is not None:
                 prefetch[0].join()
@@ -2203,8 +2285,29 @@ class IS2Database:
                 and Path(entry["dst_fn"]).exists()
             )
 
+            # A subset that failed to download might have had photons for any tile
+            # of this part, so such a part records no tile as empty (see below).
+            n_failed = sum(1 for _, entry in results if entry.get("status") != 0)
+
+            # One request, many files: the subset is stored per storage tile.
+            storage_tiles = split_bbox_into_parts(
+                sbbox,
+                tile_size_deg=tile_size_deg,
+                max_tile_scale_factor=max_tile_scale_factor,
+            )
+
             if not h5_files:
+                if n_failed:
+                    logger.warning(
+                        "All %d granule download(s) for bbox %s failed. Skipping for "
+                        "now; you may re-run the command later to try again.",
+                        n_failed,
+                        sbbox,
+                    )
+                    parts_failed += 1
+                    continue
                 logger.info("No granules downloaded for this bbox.")
+                self._record_empty_tiles(storage_tiles, [], target_vd)
                 parts_empty += 1
                 continue
 
@@ -2241,13 +2344,6 @@ class IS2Database:
                 else set()
             )
 
-            # One request, many files: the subset is stored per storage tile.
-            storage_tiles = split_bbox_into_parts(
-                sbbox,
-                tile_size_deg=tile_size_deg,
-                max_tile_scale_factor=max_tile_scale_factor,
-            )
-
             files_to_process = []
             for h5_src in h5_files:
                 targets = []
@@ -2260,7 +2356,7 @@ class IS2Database:
                 if targets:
                     files_to_process.append((h5_src, targets))
 
-            new_records = self._classify_files(
+            new_records, unclassified = self._classify_files(
                 files_to_process,
                 sbbox,
                 classes_to_keep=classes_to_keep,
@@ -2273,9 +2369,33 @@ class IS2Database:
             # storage tile, so validations here need not query OSM for it again.
             self._store_landmasks(storage_tiles)
 
+            if n_failed:
+                logger.warning(
+                    "%d granule download(s) for bbox %s failed, so its tiles without "
+                    "photons are not recorded as downloaded; a later run tries them "
+                    "again.",
+                    n_failed,
+                    sbbox,
+                )
+            if unclassified:
+                logger.warning(
+                    "%d granule(s) for bbox %s could not be classified, so its tiles "
+                    "without photons are not recorded as downloaded; a later run "
+                    "tries them again.",
+                    len(unclassified),
+                    sbbox,
+                )
+            if not (n_failed or unclassified):
+                self._record_empty_tiles(storage_tiles, new_records, target_vd)
+
             if not new_records:
-                parts_empty += 1
+                if unclassified:
+                    parts_failed += 1
+                else:
+                    parts_empty += 1
                 continue
+
+            existing_gdf = self._drop_empty_tiles_now_filled(new_records)
 
             new_gdf = pd.DataFrame(new_records)[list(self._empty_db_dict().keys())]
             if existing_gdf is None or len(existing_gdf) == 0:
@@ -2357,6 +2477,74 @@ class IS2Database:
             parts_failed=parts_failed,
             granules_added=granules_added,
         )
+
+    @staticmethod
+    def _tile_key(bbox) -> tuple:
+        """Return a hashable key for a (xmin, xmax, ymin, ymax, tmin, tmax) query box.
+
+        The dates are part of it: a record for the same tile over other dates does
+        not cover these. Coordinates are rounded so float noise can't split a key.
+        """
+        return (*(round(float(v), 9) for v in bbox[:4]), int(bbox[4]), int(bbox[5]))
+
+    @classmethod
+    def _record_query_bbox(cls, record) -> tuple:
+        """Return an index record's query box as a 6-tuple."""
+        return tuple(record[c] for c in cls.bbox_cols("query_bbox"))
+
+    def _record_empty_tiles(self, storage_tiles, new_records, vertical_datum) -> int:
+        """Write a marker for each storage tile of a part that has no record, and index them.
+
+        Called only for a part whose downloads all succeeded. A tile counts as
+        covered if any record, new or already in the index, has it as its query box.
+        Returns the number of markers written.
+        """
+        gdf = self.open_gdf()
+        covered = {self._tile_key(self._record_query_bbox(r)) for r in new_records}
+        if gdf is not None and len(gdf) > 0:
+            qcols = list(self.bbox_cols("query_bbox"))
+            covered |= {self._tile_key(r) for r in gdf[qcols].itertuples(index=False)}
+
+        markers = [
+            self._write_empty_tile(tile, vertical_datum)
+            for tile in storage_tiles
+            if self._tile_key(tile) not in covered
+        ]
+        if not markers:
+            return 0
+        logger.info(
+            "Recorded %d storage tile(s) with no photons as downloaded, so later "
+            "downloads skip them.",
+            len(markers),
+        )
+        marker_gdf = pd.DataFrame(markers)[list(self._empty_db_dict().keys())]
+        self.gdf = (
+            marker_gdf
+            if gdf is None or len(gdf) == 0
+            else pd.concat([gdf, marker_gdf], ignore_index=True)
+        )
+        self._write_index(self.gdf)
+        return len(markers)
+
+    def _drop_empty_tiles_now_filled(self, new_records) -> pd.DataFrame | None:
+        """Remove the markers of tiles that new_records now hold photons for.
+
+        A marker can be left over from a run that found no photons where a later
+        one over the same tile and dates (with --replace) did. Returns the index
+        without those markers; their files are deleted.
+        """
+        gdf = self.open_gdf()
+        if gdf is None or len(gdf) == 0:
+            return gdf
+        filled = {self._tile_key(self._record_query_bbox(r)) for r in new_records}
+        qcols = list(self.bbox_cols("query_bbox"))
+        stale = self.empty_tile_rows(gdf) & pd.Series(
+            [self._tile_key(r) in filled for r in gdf[qcols].itertuples(index=False)],
+            index=gdf.index,
+        )
+        for fname in gdf.loc[stale, "filename"]:
+            (self.granules_dir / fname).unlink(missing_ok=True)
+        return gdf[~stale]
 
     def bounds(self, axis: str, data_or_query: str = "data") -> tuple | None:
         """Return the min, max bounds of each entry in the database, on the axis requested ('x', 'y', or 't').

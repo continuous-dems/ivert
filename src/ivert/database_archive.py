@@ -298,25 +298,37 @@ def summarize(manifest: dict) -> str:
         t0, t1 = region["date_range"]
         lines.append(f"  Requested dates: {_fmt_date(t0)} up to {_fmt_date(t1)}")
 
-    if not granules:
+    # Empty-tile markers count toward the coverage (query boxes), not the photons.
+    is_marker = ivert.icesat2_database_v2.IS2Database.is_empty_tile
+    markers = [g for g in granules if is_marker(g["filename"])]
+    all_records = granules
+    granules = [g for g in granules if not is_marker(g["filename"])]
+
+    if not all_records:
         lines.append("  Granule files: none")
     else:
-        queries = sorted({tuple(g["query_bbox"]) for g in granules})
+        queries = sorted({tuple(g["query_bbox"]) for g in all_records})
         lines.append(
             f"  Granule files: {len(granules):,} "
             f"(from {len({g['source_granule'] for g in granules}):,} ICESat-2 granules)",
         )
+        if markers:
+            lines.append(
+                f"  Empty-tile markers: {len(markers):,} (tiles downloaded with no "
+                "photons)",
+            )
         lines.append(
             f"  Query boxes: {len(queries):,}, covering "
             f"{_fmt_rect(_extent(q[:4] for q in queries))}, "
             f"dates {_fmt_date(min(q[4] for q in queries))} to "
             f"{_fmt_date(max(q[5] for q in queries))}",
         )
-        lines.append(
-            "  Photon dates: "
-            f"{_fmt_date(min(g['data_bbox'][4] for g in granules))} to "
-            f"{_fmt_date(max(g['data_bbox'][5] for g in granules))}",
-        )
+        if granules:
+            lines.append(
+                "  Photon dates: "
+                f"{_fmt_date(min(g['data_bbox'][4] for g in granules))} to "
+                f"{_fmt_date(max(g['data_bbox'][5] for g in granules))}",
+            )
         total = sum(g["numphotons"] for g in granules)
         lines.append(f"  Photons: {total:,}")
         width = max(len(label) for _, label in _CLASS_COUNTS)

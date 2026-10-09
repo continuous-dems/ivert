@@ -789,6 +789,16 @@ def database_list(show_all, boxes):
         click.echo("Run 'ivert database download <bbox>' to create one.")
         return
 
+    # Empty-tile markers record coverage, so --boxes lists them; the granule views
+    # leave them out and say how many there are.
+    is_marker = db.empty_tile_rows(gdf)
+    n_markers = int(is_marker.sum())
+    markers_note = (
+        f"\n{n_markers} storage tile(s) downloaded with no photons, recorded so "
+        "later downloads skip them."
+        if n_markers
+        else ""
+    )
     if len(gdf) == 0:
         click.echo("Database exists but contains no granules.")
         return
@@ -808,6 +818,7 @@ def database_list(show_all, boxes):
         click.echo(tabulate_mod.tabulate(rows, headers=headers, tablefmt="simple"))
         click.echo(f"\n{len(unique_boxes)} unique query box(es)  —  db: {db.db_fname}")
     elif show_all:
+        gdf = gdf[~is_marker]
         cols = [c for c in gdf.columns if c != "geometry"]
         rows = []
         for _, row in gdf.iterrows():
@@ -818,8 +829,9 @@ def database_list(show_all, boxes):
                 ],
             )
         click.echo(tabulate_mod.tabulate(rows, headers=cols, tablefmt="simple"))
-        click.echo(f"\n{len(gdf)} granule(s)  —  db: {db.db_fname}")
+        click.echo(f"\n{len(gdf)} granule(s)  —  db: {db.db_fname}{markers_note}")
     else:
+        gdf = gdf[~is_marker]
         rows = []
         for _, row in gdf.iterrows():
             rows.append(
@@ -835,7 +847,7 @@ def database_list(show_all, boxes):
         click.echo(
             tabulate_mod.tabulate(rows, headers=headers, tablefmt="simple", intfmt=","),
         )
-        click.echo(f"\n{len(gdf)} granule(s)  —  db: {db.db_fname}")
+        click.echo(f"\n{len(gdf)} granule(s)  —  db: {db.db_fname}{markers_note}")
 
 
 @database.command("rebuild")
@@ -950,16 +962,19 @@ def database_size():
         if granules_dir.is_dir()
         else []
     )
-    nc_count = len(nc_files)
-    nc_bytes = sum(f.stat().st_size for f in nc_files) if nc_files else 0
-    rows.append(
-        (
-            ".nc granules",
-            nc_count,
-            sizeof_fmt(nc_bytes) if nc_files else "—",
-            db.granules_dir,
-        ),
-    )
+    markers = [f for f in nc_files if db.is_empty_tile(f)]
+    nc_files = [f for f in nc_files if not db.is_empty_tile(f)]
+    for label, files in ((".nc granules", nc_files), ("empty-tile markers", markers)):
+        if label == "empty-tile markers" and not files:
+            continue
+        rows.append(
+            (
+                label,
+                len(files),
+                sizeof_fmt(sum(f.stat().st_size for f in files)) if files else "—",
+                db.granules_dir,
+            ),
+        )
 
     import tabulate as tabulate_mod
 
@@ -1825,7 +1840,8 @@ def database_convert(
 
     # --- Select the granules to read. ---
     if bbox is None and not date_filtering:
-        granule_rows = gdf_index
+        # Empty-tile markers hold no photons.
+        granule_rows = gdf_index[~db.empty_tile_rows(gdf_index)]
     else:
         spatial = bbox if bbox is not None else (-180.0, 180.0, -90.0, 90.0)
         bbox6 = (spatial[0], spatial[1], spatial[2], spatial[3], tmin, tmax)
