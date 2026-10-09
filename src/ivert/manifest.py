@@ -211,7 +211,8 @@ def _version_mismatch_message(manifest_version, current_version):
         return (
             f"This manifest was run on a newer version of IVERT ({manifest_version}) "
             f"that is not compatible with the current version ({current_version}). "
-            "Upgrade IVERT to the latest version ('ivert upgrade')."
+            "Upgrade IVERT to the latest version ('pip install --upgrade ivert', or "
+            "'conda update ivert' if you installed it with conda)."
         )
     return incompatible
 
