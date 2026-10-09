@@ -8,8 +8,10 @@ import h5py
 import numpy as np
 import pandas as pd
 import pytest
+import xarray
 
 from ivert import icesat2_database_v2 as is2db
+from ivert.plot_photon_clouds_v2 import _load_h5_beam_photons
 
 # Two beams. Segment photon counts include an empty segment, whose
 # ph_index_beg is 0 in a real file.
@@ -157,7 +159,6 @@ def test_classified_photons_carry_along_track_m(tmp_path, fake_globato_read):
     # And it reaches the tile.
     nc_fn = str(tmp_path / "db" / "tile.nc")
     db._write_nc(df, h5, nc_fn, query_bbox, "EPSG:4979")
-    import xarray
 
     with xarray.open_dataset(nc_fn) as tile:
         assert tile["along_track_m"].to_numpy().tolist() == df["along_track_m"].tolist()
@@ -193,8 +194,6 @@ def test_the_plotter_computes_the_same_distances_from_the_h5(tmp_path, name):
     two must agree, including across an empty segment and at each segment's first
     photon (the plotter used to search a 0-based row against 1-based ph_index_beg).
     """
-    from ivert.plot_photon_clouds_v2 import _load_h5_beam_photons
-
     h5 = _write_h5(tmp_path / "ATL03_test.h5")
 
     plotter = _load_h5_beam_photons(h5, name).sort_values("delta_time")

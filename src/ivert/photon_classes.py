@@ -30,7 +30,9 @@ def photon_classes():
     Read from globato's ``PHOTON_CLASSES``. Raises ``ImportError`` if globato is
     not installed.
     """
-    from globato.streams.readers.icesat2 import PHOTON_CLASSES
+    from globato.streams.readers.icesat2 import (  # noqa: PLC0415 - slow import
+        PHOTON_CLASSES,
+    )
 
     return tuple(PHOTON_CLASSES.items())
 

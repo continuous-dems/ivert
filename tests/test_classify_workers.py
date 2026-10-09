@@ -12,6 +12,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import ClassVar
 
+import globato.streams.readers.icesat2 as g
 import pytest
 
 from ivert import icesat2_database_v2 as is2db
@@ -127,8 +128,6 @@ class _RecordingReader:
 @pytest.fixture
 def fake_globato(monkeypatch):
     """Replace globato's ATL03Reader with _RecordingReader, cleared for each test."""
-    import globato.streams.readers.icesat2 as g
-
     monkeypatch.setattr(g, "ATL03Reader", _RecordingReader)
     _RecordingReader.asked = []
     _RecordingReader.delay = {}

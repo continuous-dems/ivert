@@ -314,7 +314,7 @@ class ICESat2RequestsCSV:
     def _is_expired(dt_string: str) -> bool:
         """Return True if the expiration date has passed."""
         # Imported here: it is slow to import, and only this needs it.
-        import dateparser
+        import dateparser  # noqa: PLC0415 - slow import
 
         try:
             ex = dateparser.parse(dt_string)

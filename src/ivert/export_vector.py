@@ -16,6 +16,11 @@ import geopandas
 import netCDF4
 import numpy as np
 import pandas as pd
+import shapely
+import shapely.geometry
+
+from ivert.icesat2_database_v2 import IS2Database
+from ivert.photon_classes import class_names as _class_names
 
 logger = logging.getLogger(__name__)
 
@@ -111,8 +116,6 @@ def nc_to_geodataframe(
         classes: If given, keep only photons whose class_code is in this list.
 
     """
-    from ivert.photon_classes import class_names as _class_names
-
     class_names = _class_names()
 
     with netCDF4.Dataset(nc_path) as ds:
@@ -173,10 +176,6 @@ def index_to_geodataframe(index_path: str) -> geopandas.GeoDataFrame:
     Each row is one granule in the index, carrying every index field, with its
     data_bbox drawn as a rectangular polygon for the geometry.
     """
-    import shapely.geometry
-
-    from ivert.icesat2_database_v2 import IS2Database
-
     df = IS2Database.read_index_file(index_path)
     # Empty-tile markers have no photons, so no footprint to draw.
     df = df[~IS2Database.empty_tile_rows(df)].reset_index(drop=True)
@@ -319,8 +318,6 @@ def subset_gdf_to_geometry(
     """
     if gdf.empty or geometry is None:
         return gdf
-
-    import shapely
 
     shapely.prepare(geometry)
     mask = shapely.intersects(geometry, gdf.geometry.values)

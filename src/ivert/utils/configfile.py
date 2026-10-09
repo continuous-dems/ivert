@@ -13,6 +13,7 @@ import os
 import re
 from pathlib import Path
 
+from ivert import __version__
 from ivert.utils import is_aws
 from ivert.utils.paths import absolute_path
 
@@ -488,8 +489,6 @@ class Config:
 
     def _handle_unknown_user_keys(self, user_path: str, unknown_keys: set[str]) -> None:
         """Warn about unrecognized user-config options and comment them out."""
-        from ivert import __version__
-
         key_list = "\n".join(f"    - {k}" for k in sorted(unknown_keys))
         try:
             commented = comment_out_options(user_path, unknown_keys)

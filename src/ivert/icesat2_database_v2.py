@@ -19,6 +19,7 @@ import queue
 import re
 import sys
 from collections.abc import Iterator
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import ClassVar, NamedTuple
 
@@ -26,6 +27,8 @@ import fetchez
 import fetchez.core
 import fetchez.spatial
 import globato
+import globato.streams.readers.icesat2
+import h5py
 import numpy as np
 import pandas as pd
 import psutil
@@ -287,12 +290,14 @@ def _prefetch_aux_granules(h5_files, cache_dir, threads: int, ready) -> None:
     Each subset's path is put on ``ready`` once its files have been looked for,
     whether or not any were found, and ``None`` once all have.
     """
-    from concurrent.futures import ThreadPoolExecutor, as_completed
-
-    from globato.streams.readers.icesat2 import ATL03Reader
 
     def fetch(h5_fn):
-        reader = ATL03Reader(h5_fn, cache_dir=cache_dir, classes="1")
+        # Looked up when called, not imported by name, so tests can replace it.
+        reader = globato.streams.readers.icesat2.ATL03Reader(
+            h5_fn,
+            cache_dir=cache_dir,
+            classes="1",
+        )
         return [reader.fetch_atlxx(h5_fn, name) for name in _AUX_PRODUCTS]
 
     counts = [0] * len(_AUX_PRODUCTS)
@@ -840,8 +845,6 @@ class IS2Database:
         ``along_track_m`` in photon (heights) order; a beam missing from the file
         is left out.
         """
-        import h5py
-
         tables = {}
         with h5py.File(h5_fn, "r") as f:
             for beam in beams:
@@ -1954,7 +1957,7 @@ class IS2Database:
             except ValueError:
                 # If it isn't a YYYYMMDD string, parse it with dateparser, imported
                 # only here because it is slow to import and rarely needed.
-                import dateparser
+                import dateparser  # noqa: PLC0415 - slow import
 
                 parsed = dateparser.parse(date)
                 if parsed is None:

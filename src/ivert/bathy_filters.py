@@ -26,6 +26,7 @@ import math
 from pathlib import Path
 from typing import Self
 
+import fetchez
 import numpy as np
 import pandas as pd
 import pyproj
@@ -35,11 +36,13 @@ import rasterio.merge
 import rasterio.transform
 import rasterio.vrt
 import shapely
+from fetchez.registry import HookRegistry, ModuleRegistry
 from scipy import ndimage
 from scipy.spatial import cKDTree
 
 import ivert.landmask
 import ivert.transform_points
+import ivert.utils.configfile
 import ivert.utils.logging_config
 from ivert.utils.paths import absolute_path
 
@@ -148,8 +151,6 @@ class BathyFilterSettings:
 
         """
         if config is None:
-            import ivert.utils.configfile
-
             config = ivert.utils.configfile.Config()
 
         config_keys = {
@@ -614,7 +615,6 @@ def preload_reference_fetcher(settings):
     """
     if not settings.needs_reference or settings.ref_raster:
         return
-    from fetchez.registry import HookRegistry, ModuleRegistry
 
     ModuleRegistry.load_all()
     HookRegistry.load_all()
@@ -630,8 +630,6 @@ def _load_reference(ref_raster, bounds, cache_dir):
     if ref_raster:
         paths = [ref_raster]
     else:
-        import fetchez
-
         with ivert.utils.logging_config.keep_root_logging():
             paths = fetchez.get(
                 "etopo",

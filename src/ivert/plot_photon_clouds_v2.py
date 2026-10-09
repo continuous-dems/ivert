@@ -23,9 +23,14 @@ import numpy as np
 import pandas as pd
 
 mpl.use("Agg")
+import configparser
+
+import h5py
 import matplotlib.pyplot as plt
 import netCDF4
 
+import ivert.utils.configfile
+import ivert.vdatum_lookup
 from ivert.photon_classes import class_labels
 from ivert.utils.paths import absolute_path
 
@@ -97,8 +102,6 @@ def _find_h5(nc_path, cache_dirs=()):
 
 def _beam_delta_times(h5_path):
     """Return {beam_name: delta_time_array} for all beams present in the .h5."""
-    import h5py
-
     beams = {}
     with h5py.File(h5_path, "r") as f:
         for beam in ["gt1l", "gt1r", "gt2l", "gt2r", "gt3l", "gt3r"]:
@@ -118,8 +121,6 @@ def _load_h5_beam_photons(h5_path, beam):
     distance (along_track_m) is computed from geolocation/segment_length and
     heights/dist_ph_along, matching the convention used in the .nc files.
     """
-    import h5py
-
     with h5py.File(h5_path, "r") as f:
         try:
             delta_time = f[f"{beam}/heights/delta_time"][...]
@@ -192,8 +193,6 @@ def load_nc(nc_path):
 
 def _get_vdatum_label(reference):
     """Return a short human-readable label for a vertical reference ('EPSG:5703', 'vdatum:mllw')."""
-    import ivert.vdatum_lookup
-
     desc = ivert.vdatum_lookup.describe_vdatum(reference)
     if desc:
         return desc.replace(" height", "").replace(" Height", "")
@@ -206,7 +205,7 @@ def _apply_vdatum_to_df(df, target_vert, cache_dir=None):
     'target_vert' is a bare EPSG code ('5703') or a transformez reference ID
     ('vdatum:mllw').
     """
-    import ivert.transform_points as tp
+    import ivert.transform_points as tp  # noqa: PLC0415 - slow import
 
     src = "EPSG:4326+3855"
     dst = f"EPSG:4326+{target_vert}"
@@ -248,8 +247,8 @@ def _sample_dem_along_track(
     When target_vert is given and differs from the DEM's native vertical datum,
     the sampled elevations are transformed to that datum.
     """
-    import pyproj
-    import rasterio
+    import pyproj  # noqa: PLC0415 - slow import
+    import rasterio  # noqa: PLC0415 - slow import
 
     lons = np.asarray(lons, dtype=float)
     lats = np.asarray(lats, dtype=float)
@@ -323,8 +322,8 @@ def _sample_dem_along_track(
         return None
 
     if target_vert is not None:
-        import ivert.transform_points as tp
-        from ivert.utils import dem_geom
+        import ivert.transform_points as tp  # noqa: PLC0415 - slow import
+        from ivert.utils import dem_geom  # noqa: PLC0415 - slow import
 
         try:
             _, dem_vert = dem_geom.get_dem_reference_frame_from_file(dem_path)
@@ -612,8 +611,7 @@ def main(
     target_vert = None
     ylabel = "Elevation / depth (m, EGM2008 geoid)"
     if vdatum:
-        import ivert.vdatum_lookup
-        from ivert.utils import dem_geom
+        from ivert.utils import dem_geom  # noqa: PLC0415 - slow import
 
         vdatum_str = ivert.vdatum_lookup.resolve_vdatum(vdatum)
         if vdatum_str is None:
@@ -629,9 +627,6 @@ def main(
         ylabel = f"Elevation / depth (m, {_get_vdatum_label(vdatum_str)})"
 
     # Datum-shift grid cache (use ivert cache if available, else cwd)
-    import configparser
-
-    import ivert.utils.configfile
 
     try:
         config = ivert.utils.configfile.Config()
