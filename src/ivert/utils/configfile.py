@@ -414,7 +414,7 @@ class Config:
 
         return [k for k in raw if k in needed]
 
-    def _apply_user_config(self):
+    def _apply_user_config(self) -> None:
         """If the user config file exists, overlay its values on top of the defaults."""
         user_path = self.user_config_path
         if user_path is None or not user_path.exists():
@@ -584,7 +584,7 @@ class Config:
                 preamble,
             )
 
-    def _parse_config_into_attrs(self):
+    def _parse_config_into_attrs(self) -> None:
         """Read all the Config lines, put into object attributes.
 
         If we're running in an AWS instance, also read the [AWS] section.
@@ -600,7 +600,7 @@ class Config:
             for k, v in section.items():
                 self._read_option(k, v)
 
-    def _read_option(self, key, value):
+    def _read_option(self, key, value) -> None:
         """Read an individual option.
 
         Will use "ast.literal_eval()"  to parse it,

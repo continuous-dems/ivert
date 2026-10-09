@@ -156,7 +156,7 @@ def evenly_split(n: int, factor: int) -> list:
         "the same directory as the input DEM."
     ),
 )
-def main(dem_name, factor, output_dir):
+def main(dem_name, factor, output_dir) -> None:
     """Split a DEM into sub-segments, each side split by a factor.
 
     DEM_NAME is the name of the DEM file. May use bash-style glob flags (*.tif) to

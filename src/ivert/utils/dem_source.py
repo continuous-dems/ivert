@@ -206,7 +206,7 @@ def _georeferenced_source(subdataset):
     return subdataset
 
 
-def check_georeferenced(dem_name):
+def check_georeferenced(dem_name) -> None:
     """Raise DEMNotGeoreferencedError if GDAL reads no geotransform for this DEM.
 
     Raises DEMUnreadableError if GDAL can't open it at all.

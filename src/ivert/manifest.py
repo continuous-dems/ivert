@@ -88,7 +88,7 @@ def _format_entry(key, text):
     return entry
 
 
-def write_manifest(path, version, options, run_info):
+def write_manifest(path, version, options, run_info) -> None:
     """Write a manifest to 'path', replacing any existing file.
 
     Args:
@@ -217,7 +217,7 @@ def _version_mismatch_message(manifest_version, current_version):
     return incompatible
 
 
-def _describe_default(value):
+def _describe_default(value) -> str:
     """For a warning, describe the default a manifest's missing option runs with."""
     text = ", ".join(format_value(value).split("\n"))
     return f"its default, '{text}'" if text else "its default (not set)"

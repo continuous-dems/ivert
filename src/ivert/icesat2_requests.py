@@ -154,7 +154,7 @@ class ICESat2RequestsCSV:
         *,
         write_file: bool = True,
         atl_version: int | str = "",
-    ):
+    ) -> None:
         """Append a new Harmony job record."""
         if self.df is None:
             self.open()
@@ -276,7 +276,7 @@ class ICESat2RequestsCSV:
 
         return df
 
-    def export(self):
+    def export(self) -> None:
         """Write self.df back to disk."""
         self.csv_file.parent.mkdir(parents=True, exist_ok=True)
         self.open().to_csv(self.csv_file, index=False, header=True)

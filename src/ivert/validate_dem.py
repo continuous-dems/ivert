@@ -147,7 +147,7 @@ def read_dataframe_file(df_filename: str | Path) -> pd.DataFrame:
     return dataframe
 
 
-def _check_dem_geotransform(dem_name, xstep, ystep, xrot, yrot):
+def _check_dem_geotransform(dem_name, xstep, ystep, xrot, yrot) -> None:
     """Raise if a DEM's geotransform is rotated or not north-up.
 
     Every photon's (i, j) cell index and every grid-cell bounding box is computed
@@ -171,7 +171,7 @@ def _check_dem_geotransform(dem_name, xstep, ystep, xrot, yrot):
         )
 
 
-def _check_cell_validation_params(photon_limit, min_photons, num_subdivisions):
+def _check_cell_validation_params(photon_limit, min_photons, num_subdivisions) -> None:
     """Raise if the per-cell validation parameters cannot produce usable results.
 
     Checked once up front rather than per grid cell: none of these vary over the
@@ -204,7 +204,13 @@ def _check_cell_validation_params(photon_limit, min_photons, num_subdivisions):
         raise ValueError(msg)
 
 
-def _check_chunk_payload(dem_i_list, dem_j_list, dem_elev_list, bbox_lists, ph_ranges):
+def _check_chunk_payload(
+    dem_i_list,
+    dem_j_list,
+    dem_elev_list,
+    bbox_lists,
+    ph_ranges,
+) -> None:
     """Raise if the arrays in one work chunk disagree in length.
 
     The validation loop indexes all of these with a single counter, so a short
@@ -246,7 +252,7 @@ def validate_dem_child_process(
     num_subdivisions=15,
     empty_val=None,
     coordinator_pid=None,
-):
+) -> None:
     """Run DEM validation as a child process, one of several in parallel.
 
     It reads the photon heights and class codes (and, with 'measure_coverage', their x
@@ -516,7 +522,7 @@ def _is_running(process):
         return False
 
 
-def clean_procs_and_pipes(procs, pipes1, pipes2, memory_objs):
+def clean_procs_and_pipes(procs, pipes1, pipes2, memory_objs) -> None:
     """Join all processes and close all pipes.
 
     Useful for cleaning up after multiprocessing.
@@ -2761,7 +2767,7 @@ def generate_result_geotiff(
     result_tif_filename,
     empty_val=None,
     crs=None,
-):
+) -> None:
     """Given the results in the dataframe, output geotiffs to visualize these.
 
     Name the geotiffs after the dataframe: [original_filename]_<tag>.tif
@@ -2834,7 +2840,7 @@ def _results_cell_centers(results_dataframe, dem_ds):
     return x, y
 
 
-def _export_errors_vector(results_dataframe, dem_ds, out_fname, fmt, crs=None):
+def _export_errors_vector(results_dataframe, dem_ds, out_fname, fmt, crs=None) -> None:
     """Write a point at each validated cell's center to a GeoPackage or Shapefile."""
     driver_name = {"gpkg": "GPKG", "shp": "ESRI Shapefile"}[fmt]
 
@@ -2872,7 +2878,7 @@ def _export_errors_vector(results_dataframe, dem_ds, out_fname, fmt, crs=None):
     logger.debug("%s written.", out_fname)
 
 
-def _export_errors_xyz(results_dataframe, dem_ds, out_fname):
+def _export_errors_xyz(results_dataframe, dem_ds, out_fname) -> None:
     """Write a whitespace-delimited 'x y error' text file, one cell center per line."""
     x_centers, y_centers = _results_cell_centers(results_dataframe, dem_ds)
     errors = results_dataframe["diff_mean"].to_numpy()

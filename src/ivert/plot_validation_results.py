@@ -102,7 +102,7 @@ def plot_histograms_and_line(
     dpi=600,
     hist_cutoff_num_stddevs=2.5,
     also_add_rmse_to_hist=False,
-):
+) -> None:
     """Generate a 4-panel figure of error stats.
 
     1) Histograms of mean errors land-only (green)

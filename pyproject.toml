@@ -159,5 +159,7 @@ convention = "google"
 "conf.py" = ["A001"]
 # tests/ is deliberately not a package, which INP001 forbids. pytest checks with
 # assert (S101), unit tests call the private helpers they test (SLF001), and an
-# assertion's expected value reads best written out in it (PLR2004).
-"tests/**" = ["INP001", "PLR2004", "S101", "SLF001"]
+# assertion's expected value reads best written out in it (PLR2004). Test functions
+# need no annotations (ANN001, ANN201, ANN202): only pytest calls them, passing
+# fixtures by name, and mypy doesn't check tests/.
+"tests/**" = ["ANN001", "ANN201", "ANN202", "INP001", "PLR2004", "S101", "SLF001"]
