@@ -336,8 +336,9 @@ def validate_dem_child_process(
             if (type(dem_i_list) is str) and (dem_i_list == "STOP"):
                 h_shm.close()
                 pc_shm.close()
-                if measure_coverage:
+                if x_shm is not None:
                     x_shm.close()
+                if y_shm is not None:
                     y_shm.close()
                 return
 
@@ -374,8 +375,13 @@ def validate_dem_child_process(
                 cell_heights = heights[cell]
                 cell_codes = ph_codes[cell]
 
-                # Define and compute measures of centrality & coverage here.
-                if measure_coverage:
+                # Define and compute measures of centrality & coverage here. These
+                # three are set exactly when measure_coverage is.
+                if (
+                    r_coverage_frac is not None
+                    and ph_x is not None
+                    and ph_y is not None
+                ):
                     cell_xmin = cell_xmin_list[counter]
                     cell_xmax = cell_xmax_list[counter]
                     cell_ymin = cell_ymin_list[counter]
@@ -477,7 +483,7 @@ def validate_dem_child_process(
                 },
             ).set_index(["i", "j"])
 
-            if measure_coverage:
+            if r_coverage_frac is not None:
                 results_df["coverage_frac"] = r_coverage_frac[r_keep]
 
             connection.send(results_df)
@@ -1456,6 +1462,7 @@ def _resolve_dem_crs(
             dem_label,
             dem_geom.reference_label(file_vert_crs),
         )
+    vert: pyproj.CRS | tuple | str | None
     try:
         vert = dem_geom.get_dem_reference_frame_from_user_input(user_vert, "vert")
     except pyproj.exceptions.CRSError:
@@ -1817,6 +1824,16 @@ def _run_photon_level_validation(
     return photon_results_dataframe_file
 
 
+def _shared_copy(name: str, values: np.ndarray) -> shared_memory.SharedMemory:
+    """Copy an array into a new block of shared memory with the given name."""
+    smo = shared_memory.SharedMemory(size=values.nbytes, name=name, create=True)
+    if smo.buf is None:
+        msg = f"Shared memory block {name} has no buffer."
+        raise RuntimeError(msg)
+    smo.buf[:] = values.tobytes()
+    return smo
+
+
 def _run_parallel_cell_validation(
     photon_df,
     height_field,
@@ -1857,7 +1874,7 @@ def _run_parallel_cell_validation(
     )
     logger.info("Performing ICESat-2/DEM cell validation...")
 
-    results_dataframes_list = []
+    results_dataframes_list: list[pd.DataFrame] = []
     t_start = time.perf_counter()
 
     # Starting a worker costs a few tens of milliseconds, more than a few hundred
@@ -1888,22 +1905,16 @@ def _run_parallel_cell_validation(
     ph_starts = np.searchsorted(ph_keys, cell_keys, side="left")
     ph_ends = np.searchsorted(ph_keys, cell_keys, side="right")
 
-    height_smo = shared_memory.SharedMemory(
-        size=height_field.nbytes,
-        name=height_array_name,
-        create=True,
-    )
-    height_smo.buf[:] = height_field.to_numpy()[ph_order].tobytes()
+    height_smo = _shared_copy(height_array_name, height_field.to_numpy()[ph_order])
     height_dtype = height_field.dtype
 
-    code_smo = shared_memory.SharedMemory(
-        size=photon_df.class_code.nbytes,
-        name=code_array_name,
-        create=True,
-    )
-    code_smo.buf[:] = photon_df.class_code.to_numpy()[ph_order].tobytes()
+    code_smo = _shared_copy(code_array_name, photon_df.class_code.to_numpy()[ph_order])
     code_dtype = photon_df.class_code.dtype
+    memory_objs = [height_smo, code_smo]
 
+    x_array_name: str | None = None
+    y_array_name: str | None = None
+    x_dtype = y_dtype = None
     if measure_coverage:
         if not (height_field.shape == photon_df.dem_x.shape == photon_df.dem_y.shape):
             msg = "The photon heights, dem_x and dem_y are not all the same length."
@@ -1912,36 +1923,22 @@ def _run_parallel_cell_validation(
             coverage_coords
         )
         x_array_name = f"x_{proc_id}"
-        x_smo = shared_memory.SharedMemory(
-            size=photon_df.dem_x.nbytes,
-            name=x_array_name,
-            create=True,
+        memory_objs.append(
+            _shared_copy(x_array_name, photon_df.dem_x.to_numpy()[ph_order]),
         )
-        x_smo.buf[:] = photon_df.dem_x.to_numpy()[ph_order].tobytes()
         x_dtype = photon_df.dem_x.dtype
 
         y_array_name = f"y_{proc_id}"
-        y_smo = shared_memory.SharedMemory(
-            size=photon_df.dem_y.nbytes,
-            name=y_array_name,
-            create=True,
+        memory_objs.append(
+            _shared_copy(y_array_name, photon_df.dem_y.to_numpy()[ph_order]),
         )
-        y_smo.buf[:] = photon_df.dem_y.to_numpy()[ph_order].tobytes()
         y_dtype = photon_df.dem_y.dtype
     else:
         dem_overlap_xmin = dem_overlap_xmax = dem_overlap_ymin = dem_overlap_ymax = None
-        x_array_name = y_array_name = None
-        x_smo = y_smo = None
-        x_dtype = y_dtype = None
-
-    if measure_coverage:
-        memory_objs = [height_smo, code_smo, x_smo, y_smo]
-    else:
-        memory_objs = [height_smo, code_smo]
 
     def _chunk(start, end):
         """Return the work message for cells start:end."""
-        cells = (
+        cells: tuple = (
             dem_overlap_i[start:end],
             dem_overlap_j[start:end],
             dem_overlap_elevs[start:end],
@@ -1955,9 +1952,9 @@ def _run_parallel_cell_validation(
             )
         return (*cells, ph_starts[start:end], ph_ends[start:end])
 
-    running_procs = [None] * cpu_count
-    open_pipes_parent = [None] * cpu_count
-    open_pipes_child = [None] * cpu_count
+    running_procs: list[mp.process.BaseProcess | None] = [None] * cpu_count
+    open_pipes_parent: list[mp.connection.Connection | None] = [None] * cpu_count
+    open_pipes_child: list[mp.connection.Connection | None] = [None] * cpu_count
     # Cells in the chunk currently out with each child process. Progress is measured
     # in cells *handed out*, not rows handed back: a child omits any cell that fell
     # below 'min_photons_per_cell', so len(chunk_result_df) undercounts the work done
@@ -1996,26 +1993,29 @@ def _run_parallel_cell_validation(
                 chunk_sizes = chunk_sizes[:i]
                 break
 
+            proc, pipe, pipe_child = kick_off_new_child_process(
+                height_array_name,
+                height_dtype,
+                code_array_name,
+                code_dtype,
+                height_field.shape,
+                photon_limit=max_photons_per_cell,
+                min_photons=min_photons_per_cell,
+                measure_coverage=measure_coverage,
+                x_array_name=x_array_name,
+                x_dtype=x_dtype,
+                y_array_name=y_array_name,
+                y_dtype=y_dtype,
+                empty_val=empty_val,
+            )
             running_procs[i], open_pipes_parent[i], open_pipes_child[i] = (
-                kick_off_new_child_process(
-                    height_array_name,
-                    height_dtype,
-                    code_array_name,
-                    code_dtype,
-                    height_field.shape,
-                    photon_limit=max_photons_per_cell,
-                    min_photons=min_photons_per_cell,
-                    measure_coverage=measure_coverage,
-                    x_array_name=x_array_name,
-                    x_dtype=x_dtype,
-                    y_array_name=y_array_name,
-                    y_dtype=y_dtype,
-                    empty_val=empty_val,
-                )
+                proc,
+                pipe,
+                pipe_child,
             )
 
             counter_chunk_end = min(counter_started + items_per_process_chunk, n)
-            open_pipes_parent[i].send(_chunk(counter_started, counter_chunk_end))
+            pipe.send(_chunk(counter_started, counter_chunk_end))
             chunk_sizes[i] = counter_chunk_end - counter_started
             counter_started = counter_chunk_end
             num_chunks_started += 1
@@ -2032,7 +2032,7 @@ def _run_parallel_cell_validation(
                             open_pipes_parent,
                             strict=True,
                         )
-                        if proc is not None
+                        if proc is not None and pipe is not None
                         for waitable in (pipe, proc.sentinel)
                     ],
                     timeout=_COORDINATOR_WAIT_S,
@@ -2042,7 +2042,10 @@ def _run_parallel_cell_validation(
                 zip(running_procs, open_pipes_parent, open_pipes_child, strict=True),
             ):
                 proc, pipe, pipe_child = procs_and_pipes
-                if proc is None or (pipe not in ready and proc.sentinel not in ready):
+                # A slot's process and pipes are set, and cleared, together.
+                if proc is None or pipe is None or pipe_child is None:
+                    continue
+                if pipe not in ready and proc.sentinel not in ready:
                     continue
 
                 if not proc.is_alive():
@@ -2957,7 +2960,7 @@ def export_error_results(
         list of file paths written.
 
     """
-    exported = []
+    exported: list[Path] = []
     if results_dataframe is None or len(results_dataframe) == 0:
         return exported
 

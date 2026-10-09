@@ -500,7 +500,11 @@ class Config:
 
         return self._all_option_names(user_config) - known
 
-    def _handle_unknown_user_keys(self, user_path: str, unknown_keys: set[str]) -> None:
+    def _handle_unknown_user_keys(
+        self,
+        user_path: str | Path,
+        unknown_keys: set[str],
+    ) -> None:
         """Warn about unrecognized user-config options and comment them out."""
         key_list = "\n".join(f"    - {k}" for k in sorted(unknown_keys))
         try:
@@ -534,7 +538,11 @@ class Config:
                 key_list,
             )
 
-    def _handle_bootstrap_user_keys(self, user_path: str, keys: set[str]) -> None:
+    def _handle_bootstrap_user_keys(
+        self,
+        user_path: str | Path,
+        keys: set[str],
+    ) -> None:
         """Warn about user-config options that cannot take effect there.
 
         These options decide where the user config file lives, so IVERT has to

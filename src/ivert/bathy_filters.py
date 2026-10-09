@@ -456,6 +456,9 @@ def apply_bathy_filters(
     )
 
     def get_landmask(bounds):
+        if landmask_store_dir is None or osm_cache_dir is None:
+            msg = "The landmask rules need landmask_store_dir and osm_cache_dir."
+            raise ValueError(msg)
         west, south, east, north = bounds
         return ivert.landmask.load_landmask(
             (west, east, south, north),
@@ -538,6 +541,10 @@ def _evaluate_rules(lon, lat, ortho_h, settings, *, cache_dir, get_landmask):
             flags["deep"] = ref_shallowest < -settings.max_depth_m
 
         if "offshore" in rules:
+            if on_land is None:
+                # settings.needs_landmask is true whenever this rule is on.
+                msg = "The offshore rule needs the landmask, which wasn't read."
+                raise RuntimeError(msg)
             # Depth below the sea surface, approximated as depth below the EGM2008
             # geoid. That misses the ocean tide, dynamic topography and surge, which
             # can be several metres in macrotidal areas. Issue #112 tracks storing the

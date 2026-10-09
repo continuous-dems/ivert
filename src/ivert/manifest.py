@@ -136,11 +136,17 @@ def write_manifest(path, version, options, run_info):
         raise
 
 
+class _CaseSensitiveParser(configparser.ConfigParser):
+    """A ConfigParser that keeps keys exactly as written, rather than lower-cased."""
+
+    def optionxform(self, optionstr: str) -> str:
+        """Return the key unchanged."""
+        return optionstr
+
+
 def _new_parser():
     # interpolation=None: values such as file paths may contain '%'.
-    parser = configparser.ConfigParser(interpolation=None)
-    parser.optionxform = str  # keep keys exactly as written
-    return parser
+    return _CaseSensitiveParser(interpolation=None)
 
 
 def read_manifest(path):
@@ -185,28 +191,29 @@ def read_manifest_options(path):
 
 def _version_mismatch_message(manifest_version, current_version):
     """Pick the warning for a manifest whose options don't match this IVERT's."""
+    incompatible = (
+        f"This manifest (IVERT {manifest_version}) is incompatible with the current "
+        f"version of IVERT ({current_version})."
+    )
     try:
         manifest_release = Version(manifest_version).release
         current_release = Version(current_version).release
     except InvalidVersion:
-        manifest_release = current_release = None
+        return incompatible
 
-    if manifest_release is not None and manifest_release < current_release:
+    if manifest_release < current_release:
         return (
             "This manifest belongs to a previous version of IVERT "
             f"({manifest_version}) that is no longer compatible with the current "
             f"version ({current_version})."
         )
-    if manifest_release is not None and manifest_release > current_release:
+    if manifest_release > current_release:
         return (
             f"This manifest was run on a newer version of IVERT ({manifest_version}) "
             f"that is not compatible with the current version ({current_version}). "
             "Upgrade IVERT to the latest version ('ivert upgrade')."
         )
-    return (
-        f"This manifest (IVERT {manifest_version}) is incompatible with the current "
-        f"version of IVERT ({current_version})."
-    )
+    return incompatible
 
 
 def _describe_default(value):
