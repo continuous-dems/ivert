@@ -1956,7 +1956,11 @@ def _database_export_deprecated(**kwargs: object):
     # Python hides DeprecationWarning by default, so say it on stderr as well.
     warnings.warn(_EXPORT_DEPRECATION, DeprecationWarning, stacklevel=2)
     click.echo(f"Warning: {_EXPORT_DEPRECATION}", err=True)
-    return database_convert.callback(**kwargs)
+    callback = database_convert.callback
+    if callback is None:
+        msg = "'ivert database convert' has no callback."
+        raise RuntimeError(msg)
+    return callback(**kwargs)
 
 
 # 'export' was renamed 'convert', since it converts photons into other formats rather
@@ -1969,7 +1973,7 @@ database.add_command(
         params=database_convert.params,
         help=(
             "Deprecated alias for 'ivert database convert', to be removed in a later "
-            "IVERT release.\n\n" + inspect.cleandoc(database_convert.help)
+            "IVERT release.\n\n" + inspect.cleandoc(database_convert.help or "")
         ),
         short_help="Deprecated alias for 'convert'.",
     ),

@@ -49,6 +49,10 @@ test = [
     "pytest>=8",
     "pytest-cov",
 ]
+# Pinned, so a new mypy release can't turn an unchanged branch red; bump it on purpose.
+typecheck = [
+    "mypy==2.3.1",
+]
 docs = [
     "sphinx<9.0.0",  # temp pin for sphinx-click
     "sphinx-autodoc-typehints>=2.0.1",
@@ -81,6 +85,44 @@ markers = [
     "network: hits a third-party network dependency; needs Earthdata credentials in ~/.netrc",
     "slow: a test that takes too long to run every time (i.e. tens of seconds or more)",
 ]
+
+[tool.mypy]
+# Gentle settings for now: only the code that has annotations is checked (the
+# bodies of unannotated functions are not), with strictness to be raised as the
+# annotations fill in (#40).
+files = ["src/ivert"]
+python_version = "3.12"
+warn_unused_ignores = true
+warn_redundant_casts = true
+
+# Dependencies that ship no type information. Listing them by name, rather than
+# setting ignore_missing_imports for everything, keeps a new untyped dependency
+# from slipping by unnoticed.
+[[tool.mypy.overrides]]
+module = [
+    "colorama",
+    "dateparser",
+    "fetchez",
+    "fetchez.*",
+    "geopandas",
+    "globato",
+    "globato.*",
+    "h5py",
+    "pandas",
+    "psutil",
+    "pyogrio",
+    "rasterio",
+    "rasterio.*",
+    "scipy.*",
+    "shapely",
+    "shapely.*",
+    "tabulate",
+    "tqdm",
+    "tqdm.*",
+    "transformez",
+    "transformez.*",
+]
+ignore_missing_imports = true
 
 [tool.ruff.lint]
 select = ["ALL"]

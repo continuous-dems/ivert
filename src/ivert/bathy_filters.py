@@ -24,7 +24,7 @@ import json
 import logging
 import math
 from pathlib import Path
-from typing import Self
+from typing import Any, Self
 
 import fetchez
 import numpy as np
@@ -173,7 +173,8 @@ class BathyFilterSettings:
             raise TypeError(msg)
 
         defaults = cls()
-        values = {}
+        # Each comes from the config, an override or a default, with its own type.
+        values: dict[str, Any] = {}
         for field, key in config_keys.items():
             value = overrides.get(field)
             if value is None:
@@ -247,8 +248,8 @@ def parse_rules(value) -> tuple[str, ...]:
     """
     if value is None or value is False:
         return ()
-    names = value.split(",") if isinstance(value, str) else list(value)
-    names = {str(n).strip().lower() for n in names} - {""}
+    items = value.split(",") if isinstance(value, str) else list(value)
+    names = {str(n).strip().lower() for n in items} - {""}
     if names <= {"none", "off", "false"}:
         return ()
     unknown = names - set(RULES)
@@ -316,7 +317,7 @@ class BathyFilterReport:
                 "The combined results were validated with different bathymetry filter "
                 "settings; the summary lists only the first DEM's.",
             )
-        removed = {}
+        removed: dict[str, int] = {}
         for r in reports:
             for k, v in r.removed.items():
                 removed[k] = removed.get(k, 0) + v

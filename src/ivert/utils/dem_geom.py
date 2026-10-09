@@ -225,10 +225,11 @@ def get_wgs84_bounding_box(
 
     """
     polygon = None
+    horz_crs: pyproj.CRS | tuple | None = None
 
     if isinstance(polygon_bbox_or_dem_fname, shapely.geometry.Polygon):
         polygon = shapely.Polygon(polygon_bbox_or_dem_fname.exterior.coords[:])
-        dem_horz_reference_frame = get_dem_reference_frame_from_user_input(
+        horz_crs = get_dem_reference_frame_from_user_input(
             dem_horz_reference_frame,
             "horz",
         )
@@ -236,8 +237,7 @@ def get_wgs84_bounding_box(
     elif type(polygon_bbox_or_dem_fname) in (list, tuple):
         bbox = polygon_bbox_or_dem_fname
         if len(bbox) == BBOX_LEN:
-            # Convert (xmin, xmax, ymin, ymax) → shapely box expects (xmin, ymin, xmax,
-            # ymax)
+            # (xmin, xmax, ymin, ymax) → shapely's box takes (xmin, ymin, xmax, ymax)
             polygon = shapely.geometry.box(bbox[0], bbox[2], bbox[1], bbox[3])
         elif len(bbox) > BBOX_LEN and len(bbox) % 2 == 0:
             polygon = shapely.geometry.Polygon(bbox)
@@ -247,7 +247,7 @@ def get_wgs84_bounding_box(
                 "(xmin, xmax, ymin, ymax) bbox or an even-length coordinate sequence."
             )
             raise TypeError(msg)
-        dem_horz_reference_frame = get_dem_reference_frame_from_user_input(
+        horz_crs = get_dem_reference_frame_from_user_input(
             dem_horz_reference_frame,
             "horz",
         )
@@ -257,12 +257,12 @@ def get_wgs84_bounding_box(
             msg = f"File not found: {polygon_bbox_or_dem_fname}"
             raise FileNotFoundError(msg)
         if dem_horz_reference_frame is None:
-            dem_horz_reference_frame = get_dem_reference_frame_from_file(
+            horz_crs = get_dem_reference_frame_from_file(
                 polygon_bbox_or_dem_fname,
                 "horz",
             )
         else:
-            dem_horz_reference_frame = get_dem_reference_frame_from_user_input(
+            horz_crs = get_dem_reference_frame_from_user_input(
                 dem_horz_reference_frame,
                 "horz",
             )
@@ -277,31 +277,28 @@ def get_wgs84_bounding_box(
         )
         raise TypeError(msg)
 
-    if dem_horz_reference_frame is None:
+    if horz_crs is None:
         msg = "dem_horz_reference_frame could not be resolved."
         raise ValueError(msg)
 
     if not isinstance(polygon, shapely.geometry.Polygon):
         msg = f"Expected a shapely Polygon, got {type(polygon).__name__}."
         raise TypeError(msg)
-    if not isinstance(dem_horz_reference_frame, pyproj.CRS):
-        msg = f"Expected a pyproj.CRS, got {type(dem_horz_reference_frame).__name__}."
+    if not isinstance(horz_crs, pyproj.CRS):
+        msg = f"Expected a pyproj.CRS, got {type(horz_crs).__name__}."
         raise TypeError(msg)
-    if dem_horz_reference_frame.is_compound:
-        msg = (
-            "Expected a horizontal CRS, got the compound CRS "
-            f"{dem_horz_reference_frame.name}."
-        )
+    if horz_crs.is_compound:
+        msg = f"Expected a horizontal CRS, got the compound CRS {horz_crs.name}."
         raise RuntimeError(msg)
 
     wgs84_crs = pyproj.CRS.from_user_input("EPSG:4326")
 
-    if dem_horz_reference_frame.equals(wgs84_crs):
+    if horz_crs.equals(wgs84_crs):
         b = polygon.bounds  # (xmin, ymin, xmax, ymax)
         return b[0], b[2], b[1], b[3]  # → (xmin, xmax, ymin, ymax)
 
     transformer = pyproj.Transformer.from_crs(
-        dem_horz_reference_frame,
+        horz_crs,
         wgs84_crs,
         always_xy=True,
     )

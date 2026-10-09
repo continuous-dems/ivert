@@ -141,9 +141,10 @@ def describe_vdatum(reference: str) -> str:
         parse_reference,
     )
 
+    errors: tuple[type[Exception], ...] = (*_reference_errors(), ValueError)
     try:
         vertical = parse_reference(reference).vertical
-    except (*_reference_errors(), ValueError):
+    except errors:
         return ""
     return vertical.name if vertical is not None else ""
 
@@ -151,8 +152,8 @@ def describe_vdatum(reference: str) -> str:
 def list_vdatums() -> dict[str, list[str]]:
     """Return each supported reference mapped to the common names that resolve to it."""
     by_reference: dict[str, list[str]] = {}
-    for name in _EPSG_NAMES:
-        by_reference.setdefault(resolve_vdatum(name), []).append(name)
+    for name, epsg in _EPSG_NAMES.items():
+        by_reference.setdefault(f"EPSG:{epsg}", []).append(name)
     for name, reference in _TIDAL_NAMES.items():
         by_reference.setdefault(reference, []).append(name)
     return by_reference

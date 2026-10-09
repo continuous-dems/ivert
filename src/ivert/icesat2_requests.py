@@ -84,7 +84,8 @@ class ICESat2RequestsCSV:
         else:
             self.config = config
         self.csv_file = Path(self.config.icesat2_requests_csv)
-        self.df = None
+        # Loaded on first use; open() returns it.
+        self.df: pd.DataFrame | None = None
 
     # ------------------------------------------------------------------
     # Public API
@@ -121,30 +122,28 @@ class ICESat2RequestsCSV:
                 to None (any version).
 
         """
-        if self.df is None:
-            self.open()
-
         if auto_clean_csv:
             self.clean_csv()
+        df = self.open()
 
-        matching_mask = self.df["bbox"].apply(
+        matching_mask = df["bbox"].apply(
             lambda b: self._bbox_match(b, bbox, tolerance),
-        ) & (self.df["atl_dataset"] == atl_dataset.upper().strip())
+        ) & (df["atl_dataset"] == atl_dataset.upper().strip())
 
         if atl_version is not None:
             matching_mask = matching_mask & (
-                self.df["atl_version"] == normalize_atl_version(atl_version)
+                df["atl_version"] == normalize_atl_version(atl_version)
             )
 
         if only_unexpired and not auto_clean_csv:
-            matching_mask = matching_mask & ~self.df["expiration_date"].apply(
+            matching_mask = matching_mask & ~df["expiration_date"].apply(
                 self._is_expired,
             )
 
         if np.any(matching_mask):
             if return_rows:
-                return self.df[matching_mask]
-            return self._read_json(self.df[matching_mask].iloc[0]["json"])
+                return df[matching_mask]
+            return self._read_json(df[matching_mask].iloc[0]["json"])
         return None
 
     def add_record(
@@ -205,9 +204,6 @@ class ICESat2RequestsCSV:
         fail_quietly: bool = False,
     ):
         """Replace an existing record's JSON (matched by dataset + bbox + job_id)."""
-        if self.df is None:
-            self.open()
-
         matching = self.find_matching_request(
             atl_dataset,
             query_bbox,
@@ -231,13 +227,19 @@ class ICESat2RequestsCSV:
             msg = f"No record with jobID '{job_id}'"
             raise ValueError(msg)
 
-        self.df.loc[matching.index, "json"] = str(json_dict)
+        df = self.open()
+        df.loc[matching.index, "json"] = str(json_dict)
 
         if write_file:
             self.export()
-        return self.df
+        return df
 
-    def open(self, *, read_again: bool = False, create_if_nonexistent: bool = True):
+    def open(
+        self,
+        *,
+        read_again: bool = False,
+        create_if_nonexistent: bool = True,
+    ) -> pd.DataFrame:
         """Load the CSV into self.df, creating it if needed."""
         if self.df is not None and not read_again:
             return self.df
@@ -247,7 +249,7 @@ class ICESat2RequestsCSV:
             while num_tries < _CSV_READ_TRIES:
                 try:
                     # Read the version as text, or "007" comes back as the number 7.
-                    self.df = pd.read_csv(
+                    df = pd.read_csv(
                         self.csv_file,
                         index_col=False,
                         dtype={"atl_version": str},
@@ -258,20 +260,21 @@ class ICESat2RequestsCSV:
                     if num_tries >= _CSV_READ_TRIES:
                         raise
                     time.sleep(0.001)
-            self.df["bbox"] = self.df["bbox"].apply(ast.literal_eval)
+            df["bbox"] = df["bbox"].apply(ast.literal_eval)
             # Files written before the version was tracked have no such column.
-            if "atl_version" not in self.df.columns:
-                self.df.insert(1, "atl_version", "")
-            self.df["atl_version"] = (
-                self.df["atl_version"].fillna("").apply(_atl_version_from_csv)
+            if "atl_version" not in df.columns:
+                df.insert(1, "atl_version", "")
+            df["atl_version"] = (
+                df["atl_version"].fillna("").apply(_atl_version_from_csv)
             )
+            self.df = df
         elif create_if_nonexistent:
-            self._create_empty()
+            df = self._create_empty()
         else:
             msg = f"{self.csv_file} not found."
             raise FileNotFoundError(msg)
 
-        return self.df
+        return df
 
     def export(self):
         """Write self.df back to disk."""
@@ -294,8 +297,8 @@ class ICESat2RequestsCSV:
     # Internal helpers
     # ------------------------------------------------------------------
 
-    def _create_empty(self):
-        """Create an empty CSV with the correct columns."""
+    def _create_empty(self) -> pd.DataFrame:
+        """Create, save and return an empty CSV with the correct columns."""
         self.df = pd.DataFrame(
             columns=[
                 "atl_dataset",
@@ -308,6 +311,7 @@ class ICESat2RequestsCSV:
             ],
         )
         self.export()
+        return self.df
 
     @staticmethod
     def _bbox_match(b0, b1, tolerance: float = 1e-9) -> bool:

@@ -18,6 +18,8 @@ import os
 import signal
 import sys
 import time
+import typing
+from collections.abc import MutableMapping
 from multiprocessing import shared_memory
 from pathlib import Path
 
@@ -603,7 +605,7 @@ def subdivide_dem(
 
 def reset_results_indexes_after_merge(
     sub_results_df: pd.DataFrame,
-    sub_dem_fname: str,
+    sub_dem_fname: str | Path,
     parent_dem_fname: str,
 ) -> pd.DataFrame:
     """DEM results dataframes are indexed by (i, j).  Reset the index after merging."""
@@ -654,9 +656,9 @@ def validate_dem(
     dem_name: str,
     output_dir: str | Path | None = None,
     *,
-    dates: list[int, int] | tuple[int, int] | None = None,
+    dates: list[int] | tuple[int, int] | None = None,
     classes: list[int] | tuple[int, ...] = (1, 6, 40),
-    shared_ret_values: dict | None = None,
+    shared_ret_values: MutableMapping | None = None,
     icesat2_photon_database_obj: ivert.icesat2_database_v2.IS2Database | None = None,
     band_num: int = 1,
     variable: str | None = None,
@@ -856,7 +858,7 @@ def validate_dem(
     # no SIGKILL and no equivalent OOM-killer, so guard the attribute lookup: there the
     # branch simply doesn't apply and we fall through to the RuntimeError below.
     sigkill = getattr(signal, "SIGKILL", None)
-    if sigkill is not None and abs(exitcode) == abs(sigkill):
+    if sigkill is not None and exitcode is not None and abs(exitcode) == abs(sigkill):
         # The job was killed by the operating system. This happens with a Memory Error.
         # Divvy the file up and try again.
 
@@ -887,7 +889,7 @@ def validate_dem(
             output_dir=output_dir,
         )
 
-        sub_shared_ret_values = [manager.dict() for i in range(len(sub_dem_names))]
+        part_ret_values = [manager.dict() for i in range(len(sub_dem_names))]
         if len(sub_dem_names) != factor**2:
             msg = (
                 f"Splitting {dem_name} gave {len(sub_dem_names)} pieces, not "
@@ -905,7 +907,7 @@ def validate_dem(
 
         for sub_dem_name, sub_shared_ret_dict in zip(
             sub_dem_names,
-            sub_shared_ret_values,
+            part_ret_values,
             strict=True,
         ):
             validate_dem(
@@ -952,10 +954,10 @@ def validate_dem(
         # Now we gotta merge all the results.
         # Get a set of common keys:
         common_keys = set(
-            list(sub_shared_ret_values[0].keys())
-            + list(sub_shared_ret_values[1].keys())
-            + list(sub_shared_ret_values[2].keys())
-            + list(sub_shared_ret_values[3].keys()),
+            list(part_ret_values[0].keys())
+            + list(part_ret_values[1].keys())
+            + list(part_ret_values[2].keys())
+            + list(part_ret_values[3].keys()),
         )
 
         shared_results_df = None
@@ -966,9 +968,9 @@ def validate_dem(
         if "results_dataframe_file" in common_keys:
             common_key = "results_dataframe_file"
             all_fnames = [
-                sub_shared_ret_values[i][common_key]
-                for i in range(len(sub_shared_ret_values))
-                if common_key in sub_shared_ret_values[i]
+                part_ret_values[i][common_key]
+                for i in range(len(part_ret_values))
+                if common_key in part_ret_values[i]
             ]
             # The bathymetry filter counts of the parts add up to the whole's.
             bathy_filter_report = ivert.bathy_filters.BathyFilterReport.combine(
@@ -984,13 +986,13 @@ def validate_dem(
                 # Now I gotta reset the i,j indexes. Each part's results sit next to
                 # that part's GeoTIFF.
                 results_fname = Path(fname)
-                sub_dem_name = results_fname.with_name(
+                part_dem_path = results_fname.with_name(
                     results_fname.name.removesuffix("_results.h5") + ".tif",
                 )
                 parent_dem_name = dem_name
                 dem_results_df = reset_results_indexes_after_merge(
                     dem_results_df,
-                    sub_dem_name,
+                    part_dem_path,
                     parent_dem_name,
                 )
                 output_dfs.append(dem_results_df)
@@ -1086,9 +1088,9 @@ def validate_dem(
         if "photon_results_dataframe_file" in common_keys:
             common_key = "photon_results_dataframe_file"
             all_fnames = [
-                sub_shared_ret_values[i][common_key]
-                for i in range(len(sub_shared_ret_values))
-                if common_key in sub_shared_ret_values[i]
+                part_ret_values[i][common_key]
+                for i in range(len(part_ret_values))
+                if common_key in part_ret_values[i]
             ]
             results_df = pd.concat(
                 [pd.read_hdf(fname) for fname in all_fnames],
@@ -1492,8 +1494,10 @@ def _fetch_photons(
     dem_ds = rasterio.open(dem_name)
     dem_array = dem_ds.read(band_num)
 
-    dem_horz_ref_frame, dem_vert_ref_frame = dem_geom.get_dem_reference_frame_from_file(
-        dem_name,
+    # With its default of "both", this returns a (horizontal, vertical) pair.
+    dem_horz_ref_frame, dem_vert_ref_frame = typing.cast(
+        "tuple[pyproj.CRS | None, pyproj.CRS | None]",
+        dem_geom.get_dem_reference_frame_from_file(dem_name),
     )
     dem_horz_ref_frame, dem_vert_ref_frame = _resolve_dem_crs(
         dem_name,
@@ -2279,9 +2283,9 @@ def validate_dem_parallel(
     dem_name: str,
     output_dir: str | Path | None = None,
     *,
-    dates: list[int, int] | tuple[int, int] | None = None,
+    dates: list[int] | tuple[int, int] | None = None,
     classes: list[int] | tuple[int, ...] = (1, 6, 40),
-    shared_ret_values: dict | None = None,
+    shared_ret_values: MutableMapping | None = None,
     icesat2_photon_database_obj: ivert.icesat2_database_v2.IS2Database
     | None = None,  # Used only if we've already created this, for efficiency.
     band_num: int = 1,
@@ -2623,7 +2627,7 @@ def log_written_files(filenames) -> None:
         filenames: an iterable of output file paths, in the order to list them.
 
     """
-    files_by_dir = {}
+    files_by_dir: dict[Path, list] = {}
     for fname in filenames:
         if fname and Path(fname).is_file():
             folder = absolute_path(fname).parent
@@ -2691,7 +2695,7 @@ def write_summary_stats_file(
 
     lines.append(
         "Number of cells with bathymetry photons: {:d}".format(
-            np.count_nonzero(results_df["numphotons_bathy"] > 0),
+            int(np.count_nonzero(results_df["numphotons_bathy"] > 0)),
         ),
     )
 
