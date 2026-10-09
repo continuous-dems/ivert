@@ -2,6 +2,9 @@
 
 from pathlib import Path
 
+# Bytes in a kibibyte.
+_KIB = 1024.0
+
 
 def sizeof_fmt(num, suffix="B", decimal_digits=1):
     """Resturn a filesize in human readable format.
@@ -12,7 +15,7 @@ def sizeof_fmt(num, suffix="B", decimal_digits=1):
         num = Path(num).stat().st_size
 
     for unit in ["", "K", "M", "G", "T", "P", "E", "Z"]:
-        if abs(num) < 1024.0:
+        if abs(num) < _KIB:
             return (
                 f"{int(num)}"
                 + (
@@ -24,5 +27,5 @@ def sizeof_fmt(num, suffix="B", decimal_digits=1):
                 )
                 + f" {unit}{suffix}"
             )
-        num /= 1024.0
+        num /= _KIB
     return f"{num:.1f} Yi{suffix}"

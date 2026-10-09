@@ -16,6 +16,11 @@ from ivert.utils import dem_source
 
 logger = logging.getLogger(__name__)
 
+# Fewer validated cells than this are too few to plot statistics for.
+_MIN_CELLS_TO_PLOT = 3
+# A histogram of at least this many cells is cropped to its 1st-99th percentiles.
+_MIN_CELLS_TO_CROP = 20
+
 
 def is_iterable(obj):
     """Tell whether an object is a non-string iterable. (list, tuple, etc)."""
@@ -118,7 +123,7 @@ def plot_histograms_and_line(
     dem_elev = data["dem_elev"]
     mean_elev = data["mean"]
 
-    if len(meandiff) < 3:
+    if len(meandiff) < _MIN_CELLS_TO_PLOT:
         logger.info("Not enough cells to plot statistics. Aborting.")
         return
 
@@ -180,8 +185,8 @@ def plot_histograms_and_line(
         ax1.axvline(x=center + std, color="black", linestyle="--", linewidth=0.5)
         ax1.axvline(x=center - std, color="black", linestyle="--", linewidth=0.5)
 
-        # Crop the left & right (only if greater than 20 points)
-        if len(meandiff_land) >= 20:
+        # Crop the left & right (only if there are enough points)
+        if len(meandiff_land) >= _MIN_CELLS_TO_CROP:
             cutoffs = np.percentile(meandiff_land, [1, 99])
         else:
             cutoffs = [min(meandiff_land), max(meandiff_land)]
@@ -281,8 +286,8 @@ def plot_histograms_and_line(
         ax2.axvline(x=center + std, color="black", linestyle="--", linewidth=0.5)
         ax2.axvline(x=center - std, color="black", linestyle="--", linewidth=0.5)
 
-        # Crop the left & right (only if greater than 20 points)
-        if len(meandiff_bathy) >= 20:
+        # Crop the left & right (only if there are enough points)
+        if len(meandiff_bathy) >= _MIN_CELLS_TO_CROP:
             cutoffs = np.percentile(meandiff_bathy, [1, 99])
         else:
             cutoffs = [min(meandiff_bathy), max(meandiff_bathy)]

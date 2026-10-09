@@ -2,6 +2,11 @@
 
 import numpy as np
 
+# The number of values in a bounding box: (xmin, xmax, ymin, ymax), and with the
+# date range added, (xmin, xmax, ymin, ymax, tmin, tmax).
+BBOX_LEN = 4
+BBOX_WITH_DATES_LEN = 6
+
 
 def subtract_cuboids(a, b, tol=1e-10, bbox_order="point"):
     """Subtract cuboid `b` from cuboid `a`.

@@ -13,6 +13,7 @@ import ivert
 import ivert.bathy_filters
 import ivert.icesat2_database_v2
 from ivert import plot_validation_results, validate_dem
+from ivert.photon_classes import SEAFLOOR
 from ivert.utils import dem_source
 from ivert.utils.paths import absolute_path
 
@@ -502,7 +503,7 @@ def validate_list_of_dems(
     photon_db_obj.open_gdf()
     # Each DEM is validated in a process forked from this one; loading this here,
     # once, saves each of them from loading it for itself.
-    if 40 in classes and len(dem_list) > 1:
+    if SEAFLOOR in classes and len(dem_list) > 1:
         ivert.bathy_filters.preload_reference_fetcher(
             bathy_filter_settings
             or ivert.bathy_filters.BathyFilterSettings.from_config(),

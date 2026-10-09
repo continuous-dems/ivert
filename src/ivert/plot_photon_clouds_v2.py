@@ -48,6 +48,9 @@ CLASS_STYLE = {
 }
 DEFAULT_STYLE = {"color": "lightgrey", "zorder": 0, "alpha": 0.3, "s": 1}
 
+# Photons further than this from sea level, in meters, are bad values and not plotted.
+_MAX_ABS_ELEVATION_M = 1e5
+
 DEM_COLORS = ["dimgrey", "purple", "darkcyan", "darkmagenta", "darkgoldenrod"]
 
 
@@ -178,7 +181,7 @@ def load_nc(nc_path):
             arr = np.asarray(raw.data if hasattr(raw, "data") else raw)
             if arr.dtype.kind == "O":
                 arr = arr.astype(str)
-            elif arr.dtype.kind == "S" and arr.ndim == 2:
+            elif arr.dtype.kind == "S" and arr.ndim > 1:
                 # A fixed-width string variable such as 'laser' (char laser(index,
                 # string4)) comes back one character per column; join each row
                 # into one string ('gt1l') so it fits a DataFrame column.
@@ -430,9 +433,9 @@ def plot_beam(
     df_beam = df_beam.sort_values(sort_col).reset_index(drop=True)
 
     # Drop photons with non-physical elevations
-    df_beam = df_beam[(df_beam["z"] >= -1e5) & (df_beam["z"] <= 1e5)].reset_index(
-        drop=True,
-    )
+    df_beam = df_beam[
+        df_beam["z"].between(-_MAX_ABS_ELEVATION_M, _MAX_ABS_ELEVATION_M)
+    ].reset_index(drop=True)
 
     # Reclassify photons not in the requested set to noise (class 0) so they still appear
     if classes is not None:

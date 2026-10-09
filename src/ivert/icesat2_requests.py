@@ -15,8 +15,15 @@ import numpy as np
 import pandas as pd
 
 import ivert.utils.configfile
+from ivert.utils.cuboid_funcs import BBOX_WITH_DATES_LEN
 
 logger = logging.getLogger(__name__)
+
+# An NSIDC ATL version is written as a zero-padded number of this many digits, "007".
+_ATL_VERSION_DIGITS = 3
+# Times to try reading the requests CSV, which another process may be part-way
+# through writing, before giving up.
+_CSV_READ_TRIES = 20
 
 
 def normalize_atl_version(value: int | str) -> str:
@@ -27,10 +34,10 @@ def normalize_atl_version(value: int | str) -> str:
     filename and to the versions recorded in the requests CSV.
     """
     text = str(value).strip()
-    if not text.isdigit() or len(text) > 3:
+    if not text.isdigit() or len(text) > _ATL_VERSION_DIGITS:
         msg = f"nsidc_atl_version must be a number of up to 3 digits such as 007, not {value!r}."
         raise ValueError(msg)
-    return text.zfill(3)
+    return text.zfill(_ATL_VERSION_DIGITS)
 
 
 def _atl_version_from_csv(value: str) -> str:
@@ -151,7 +158,7 @@ class ICESat2RequestsCSV:
         if isinstance(query_bbox, str):
             query_bbox = ast.literal_eval(query_bbox)
         query_bbox = tuple(query_bbox)
-        if len(query_bbox) != 6:
+        if len(query_bbox) != BBOX_WITH_DATES_LEN:
             msg = f"query_bbox must have 6 values (xmin, xmax, ymin, ymax, tmin, tmax), not {len(query_bbox)}."
             raise ValueError(msg)
 
@@ -226,7 +233,7 @@ class ICESat2RequestsCSV:
 
         if self.csv_file.exists():
             num_tries = 0
-            while num_tries < 20:
+            while num_tries < _CSV_READ_TRIES:
                 try:
                     # Read the version as text, or "007" comes back as the number 7.
                     self.df = pd.read_csv(
@@ -237,7 +244,7 @@ class ICESat2RequestsCSV:
                     break
                 except (TypeError, pd.errors.ParserError):
                     num_tries += 1
-                    if num_tries >= 20:
+                    if num_tries >= _CSV_READ_TRIES:
                         raise
                     time.sleep(0.001)
             self.df["bbox"] = self.df["bbox"].apply(ast.literal_eval)
