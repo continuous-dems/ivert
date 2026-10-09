@@ -937,7 +937,6 @@ class IS2Database:
             classes=classes_str,
             vertical_datum=self._vertical_epsg_to_globato_datum(vertical_datum),
             reject_failed_qa=True,
-            append_atl24=True,
             atl_version=normalize_atl_version(self.config.nsidc_atl_version),
             cache_dir=str(self.icesat2_download_dir),  # a string, for globato
             use_external_masks=use_external_masks,
