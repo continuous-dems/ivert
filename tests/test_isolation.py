@@ -19,7 +19,7 @@ def test_user_config_is_redirected_into_a_temporary_directory(tmp_path):
 
 
 def test_the_real_user_config_is_never_the_target():
-    """The guarantee the fixture exists for, checked directly: no test writes to ~/.ivert."""
+    """What the fixture exists for, checked directly: no test writes to ~/.ivert."""
     config = configfile.Config()
 
     assert not config.user_config_path.is_relative_to(Path.home() / ".ivert")

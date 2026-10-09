@@ -43,22 +43,26 @@ def subtract_cuboids(a, b, tol=1e-10, bbox_order="point"):
         ax1, ax2, ay1, ay2, az1, az2 = tuple(a)
         bx1, bx2, by1, by2, bz1, bz2 = tuple(b)
     else:
-        msg = f"Invalid bbox_order parameter: {bbox_order}. Only 'axis' or 'point' are allowed."
+        msg = (
+            f"Invalid bbox_order parameter: {bbox_order}. Only 'axis' or 'point' are "
+            "allowed."
+        )
         raise ValueError(msg)
 
-    # Make sure in each case that the points are in the correct order (that x2 is not less than x1, etc)
+    # Make sure in each case that the points are in the correct order (that x2 is not
+    # less than x1, etc)
     if (ax1 > ax2) or (ay1 > ay2) or (az1 > az2):
         msg = (
-            f"Invalid bounding box: {a}. "
-            "The first point must be less than or equal to the second point in each dimension. "
-            "Double-check your 'bbox_order' parameter to make sure you choose the correct 'point' or 'axis' order."
+            f"Invalid bounding box: {a}. The first point must be less than or equal "
+            "to the second point in each dimension. Double-check your 'bbox_order' "
+            "parameter to make sure you choose the correct 'point' or 'axis' order."
         )
         raise ValueError(msg)
     if (bx1 > bx2) or (by1 > by2) or (bz1 > bz2):
         msg = (
-            f"Invalid bounding box: {b}. "
-            "The first point must be less than or equal to the second point in each dimension. "
-            "Double-check your 'bbox_order' parameter to make sure you choose the correct 'point' or 'axis' order."
+            f"Invalid bounding box: {b}. The first point must be less than or equal "
+            "to the second point in each dimension. Double-check your 'bbox_order' "
+            "parameter to make sure you choose the correct 'point' or 'axis' order."
         )
         raise ValueError(msg)
 
@@ -102,7 +106,8 @@ def subtract_cuboids(a, b, tol=1e-10, bbox_order="point"):
         if (x2 - x1 > tol) and (y2 - y1 > tol) and (z2 - z1 > tol):
             clean.append((x1, y1, z1, x2, y2, z2))
 
-    # If the bboxes were given in axis-order, re-order them from point order (above) before returning.
+    # If the bboxes were given in axis-order, re-order them from point order (above)
+    # before returning.
     if bbox_order in ("axis", "xxyyzz"):
         clean = [(x1, x2, y1, y2, z1, z2) for (x1, y1, z1, x2, y2, z2) in clean]
 
@@ -135,13 +140,16 @@ def merge_cuboids(cuboids, tol=1e-10, bbox_order="point", prefer=None):
     returned.
 
     Args:
-        cuboids (list[tuple]): Each cuboid as (xmin, ymin, zmin, xmax, ymax, zmax) if bbox_order="point"
-            Each cuboid as (xmin, xmax, ymin, ymax, zmin, zmax) if bbox_order="axis"
+        cuboids (list[tuple]): Each cuboid as (xmin, ymin, zmin, xmax, ymax, zmax) if
+            bbox_order="point" Each cuboid as (xmin, xmax, ymin, ymax, zmin, zmax) if
+            bbox_order="axis"
         tol (float): Numerical tolerance for equality checks.
         bbox_order (str): Alignment of the bbox coordinates.
-            If 'point' or 'xyzxyz', the coordinates are assumed to be in (x1, y1, z1, x2, y2, z2) format, defining the first point (0:3) and second point (3:6)
-            if 'axis' or 'xxyyzz', the coordinates are asummed to be in (x1, x2, y1, y2, z1, z2) format, defining the coords in the x (0:2), y (2:4), and z (4:6) directions.
-            Raise ValueError if bbox_order is not 'point' or 'axis'.
+            If 'point' or 'xyzxyz', the coordinates are assumed to be in (x1, y1, z1,
+            x2, y2, z2) format, defining the first point (0:3) and second point (3:6) if
+            'axis' or 'xxyyzz', the coordinates are asummed to be in (x1, x2, y1, y2,
+            z1, z2) format, defining the coords in the x (0:2), y (2:4), and z (4:6)
+            directions. Raise ValueError if bbox_order is not 'point' or 'axis'.
         prefer (str | None): None (the default) merges in the given order only.
             'row' (or 'r') and 'column' (or 'c'), in any capitalization and with
             surrounding whitespace ignored, try both orientations and break a tie in
@@ -170,7 +178,10 @@ def merge_cuboids(cuboids, tol=1e-10, bbox_order="point", prefer=None):
         # Switch all the cuboids from axis order to point order for processing
         cuboids = [(x1, y1, z1, x2, y2, z2) for (x1, x2, y1, y2, z1, z2) in cuboids]
     elif bbox_order != "point":
-        msg = f"Invalid bbox_order: {bbox_order}. Must be 'point', 'axis', 'xyzxyz', or 'xxyyzz'."
+        msg = (
+            f"Invalid bbox_order: {bbox_order}. Must be 'point', 'axis', 'xyzxyz', or "
+            "'xxyyzz'."
+        )
         raise ValueError(msg)
 
     def can_merge(a, b, along=None):

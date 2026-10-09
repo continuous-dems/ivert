@@ -52,7 +52,7 @@ class FakeGlobatoStream:
 
 @pytest.fixture
 def fake_globato_read(monkeypatch):
-    """Replace globato.read() with a FakeGlobatoStream; set its ``chunks`` to feed photons."""
+    """Replace globato.read() with a FakeGlobatoStream; its ``chunks`` feed photons."""
     from ivert import icesat2_database_v2 as is2db  # noqa: PLC0415 - slow import
 
     stream = FakeGlobatoStream()

@@ -1,4 +1,4 @@
-"""Tests for how a collection validation picks its DEMs out of a directory or file list."""
+"""Tests for how a collection validation picks DEMs from a directory or file list."""
 
 from ivert.validate_dem_collection import _resolve_dem_list
 
@@ -10,7 +10,10 @@ def _touch(directory, *names: str):
 
 
 def test_directory_keeps_raster_formats_and_skips_sidecars(tmp_path):
-    """Collections once kept only *.tif; other GDAL formats count now, but not sidecars or subdirectories."""
+    """Collections once kept only *.tif; other GDAL formats count now.
+
+    Sidecar files and subdirectories still don't.
+    """
     _touch(
         tmp_path,
         "a.tif",
@@ -36,14 +39,20 @@ def test_directory_keeps_raster_formats_and_skips_sidecars(tmp_path):
 
 
 def test_explicit_non_tif_files_are_kept(tmp_path):
-    """The old .tif filter applied to named files too, so 'ivert validate a.nc b.nc' validated nothing."""
+    """The old .tif filter applied to named files too.
+
+    So 'ivert validate a.nc b.nc' validated nothing.
+    """
     files = _touch(tmp_path, "a.flt", "b.asc")
 
     assert _resolve_dem_list(files, None, None) == files
 
 
 def test_explicit_list_drops_sidecars_with_a_warning(tmp_path, caplog):
-    """A glob such as *.tif* picks up sidecars; they are dropped, and named, since the user listed them."""
+    """A glob such as *.tif* picks up sidecars, which are dropped.
+
+    They are named, since the user listed them.
+    """
     files = _touch(tmp_path, "a.tif", "a.tif.aux.xml", "b.tif")
 
     dems = _resolve_dem_list(files, None, None)
@@ -53,7 +62,7 @@ def test_explicit_list_drops_sidecars_with_a_warning(tmp_path, caplog):
 
 
 def test_fname_filter_and_omit_still_apply(tmp_path):
-    """The user's own name filter and omit pattern still work alongside the format list."""
+    """The user's own name filter and omit pattern still work beside the format list."""
     _touch(tmp_path, "x_wgs84.tif", "x_navd88.tif", "y_wgs84.nc")
 
     dems = _resolve_dem_list(str(tmp_path), r"_wgs84", r"\.nc\Z")

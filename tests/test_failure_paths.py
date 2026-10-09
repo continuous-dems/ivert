@@ -27,7 +27,7 @@ def db(tmp_path):
 
 @pytest.mark.parametrize("empty_index", [None, pd.DataFrame()])
 def test_querying_an_empty_index_finds_no_photons(db, monkeypatch, empty_index):
-    """An index with no granules, as a rebuild of an empty database writes, is no error."""
+    """An index with no granules, as an empty database's rebuild writes, is no error."""
     monkeypatch.setattr(db, "open_gdf", lambda: empty_index)
 
     assert db.query_photons((-74.0, 40.5, -73.0, 41.0, 20230101, 20230201)) is None

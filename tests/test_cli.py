@@ -32,7 +32,7 @@ def test_classes_lists_the_photon_classification_codes(runner):
 
 
 def test_options_list_runs_against_an_isolated_config(runner):
-    """'options list' reads every config layer, including conftest's redirected user file."""
+    """'options list' reads every config layer, even conftest's redirected user file."""
     result = runner.invoke(ivert_cli, ["options", "list"])
 
     assert result.exit_code == 0, result.output

@@ -1,4 +1,4 @@
-"""Run manifests for 'ivert validate': record a run's settings, and replay them with -m/--manifest.
+"""Run manifests for 'ivert validate': record a run's settings, replay them with -m.
 
 A manifest is a small INI file written into the output directory of every validation
 that does work. It records the IVERT version and the effective value of every
@@ -44,8 +44,9 @@ _RUN_COMMENT = """\
 """
 
 _OPTIONS_COMMENT = """\
-# [options] holds the settings applied when this manifest is passed to 'ivert validate -m'.
-# The keys are the long option names of 'ivert validate', with dashes as underscores.
+# [options] holds the settings applied when this manifest is passed to
+# 'ivert validate -m'. The keys are the long option names of 'ivert validate',
+# with dashes as underscores.
 """
 
 
@@ -63,7 +64,7 @@ def manifest_path(output_dir, dem_name=None):
 
 
 def tracked_params(command):
-    """Return {name: click.Parameter} for the parameters of 'command' a manifest records."""
+    """Return {name: click.Parameter} for the 'command' parameters manifests record."""
     return {p.name: p for p in command.params if p.name not in UNTRACKED_PARAMS}
 
 
@@ -79,7 +80,7 @@ def format_value(value):
 
 
 def _format_entry(key, text):
-    """Format one 'key = value' entry, indenting continuation lines of multi-line values."""
+    """Format one 'key = value' entry, indenting a multi-line value's later lines."""
     lines = text.split("\n")
     entry = f"{key} = {lines[0]}".rstrip()
     for line in lines[1:]:
@@ -146,10 +147,12 @@ def read_manifest(path):
     """Read a manifest.
 
     Returns:
-        (version, options): the IVERT version that wrote it, and {option name: raw text}.
+        (version, options): the IVERT version that wrote it, and {option name: raw
+        text}.
 
     Raises:
-        click.ClickException: the file can't be parsed or lacks [ivert] version or [options].
+        click.ClickException: the file can't be parsed or lacks [ivert] version or
+            [options].
 
     """
     parser = _new_parser()
@@ -161,7 +164,10 @@ def read_manifest(path):
         raise click.ClickException(msg) from exc
 
     if not parser.has_option("ivert", "version"):
-        msg = f"'{path}' is not an IVERT manifest: it has no 'version' in an [ivert] section."
+        msg = (
+            f"'{path}' is not an IVERT manifest: it has no 'version' in an [ivert] "
+            "section."
+        )
         raise click.ClickException(msg)
     if not parser.has_section("options"):
         msg = f"'{path}' is not an IVERT manifest: it has no [options] section."
@@ -170,7 +176,7 @@ def read_manifest(path):
 
 
 def read_manifest_options(path):
-    """Return a manifest's [options] as {name: raw text}, or None if it can't be read."""
+    """Return a manifest's [options] as {name: raw text}, or None if unreadable."""
     try:
         return read_manifest(path)[1]
     except click.ClickException:
@@ -187,8 +193,9 @@ def _version_mismatch_message(manifest_version, current_version):
 
     if manifest_release is not None and manifest_release < current_release:
         return (
-            f"This manifest belongs to a previous version of IVERT ({manifest_version}) "
-            f"that is no longer compatible with the current version ({current_version})."
+            "This manifest belongs to a previous version of IVERT "
+            f"({manifest_version}) that is no longer compatible with the current "
+            f"version ({current_version})."
         )
     if manifest_release is not None and manifest_release > current_release:
         return (
@@ -203,7 +210,7 @@ def _version_mismatch_message(manifest_version, current_version):
 
 
 def _describe_default(value):
-    """Describe, for a warning, the default an option missing from a manifest runs with."""
+    """For a warning, describe the default a manifest's missing option runs with."""
     text = ", ".join(format_value(value).split("\n"))
     return f"its default, '{text}'" if text else "its default (not set)"
 

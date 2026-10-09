@@ -99,7 +99,10 @@ def _run(tmp_path, out, *, overwrite=False):
 def test_rerun_validates_a_dem_missing_results_although_the_summaries_exist(
     collection,
 ):
-    """A rerun once stopped as soon as the summary existed, so DEMs added later were never validated."""
+    """A rerun once stopped as soon as the summary existed.
+
+    DEMs added later were never validated.
+    """
     tmp_path, out, dems, validated, _ = collection
     _touch(out, _SUMMARY_FILES)
 
@@ -110,7 +113,7 @@ def test_rerun_validates_a_dem_missing_results_although_the_summaries_exist(
 
 
 def test_rerun_stops_when_every_dem_and_summary_is_done(collection):
-    """The early stop still happens when nothing is left; an empty marker counts as done."""
+    """The early stop still happens when all is done; an empty marker counts as done."""
     tmp_path, out, _, validated, _ = collection
     _touch(out, ("b_results_EMPTY.txt", *_SUMMARY_FILES))
 
@@ -120,7 +123,10 @@ def test_rerun_stops_when_every_dem_and_summary_is_done(collection):
 
 
 def test_rerun_rewrites_a_missing_summary(collection):
-    """One missing summary file is enough to go round again; validate_dem() reuses finished DEMs."""
+    """One missing summary file is enough to go round again.
+
+    validate_dem() reuses the finished DEMs.
+    """
     tmp_path, out, dems, validated, _ = collection
     _touch(out, ("b_results_EMPTY.txt", *_SUMMARY_FILES[:-1]))
 
@@ -181,7 +187,7 @@ def test_overwrite_deletes_the_error_marker_and_retries(collection):
 
 
 def test_rerun_stops_with_a_failed_dem_and_reports_it(collection, caplog):
-    """A failed DEM counts as done for the early stop, but the run still ends by naming it."""
+    """A failed DEM is done for the early stop, but the run still ends by naming it."""
     tmp_path, out, _, validated, _ = collection
     _touch(out, ("b_results_ERROR.txt", *_SUMMARY_FILES))
 
@@ -198,7 +204,10 @@ def test_rerun_stops_with_a_failed_dem_and_reports_it(collection, caplog):
 
 
 def test_a_dem_that_cant_be_read_gets_an_error_marker(collection):
-    """A DEM refused before validation starts gets a marker too, not only one that fails partway."""
+    """A DEM refused before validation starts gets a marker too.
+
+    Not only one that fails partway.
+    """
     tmp_path, out, _, _, _ = collection
     with h5py.File(tmp_path / "c.h5", "w") as f:
         f["elev"] = np.zeros((4, 5), dtype="f4")
@@ -223,7 +232,7 @@ def test_a_file_gdal_cant_open_is_skipped_and_the_run_goes_on(collection):
 
 
 def test_overwrite_deletes_an_empty_marker(tmp_path):
-    """An old _results_EMPTY.txt used to be left beside new results, contradicting them."""
+    """An old _results_EMPTY.txt once stayed beside new results, contradicting them."""
     results = tmp_path / "dem_results.h5"
     empty = tmp_path / "dem_results_EMPTY.txt"
     empty.write_text("")

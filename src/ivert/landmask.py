@@ -91,7 +91,7 @@ def _cached_osm_landmasks(cache_dir: str | Path) -> dict[Path, tuple]:
 
 
 def _read_polygons(path: str, bbox) -> list:
-    """Return the polygons of a landmask file that reach into an (xmin, xmax, ymin, ymax) box."""
+    """Return the landmask polygons reaching into an (xmin, xmax, ymin, ymax) box."""
     xmin, xmax, ymin, ymax = bbox
     _, _, wkb, _ = pyogrio.raw.read(
         path,

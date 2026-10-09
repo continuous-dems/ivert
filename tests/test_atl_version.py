@@ -36,13 +36,13 @@ BBOX = (-74.0, -73.0, 40.5, 41.0, 20230101, 20230201)
     ],
 )
 def test_the_version_is_normalised_to_three_digits(value, expected):
-    """Both the quoted config value and a hand-set int must match a filename's release field."""
+    """A quoted config value and a hand-set int must both match a filename's release."""
     assert normalize_atl_version(value) == expected
 
 
 @pytest.mark.parametrize("value", ["abc", "0007", "", "7.0", "-7", "7 1", None])
 def test_a_value_that_is_not_a_version_is_rejected(value):
-    """A bad setting stops here, naming it, not later as a release that never matches."""
+    """A bad setting stops here, named, not later as a release that never matches."""
     with pytest.raises(ValueError, match="nsidc_atl_version"):
         normalize_atl_version(value)
 
@@ -97,7 +97,7 @@ def test_a_cached_job_is_found_only_for_the_version_it_asked_for(tmp_path):
 
 
 def test_the_version_survives_a_round_trip_through_the_file_as_text(tmp_path):
-    """Pandas would otherwise read "007" back as the integer 7, which no lookup matches."""
+    """Pandas would otherwise read "007" back as 7, which no lookup matches."""
     _requests_csv(tmp_path).add_record(
         "ATL03",
         BBOX,
@@ -116,9 +116,10 @@ def test_the_version_survives_a_round_trip_through_the_file_as_text(tmp_path):
 
 
 def test_a_file_from_before_the_column_existed_is_upgraded_on_read(tmp_path):
-    """Old records carry no version, so a versioned lookup skips them and an unversioned one sees them.
+    """Old records carry no version, so a versioned lookup skips them.
 
-    That means at most one job per region gets resubmitted after the upgrade.
+    An unversioned one still sees them. That means at most one job per region gets
+    resubmitted after the upgrade.
     """
     job = _harmony_job("job-old")
     (tmp_path / "requests.csv").write_text(
@@ -140,7 +141,7 @@ def test_a_job_recorded_with_a_numeric_spelling_of_the_version_is_reused(
     tmp_path,
     old_value,
 ):
-    """A spreadsheet program that saves the file writes the version as a number, "7" or "7.0".
+    """A spreadsheet that saves the file writes the version as a number, "7" or "7.0".
 
     Not matching them submitted a duplicate Harmony job for a box that already had one.
     The value is corrected in memory, so the next write of the file fixes it on disk.
@@ -163,7 +164,7 @@ def test_a_job_recorded_with_a_numeric_spelling_of_the_version_is_reused(
 
 @pytest.mark.parametrize("asked_for", [7, "7", " 007 "])
 def test_a_lookup_and_a_record_accept_any_spelling_of_the_version(tmp_path, asked_for):
-    """A version given as an int or unpadded is normalised on both sides of the comparison."""
+    """A version given as an int or unpadded is normalised on both sides of a match."""
     csv = _requests_csv(tmp_path)
     csv.add_record("ATL03", BBOX, _harmony_job("job-007"), atl_version=asked_for)
 
@@ -180,7 +181,7 @@ def test_a_lookup_and_a_record_accept_any_spelling_of_the_version(tmp_path, aske
 
 
 class _FakeFetchezIceSat2:
-    """Stands in for fetchez's IceSat2 module: records how it was built, does nothing."""
+    """Stands in for fetchez's IceSat2 module: records how it's built, does nothing."""
 
     built_with: ClassVar[list[dict]] = []
 
@@ -265,7 +266,7 @@ def _download(db, monkeypatch, granule_names):
 
 
 def test_the_configured_version_is_requested_and_recorded(db, monkeypatch):
-    """The setting reaches the fetchez request, the cache lookup and the cache record."""
+    """The setting reaches the fetchez request, cache lookup and cache record."""
     _download(db, monkeypatch, [V007_GRANULE])
 
     assert [m["version"] for m in _FakeFetchezIceSat2.built_with] == ["007"]
@@ -274,7 +275,7 @@ def test_the_configured_version_is_requested_and_recorded(db, monkeypatch):
 
 
 def test_the_requests_cache_uses_the_database_config(db, monkeypatch):
-    """A database built on a non-default config must not read the default requests.csv."""
+    """A database on a non-default config must not read the default requests.csv."""
     _download(db, monkeypatch, [V007_GRANULE])
 
     assert _FakeRequestsCSV.configs
@@ -294,7 +295,7 @@ def test_granules_of_another_release_are_left_out(db, monkeypatch):
 
 
 def test_a_part_with_only_wrong_release_granules_fails(db, monkeypatch):
-    """A part left with nothing to classify counts as failed, not as an empty success."""
+    """A part left with nothing to classify counts as failed, not an empty success."""
     summary, processed = _download(db, monkeypatch, [V006_GRANULE])
 
     assert processed == []
@@ -308,7 +309,10 @@ def test_a_part_with_only_wrong_release_granules_fails(db, monkeypatch):
 
 
 def test_globato_is_told_which_release_to_classify(db, tmp_path, fake_globato_read):
-    """The version is normalised for globato, which checks the release too, even from an int."""
+    """The version is normalised for globato, which checks the release too.
+
+    Even when it is given as an int.
+    """
     db.config.nsidc_atl_version = 7  # an int, as a hand-edited config may give
 
     result = db._process_h5_to_nc(

@@ -1,4 +1,4 @@
-"""Command-line interface for the ICESat-2 Validation of Elevations Reporting Tool (IVERT)."""
+"""Command-line interface for IVERT."""
 
 import configparser
 import contextlib
@@ -269,7 +269,8 @@ def _setup_earthdata_credentials(*, announce_if_present=True, prompt_note=None):
         click.echo(prompt_note)
 
     if not click.confirm(
-        "Would you like to enter and save your NASA Earthdata username and password now?",
+        "Would you like to enter and save your NASA Earthdata username and password "
+        "now?",
         default=False,
     ):
         click.echo(
@@ -470,7 +471,7 @@ def _option_source_label(config, key):
 
 
 def _inherited_options(config, user_config, changed_keys):
-    """Return the settings that would keep their default value after 'changed_keys' change.
+    """Return the settings that keep their default value after 'changed_keys' change.
 
     A setting like "cache_directory = %(user_data_directory)s/cache" lives only
     in ivert_defaults.ini, so it keeps resolving against the *default*
@@ -559,7 +560,10 @@ def _options_set_values(assignments, *, assume_yes=False):
             )
             raise click.UsageError(msg)
         if key not in config.option_names():
-            msg = f"Unknown setting '{key}'. Run 'ivert options list' to see valid settings."
+            msg = (
+                f"Unknown setting '{key}'. Run 'ivert options list' to see valid "
+                "settings."
+            )
             raise click.UsageError(msg)
         parsed.append((key, value))
 
@@ -775,7 +779,10 @@ def database(ctx):
     "--boxes",
     is_flag=True,
     default=False,
-    help="Print the unique query bounding boxes used to build the database. Overrides --all.",
+    help=(
+        "Print the unique query bounding boxes used to build the database. Overrides "
+        "--all."
+    ),
 )
 def database_list(show_all, boxes):
     """List granules currently in the IVERT ICESat-2 database."""
@@ -910,7 +917,9 @@ def database_delete(delete_all, yes):
 
     total_bytes = sum(f.stat().st_size for f in all_files)
     click.echo(
-        f"\n  {len(all_files)} file(s) totaling {sizeof_fmt(total_bytes)} will be deleted:",
+        "\n"
+        f"  {len(all_files)} file(s) totaling {sizeof_fmt(total_bytes)} will be "
+        "deleted:",
     )
     for fpath in all_files:
         click.echo(f"    {fpath}  ({sizeof_fmt(fpath.stat().st_size)})")
@@ -988,7 +997,7 @@ def database_size():
 
 
 def _check_projection_option(projection):
-    """Check a -p/--projection value; return its (horizontal CRS, vertical part or None).
+    """Check a -p/--projection value; return (horizontal CRS, vertical part or None).
 
     The value may be a horizontal CRS ('EPSG:26910') or a compound one
     ('EPSG:6893', 'EPSG:4326+3855', 'EPSG:4326+vdatum:mllw').
@@ -1159,13 +1168,15 @@ def database_download(
     Examples:
         ivert database download -- -74.0/-73.0/40.5/41.0
 
-        ivert database download -ds 2023.01.01 -de 2024.01.01 ../dems/oregon_coast_v1.tif
+        ivert database download -ds 2023.01.01 -de 2024.01.01
+        ../dems/oregon_coast_v1.tif
 
         ivert database download -ds "two years ago" -de "one year ago" `../dems/*.tif`
 
         ivert database download survey_tiles.gpkg
 
-    (Note: Use the '--' delimiter to explicitly end your command-line options if coordinates begin with a negative '-')
+    (Note: Use the '--' delimiter to explicitly end your command-line options if
+    coordinates begin with a negative '-')
 
     """
     from ivert import icesat2_database_v2 as is2db_mod  # noqa: PLC0415 - slow import
@@ -1248,13 +1259,13 @@ def database_download(
         t = str(tmax)
         tmax_str = f"{t[:4]}-{t[4:6]}-{t[6:]}"
         click.echo(
-            f"WARNING: As of this version of IVERT, ATL24 bathymetry data is not available "
-            f"after {cutoff_str}. Data downloaded after that date will lack bathymetry "
-            f"classifications (photon classes 40/41).\n"
+            "WARNING: As of this version of IVERT, ATL24 bathymetry data is not "
+            f"available after {cutoff_str}. Data downloaded after that date will lack "
+            "bathymetry classifications (photon classes 40/41).\n"
             f"Your current request ends at {tmax_str}.\n"
-            f"You may update this cutoff date via "
-            f"'ivert options atl24_date_cutoff=YYYYMMDD' to suppress these warnings if a newer ATL24 "
-            f"version has been released.",
+            "You may update this cutoff date via 'ivert options "
+            "atl24_date_cutoff=YYYYMMDD' to suppress these warnings if a newer ATL24 "
+            "version has been released.",
             err=True,
         )
         if not force and not click.confirm(
@@ -1268,7 +1279,10 @@ def database_download(
     full_bbox = (wgs84_bbox[0], wgs84_bbox[1], wgs84_bbox[2], wgs84_bbox[3], tmin, tmax)
 
     if not is2db_mod.IS2Database.bbox_valid(full_bbox):
-        msg = f"Invalid bounding box: xmin < xmax, ymin < ymax required. Got {full_bbox[:4]}."
+        msg = (
+            "Invalid bounding box: xmin < xmax, ymin < ymax required. Got "
+            f"{full_bbox[:4]}."
+        )
         raise click.ClickException(msg)
 
     # Offer to save credentials before the download asks for them. Declining is
@@ -1425,7 +1439,8 @@ def _dissolve_region_files(paths, variable=None, projection_horz=None):
 
     Args:
         paths: Existing raster or vector files.
-        variable: The variable to use from NetCDF or HDF5 rasters (see _region_from_file).
+        variable: The variable to use from NetCDF or HDF5 rasters (see
+            _region_from_file).
         projection_horz: The horizontal CRS to give rasters (see _region_from_file).
 
     Returns:
@@ -1532,7 +1547,8 @@ def _echo_export_summary(written, count, noun):
     """Report the files a conversion wrote (or that it wrote none)."""
     if not written:
         click.echo(
-            "\nNo files written (all target files already exist; use -ow to overwrite).",
+            "\n"
+            "No files written (all target files already exist; use -ow to overwrite).",
         )
         return
 
@@ -1542,7 +1558,7 @@ def _echo_export_summary(written, count, noun):
 
 
 def _convert_output_base(output, default_name):
-    """Return the base path 'ivert database convert' writes to, before each format's extension.
+    """Return the base path 'ivert database convert' writes to, without extension.
 
     With no -o, it is default_name in the current directory. A -o that ends in a path
     separator or names an existing folder gets default_name inside that folder, which
@@ -1702,7 +1718,10 @@ def _export_single_granule(
     "--overwrite",
     is_flag=True,
     default=False,
-    help="Overwrite existing output files. Default: skip formats whose file already exists.",
+    help=(
+        "Overwrite existing output files. Default: skip formats whose file already "
+        "exists."
+    ),
 )
 @click.option(
     "-f",
@@ -1867,9 +1886,9 @@ def database_convert(
     if est_photons >= _EXPORT_WARN_PHOTON_THRESHOLD and not force:
         scope = "the entire database" if bbox is None else "the requested region"
         click.echo(
-            f"WARNING: Converting {scope} covers {len(granule_rows):,} granule(s) with up "
-            f"to ~{est_photons:,} photons. This may produce very large output file(s) and "
-            f"take a while.",
+            f"WARNING: Converting {scope} covers {len(granule_rows):,} granule(s) "
+            f"with up to ~{est_photons:,} photons. This may produce very large output "
+            "file(s) and take a while.",
             err=True,
         )
         if not click.confirm("\nContinue with the conversion anyway?", default=False):
@@ -2169,7 +2188,10 @@ _MAX_OVERLAPS_LISTED = 20
     "--dry-run",
     is_flag=True,
     default=False,
-    help="Show what the archive holds and where it overlaps the database; change nothing.",
+    help=(
+        "Show what the archive holds and where it overlaps the database; change "
+        "nothing."
+    ),
 )
 def database_restore(archive, on_overlap, dry_run):
     """Unpack an 'ivert database dump' archive into the IVERT database.
@@ -2375,7 +2397,7 @@ _EXCLUDE_VECTOR_EXTENSIONS = (".shp", ".geojson", ".gpkg")
 
 
 def _parse_exclude_spec(value, *, wsen=False):
-    """Parse a single -ex/--exclude value into a (minx, miny, maxx, maxy) tuple or a file path.
+    """Parse one -ex/--exclude value into a (minx, miny, maxx, maxy) tuple or a path.
 
     Accepts either a 4-value slash-separated bounding box or a path to a
     .shp/.geojson/.gpkg vector file of polygons. Bounding-box coordinates are in the
@@ -2415,11 +2437,11 @@ def _parse_exclude_spec(value, *, wsen=False):
 
 
 def _manifest_option_values(ctx, manifest_file):
-    """Return the manifest's values for every tracked option not given on the command line.
+    """Return manifest values for the tracked options not given on the command line.
 
     Options the manifest lacks take their command-line values, or else their defaults
-    with a warning for each; unrecognized options in the manifest are warned about and asked
-    about before going on (see manifest.reconcile_options()).
+    with a warning for each; unrecognized options in the manifest are warned about and
+    asked about before going on (see manifest.reconcile_options()).
     """
     from ivert import manifest as manifest_module  # noqa: PLC0415 - slow import
 
@@ -2448,7 +2470,7 @@ def _manifest_option_values(ctx, manifest_file):
 
 
 def _real_dem_path(dem_name):
-    """Return a DEM path, or the file inside a subdataset string, as the real path on disk.
+    """Return a DEM path, or a subdataset string's file, as the real path on disk.
 
     Symlinks are followed, so a symlinked folder followed by '..' gives the folder the
     system actually used rather than the one the text names. A subdataset string keeps
@@ -2527,7 +2549,7 @@ def _run_validate(
     variable=None,
     projection=None,
 ):
-    """Branch to validate_dem or validate_list_of_dems based on the number of input files.
+    """Run validate_dem for one input file, or validate_list_of_dems for several.
 
     'manifest_options' maps each tracked option to its value for this run. It is written
     out as the run's manifest, with the values resolved here filled in, but only if
@@ -2811,7 +2833,9 @@ def _run_validate(
     "--list-vdatums",
     is_flag=True,
     default=False,
-    help="Print all recognised vertical datum names and what they resolve to, then exit.",
+    help=(
+        "Print all recognised vertical datum names and what they resolve to, then exit."
+    ),
 )
 @click.option(
     "-n",
@@ -2903,10 +2927,11 @@ def _run_validate(
     type=str,
     default=None,
     help=(
-        "CRS of the DEM(s): horizontal ('EPSG:26910'), or compound to give the vertical "
-        "datum too ('EPSG:6893', 'EPSG:4326+3855', 'EPSG:4326+vdatum:mllw'). Required "
-        "for a DEM with no CRS of its own. Overrides the DEM's own CRS, with a warning, "
-        "if it differs. -V/--vdatum overrides its vertical part, with a warning."
+        "CRS of the DEM(s): horizontal ('EPSG:26910'), or compound to give the "
+        "vertical datum too ('EPSG:6893', 'EPSG:4326+3855', 'EPSG:4326+vdatum:mllw'). "
+        "Required for a DEM with no CRS of its own. Overrides the DEM's own CRS, with "
+        "a warning, if it differs. -V/--vdatum overrides its vertical part, with a "
+        "warning."
     ),
 )
 @click.option(
@@ -2916,9 +2941,9 @@ def _run_validate(
     default=None,
     help=(
         "Variable to validate in a NetCDF (.nc, .nc4) or HDF5 (.h5, .hdf5) DEM file: "
-        "a name ('elev') or, for HDF5, a path within the file ('grid/elev'). By default "
-        "a file's only variable is used; a file with several is searched for 'elev', "
-        "'elevation' and then 'z'. A file without the variable is an error: a "
+        "a name ('elev') or, for HDF5, a path within the file ('grid/elev'). By "
+        "default a file's only variable is used; a file with several is searched for "
+        "'elev', 'elevation' and then 'z'. A file without the variable is an error: a "
         "single-DEM run stops, and a multi-DEM run skips that file. Ignored for other "
         "formats."
     ),
@@ -2968,7 +2993,10 @@ def _run_validate(
     "--buildings",
     is_flag=True,
     default=False,
-    help="Include building-class photons (class 7) in validation, on top of -c/--classes.",
+    help=(
+        "Include building-class photons (class 7) in validation, on top of "
+        "-c/--classes."
+    ),
 )
 @click.option(
     "-cl",
@@ -3006,8 +3034,8 @@ def _run_validate(
         "Comma-separated filters that remove misclassified bathy-floor (class 40) "
         "photons: 'deep' (reference bathymetry too deep for ICESat-2), 'offshore' "
         "(near-surface returns far from the coast), 'reference' (much shallower than "
-        "the reference bathymetry), 'land' (below sea level on land). 'none' turns them "
-        "off. Overrides the 'bathy_filters' setting (default: all four)."
+        "the reference bathymetry), 'land' (below sea level on land). 'none' turns "
+        "them off. Overrides the 'bathy_filters' setting (default: all four)."
     ),
 )
 @click.option(
@@ -3118,7 +3146,8 @@ def _run_validate(
     help=(
         "Redo the validation and overwrite existing output files, even if the "
         "validation has already completed (or partially completed) for this DEM. "
-        "Default: reuse existing interim/output files and skip work that's already done."
+        "Default: reuse existing interim/output files and skip work that's already "
+        "done."
     ),
 )
 @click.option(
@@ -3199,7 +3228,8 @@ def validate(
 
     if list_vdatums:
         click.echo(
-            "Recognised vertical datum names (reference → common names, description):\n",
+            "Recognised vertical datum names (reference → common names, "
+            "description):\n",
         )
         for reference, names in vdatum_lookup.list_vdatums().items():
             aliases = ", ".join(f"'{a}'" for a in sorted(names, key=len))

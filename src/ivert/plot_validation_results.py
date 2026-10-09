@@ -36,7 +36,7 @@ def get_data_from_h5_or_list(
     *,
     include_filenames: bool = False,
 ) -> pd.DataFrame:
-    """Return the data either from a single hdf5 results file, or a list of them. Filter out empty (bad data) values."""
+    """Return the data from one HDF5 results file, or from a list of them."""
     if isinstance(h5_name_or_list, (str, Path)):
         data = pd.read_hdf(h5_name_or_list)
         if include_filenames:
@@ -68,7 +68,10 @@ def get_data_from_h5_or_list(
                         temp_data["filename"] = Path(h5_file).name
                     else:
                         if not is_iterable(orig_filenames):
-                            msg = "orig_filenames must be a list when h5_name_or_list is one."
+                            msg = (
+                                "orig_filenames must be a list when h5_name_or_list "
+                                "is one."
+                            )
                             raise TypeError(msg)
                         temp_data["filename"] = dem_source.dem_display_name(
                             orig_filenames[i],
@@ -197,13 +200,15 @@ def plot_histograms_and_line(
             cutoffs[1] = cutoffs[1] + 1
 
         # Do not crop the photo to make the stddev lines fall outside the plot.
-        # If they do, reset the min/max cutoff to be 2 stddev away from the mean on that side.
+        # If they do, reset the min/max cutoff to be 2 stddev away from the mean on that
+        # side.
         if (center + std) >= cutoffs[1] or hist_cutoff_num_stddevs is not None:
             cutoffs[1] = center + (std * hist_cutoff_num_stddevs)
         if (center - std) <= cutoffs[0] or hist_cutoff_num_stddevs is not None:
             cutoffs[0] = center - (std * hist_cutoff_num_stddevs)
 
-        # Just error checking, if any of the cutoffs come back with NaN or Inf, just clip it to -1, 1, debug later.
+        # Just error checking, if any of the cutoffs come back with NaN or Inf, just
+        # clip it to -1, 1, debug later.
         if np.any(np.isnan(cutoffs) | np.isinf(cutoffs)):
             cutoffs = [-1, 1]
 
@@ -298,13 +303,15 @@ def plot_histograms_and_line(
             cutoffs[1] = cutoffs[1] + 1
 
         # Do not crop the photo to make the stddev lines fall outside the plot.
-        # If they do, reset the min/max cutoff to be 2 stddev away from the mean on that side.
+        # If they do, reset the min/max cutoff to be 2 stddev away from the mean on that
+        # side.
         if (center + std) >= cutoffs[1] or hist_cutoff_num_stddevs is not None:
             cutoffs[1] = center + (std * hist_cutoff_num_stddevs)
         if (center - std) <= cutoffs[0] or hist_cutoff_num_stddevs is not None:
             cutoffs[0] = center - (std * hist_cutoff_num_stddevs)
 
-        # Just error checking, if any of the cutoffs come back with NaN or Inf, just clip it to -1, 1, debug later.
+        # Just error checking, if any of the cutoffs come back with NaN or Inf, just
+        # clip it to -1, 1, debug later.
         if np.any(np.isnan(cutoffs) | np.isinf(cutoffs)):
             cutoffs = [-1, 1]
 
@@ -422,7 +429,8 @@ def plot_histograms_and_line(
     rmse = (np.sum(meandiff**2) / len(meandiff)) ** 0.5
 
     fig.suptitle(
-        f"{place_name}: Errors and Distributions\nRMSE = {rmse:0.3f} m,   N = {len(meandiff):,} cells",
+        f"{place_name}: Errors and Distributions\n"
+        f"RMSE = {rmse:0.3f} m,   N = {len(meandiff):,} cells",
     )
     fig.tight_layout()
 
@@ -435,7 +443,8 @@ def plot_histograms_and_line(
 
     # Clear the figure and close the plot.
     # If the plot is not "plt.close()"'ed, MatPlotLib keeps it in memory indefinitely
-    # even after it's no longer referenced, which is... annoying. Gotta close it explicitly here.
+    # even after it's no longer referenced, which is... annoying. Gotta close it
+    # explicitly here.
     plt.clf()
     plt.close(fig)
 

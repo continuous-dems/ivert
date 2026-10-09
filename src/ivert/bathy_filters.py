@@ -122,7 +122,10 @@ class BathyFilterSettings:
                 continue
             value = float(value)
             if not math.isfinite(value) or value < 0:
-                msg = f"Bathymetry filter setting '{name}' must be a number >= 0, got {value!r}."
+                msg = (
+                    f"Bathymetry filter setting '{name}' must be a number >= 0, got "
+                    f"{value!r}."
+                )
                 raise ValueError(msg)
             object.__setattr__(self, name, value)
         if self.ref_raster is not None:
@@ -194,8 +197,8 @@ class BathyFilterSettings:
         )
         text = {
             "deep": (
-                f"where the shallowest reference cell within {self.ref_window_m:g} m is "
-                f"deeper than {self.max_depth_m:g} m"
+                f"where the shallowest reference cell within {self.ref_window_m:g} m "
+                f"is deeper than {self.max_depth_m:g} m"
             ),
             "offshore": (
                 f"outside the landmask, less than {self.near_surface_m:g} m below the "
@@ -383,7 +386,7 @@ def write_report_to_h5(h5_file: str | Path, report) -> None:
 
 
 def read_report_from_h5(h5_file: str | Path):
-    """Return the BathyFilterReport stored on a results .h5 file, or None if it has none."""
+    """Return a results .h5 file's stored BathyFilterReport, or None if it has none."""
     if not h5_file or not Path(h5_file).exists():
         return None
     try:

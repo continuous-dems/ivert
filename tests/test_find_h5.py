@@ -1,11 +1,14 @@
-"""Tests for how the photon-cloud plotter finds the ATL03 .h5 behind a granule .nc file."""
+"""Tests for how the photon-cloud plotter finds the ATL03 .h5 behind a granule .nc."""
 
 from types import SimpleNamespace
 
 from ivert import plot_photon_clouds_v2 as ppc
 
 GRANULE = "ATL03_20240307011821_12102202_007_01"
-NC_NAME = f"{GRANULE}_subsetted_W121.00000_W119.00000_N34.00000_N35.00000_20211101_20241101.nc"
+NC_NAME = (
+    f"{GRANULE}_subsetted_W121.00000_W119.00000_N34.00000_N35.00000"
+    "_20211101_20241101.nc"
+)
 
 
 def _touch(path):
@@ -15,7 +18,7 @@ def _touch(path):
 
 
 def test_the_h5_is_found_in_a_cache_moved_by_the_config(tmp_path):
-    """A cache outside ~/.ivert used to be missed: only the hard-coded ~/.ivert paths were searched."""
+    """A cache outside ~/.ivert was missed; only the hard-coded paths were searched."""
     nc = _touch(tmp_path / "database" / NC_NAME)
     config = SimpleNamespace(
         icesat2_download_directory=str(tmp_path / "bigdisk" / "icesat2"),
@@ -36,7 +39,7 @@ def test_an_h5_beside_the_nc_file_is_preferred(tmp_path):
 
 
 def test_no_match_gives_none(tmp_path):
-    """Another granule's .h5, or a cache folder that doesn't exist, is no match and no error."""
+    """Another granule's .h5, or a missing cache folder, is no match and no error."""
     nc = _touch(tmp_path / "work" / NC_NAME)
     _touch(tmp_path / "cache" / "ATL03_20990101000000_00000000_007_01.h5")
 

@@ -1,8 +1,9 @@
-"""Tests for validate_dem()'s recovery after the OS kills its sub-process (usually for memory).
+"""Tests for validate_dem()'s recovery after the OS kills its sub-process.
 
-The DEM is then split into 4 parts, each part is validated, and the parts' results are
-merged. The sub-process is replaced by an in-process stand-in: the whole DEM's run is
-"killed", and each part's run writes a small results file, so no photons are needed.
+That usually happens when memory runs out. The DEM is then split into 4 parts, each part
+is validated, and the parts' results are merged. The sub-process is replaced by an
+in-process stand-in: the whole DEM's run is "killed", and each part's run writes a small
+results file, so no photons are needed.
 """
 
 import signal
@@ -131,7 +132,7 @@ def test_the_parts_results_are_merged_into_the_whole_dems(dem, tmp_path):
 
 
 def test_a_dem_whose_parts_have_no_results_is_marked_for_reruns(dem, tmp_path):
-    """The marker must have the name a rerun looks for, or the DEM is validated again."""
+    """The marker must have the name a rerun looks for, or the DEM is redone."""
     _FakeProcess.parts_have_results = False
     out = tmp_path / "out"
     out.mkdir()

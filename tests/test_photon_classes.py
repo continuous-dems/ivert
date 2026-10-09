@@ -4,7 +4,7 @@ from ivert import photon_classes
 
 
 def test_named_constants_match_globato():
-    """The constants are written out by hand, so a renumbering in globato would otherwise go unnoticed."""
+    """The constants are hand-written, so a globato renumbering would go unnoticed."""
     names = photon_classes.class_names()
     constants = {
         name: value

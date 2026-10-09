@@ -36,7 +36,7 @@ SUFFIX_1 = "_W121.00000_W116.50000_N32.00000_N33.00000_20211101_20241101"
 
 
 def test_a_subset_is_named_after_its_granule_and_its_box():
-    """Harmony names a granule's subsets alike whatever their box; this name keeps them apart."""
+    """Harmony names all of a granule's subsets alike; this name keeps them apart."""
     assert (
         is2db.IS2Database._subset_cache_filename(GRANULE, PART_1)
         == STEM + SUFFIX_1 + ".h5"
@@ -72,7 +72,7 @@ def test_the_granule_id_fields_stay_in_front_of_the_suffix():
 
 
 def test_the_source_granule_is_still_recovered_from_the_nc_name():
-    """Code that maps a tile back to its granule reads the .nc name, so the suffix must strip off."""
+    """Tiles are mapped back to granules by .nc name, so the suffix must strip off."""
     nc = is2db.IS2Database._nc_filename(STEM + SUFFIX_1 + ".h5", PART_1)
 
     assert is2db.IS2Database._source_granule_from_filename(nc) == STEM
@@ -84,7 +84,7 @@ def test_the_source_granule_is_still_recovered_from_the_nc_name():
 
 
 class _FakeFetchezIceSat2:
-    """Stands in for fetchez's IceSat2 module: "polls" to one granule under Harmony's name."""
+    """Stands in for fetchez's IceSat2: "polls" to one granule under Harmony's name."""
 
     built: ClassVar[list] = []
 
@@ -145,7 +145,8 @@ def _photons(xs, y=32.5):
             "class_code": [1] * len(xs),
             "delta_time": [t0 + i for i in range(len(xs))],
             "confidence": [4] * len(xs),
-            # 4-byte beam names, as globato hands them over and the .nc files store them.
+            # 4-byte beam names, as globato hands them over and the .nc files store
+            # them.
             "laser": [b"gt1l"] * len(xs),
         },
     )
@@ -153,7 +154,7 @@ def _photons(xs, y=32.5):
 
 @pytest.fixture
 def db(tmp_path, monkeypatch):
-    """An IS2Database rooted in tmp_path, with fetchez, the requests cache and the prefetch faked."""
+    """An IS2Database in tmp_path, with fetchez, requests cache and prefetch faked."""
     config = SimpleNamespace(
         ivert_database_directory=str(tmp_path / "db"),
         ivert_landmask_directory=str(tmp_path / "landmasks"),
@@ -192,7 +193,7 @@ def test_a_plain_box_and_the_same_box_as_a_geometry_make_the_same_request(
     db,
     monkeypatch,
 ):
-    """A box and a geometry share one path, so a rectangle is one Harmony request either way.
+    """A box and a geometry share one path, so a rectangle is one Harmony request.
 
     One large subset of a granule costs Harmony less than several small ones.
     """
@@ -248,7 +249,7 @@ def test_a_subset_is_classified_once_and_stored_per_tile(db, monkeypatch):
 
 
 def test_a_tile_with_no_photons_gets_no_file(db, monkeypatch):
-    """Tiles a granule crosses without photons would otherwise fill the database with empty files."""
+    """Otherwise every photon-less tile a granule crosses would get an empty file."""
     monkeypatch.setattr(
         db,
         "_classify_h5",
@@ -264,7 +265,7 @@ def test_a_tile_with_no_photons_gets_no_file(db, monkeypatch):
 
 
 def test_low_confidence_bathy_floor_photons_are_not_stored(db, monkeypatch):
-    """-bc/--bathy-confidence drops class-40 photons below it before they are written."""
+    """-bc/--bathy-confidence drops class-40 photons below it before they're written."""
     photons = _photons([-120.5, -120.4, -120.3, -120.2]).assign(
         class_code=[40, 40, 40, 1],
         bathy_confidence=[0.2, 0.5, 0.9, 0.1],
@@ -285,7 +286,10 @@ def test_low_confidence_bathy_floor_photons_are_not_stored(db, monkeypatch):
 
 
 def test_each_part_fetches_and_reads_its_own_copy_of_a_shared_granule(db, monkeypatch):
-    """The case in the module docstring: adjacent parts share a granule, and each reads its own subset."""
+    """The case in the module docstring: adjacent parts share a granule.
+
+    Each part reads its own subset.
+    """
     read = []
 
     def fake_classify(h5_fn, _query_bbox, **_kwargs: object):
@@ -389,7 +393,7 @@ def test_a_part_whose_granules_could_not_be_classified_counts_as_failed(
     db,
     monkeypatch,
 ):
-    """Without its ATL08 or ATL24 a granule has no photons to give, which is not an empty tile."""
+    """A granule lacking its ATL08 or ATL24 has no photons; that isn't an empty tile."""
     monkeypatch.setattr(db, "_classify_h5", _no_aux)
 
     summary = db.download_new_granules(PART_1)
@@ -426,7 +430,7 @@ def test_a_granule_that_could_not_be_classified_leaves_the_rest(db, monkeypatch)
 
 
 def test_markers_survive_a_rebuild_and_are_never_queried(db, monkeypatch):
-    """'ivert database rebuild' reads the files, and a marker's data box has no extent."""
+    """'ivert database rebuild' reads the files; a marker's data box has no extent."""
     _photons_in_first_tile(db, monkeypatch)
     db.download_new_granules(PART_1)
 
@@ -439,7 +443,7 @@ def test_markers_survive_a_rebuild_and_are_never_queried(db, monkeypatch):
 
 
 def test_a_marker_is_dropped_once_its_tile_has_photons(db, monkeypatch):
-    """A later run that finds photons there (here with --replace) replaces the marker."""
+    """A later run finding photons there (here with --replace) replaces the marker."""
     _photons_in_first_tile(db, monkeypatch)
     db.download_new_granules(PART_1)
     monkeypatch.setattr(
@@ -455,7 +459,7 @@ def test_a_marker_is_dropped_once_its_tile_has_photons(db, monkeypatch):
 
 
 def test_a_marker_cut_to_a_region_stays_a_marker(db, monkeypatch, tmp_path):
-    """'ivert database dump' of part of a marker's tile keeps that part recorded as covered."""
+    """'ivert database dump' of part of a marker's tile marks that part as covered."""
     _photons_in_first_tile(db, monkeypatch)
     db.download_new_granules(PART_1)
     marker = db.granules_dir / _markers(db)[0]

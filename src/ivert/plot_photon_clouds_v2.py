@@ -1,4 +1,4 @@
-"""plot_photon_clouds_v2.py — plot classified ICESat-2 photon curtains from .nc granule files.
+"""Plot classified ICESat-2 photon curtains from .nc granule files.
 
 Usage
 -----
@@ -60,7 +60,7 @@ DEM_COLORS = ["dimgrey", "purple", "darkcyan", "darkmagenta", "darkgoldenrod"]
 
 
 def _granule_id(filepath):
-    """Return the bare granule ID from a file path (strips _subsetted and bbox suffixes)."""
+    """Return a file path's bare granule ID, without _subsetted or bbox suffixes."""
     stem = Path(filepath).stem
     for marker in ("_subsetted", "_W", "_N", "_E", "_S"):
         idx = stem.find(marker)
@@ -114,7 +114,7 @@ def _beam_delta_times(h5_path):
 
 
 def _load_h5_beam_photons(h5_path, beam):
-    """Load all photons for one beam from ATL03 .h5, returning a DataFrame with class_code=0.
+    """Load all of one beam's photons from an ATL03 .h5, with class_code 0.
 
     Heights are converted from ellipsoidal to EGM2008 geoid by subtracting the
     geoid undulation interpolated from geophys_corr/geoid.  Cumulative along-track
@@ -192,7 +192,10 @@ def load_nc(nc_path):
 
 
 def _get_vdatum_label(reference):
-    """Return a short human-readable label for a vertical reference ('EPSG:5703', 'vdatum:mllw')."""
+    """Return a short human-readable label for a vertical reference.
+
+    The reference is a string such as 'EPSG:5703' or 'vdatum:mllw'.
+    """
     desc = ivert.vdatum_lookup.describe_vdatum(reference)
     if desc:
         return desc.replace(" height", "").replace(" Height", "")
@@ -436,7 +439,8 @@ def plot_beam(
         df_beam["z"].between(-_MAX_ABS_ELEVATION_M, _MAX_ABS_ELEVATION_M)
     ].reset_index(drop=True)
 
-    # Reclassify photons not in the requested set to noise (class 0) so they still appear
+    # Reclassify photons not in the requested set to noise (class 0) so they still
+    # appear
     if classes is not None:
         unselected = (df_beam["class_code"] != 0) & ~df_beam["class_code"].isin(classes)
         df_beam.loc[unselected, "class_code"] = 0
@@ -654,7 +658,7 @@ def main(
     else:
         classes = {int(c) for c in classes_str.split("/")}
 
-    # ------------------------------------------------------------------ h5-only
+    # ---------------------------------------------------------------------- h5-only
     h5_only = h5_only or input_path.suffix.lower() == ".h5"
 
     if h5_only:
@@ -715,7 +719,7 @@ def main(
             )
         return
 
-    # ------------------------------------------------------------------ nc + optional h5
+    # -------------------------------------------------------------- nc + optional h5
     nc_path = input_path
     outdir = Path(outdir) if outdir else nc_path.parent
     outdir.mkdir(parents=True, exist_ok=True)

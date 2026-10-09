@@ -34,7 +34,10 @@ def _packed_netcdf(path, scale=0.01, offset=-100.0):
 
 
 def test_packed_netcdf_values_are_unpacked(tmp_path):
-    """Packed DEMs store scaled integers; validating the raw values would compare against non-elevations."""
+    """Packed DEMs store scaled integers, which are not elevations.
+
+    Validating the raw values would compare against non-elevations.
+    """
     path = _packed_netcdf(tmp_path / "packed.nc")
 
     with rasterio.open(path) as ds:
@@ -46,7 +49,7 @@ def test_packed_netcdf_values_are_unpacked(tmp_path):
 
 
 def test_unpacked_values_are_unchanged_without_scale_or_offset():
-    """Most DEMs have no scale or offset, and their values are returned as they are, without a copy."""
+    """Most DEMs have no scale or offset; their values are returned as is, uncopied."""
     stored = np.array([1, 2, 3], dtype=np.int16)
     ds = types.SimpleNamespace(scales=(1.0,), offsets=(0.0,), name="dem.tif")
 
@@ -62,7 +65,10 @@ def test_scale_and_offset_come_from_the_band_validated():
 
 
 def test_nodata_comes_from_the_band_validated():
-    """Band 2 was once masked with band 1's nodata, which is what rasterio's dataset.nodata gives."""
+    """Band 2 was once masked with band 1's nodata.
+
+    That is what rasterio's dataset.nodata gives.
+    """
     ds = types.SimpleNamespace(nodatavals=(-9999.0, -32768.0))
 
     assert validate_dem._band_nodata(ds, 1) == -9999.0
@@ -70,7 +76,7 @@ def test_nodata_comes_from_the_band_validated():
 
 
 def test_nodata_priority():
-    """--ndv wins over the band's own value, and the configured default fills in where it has none."""
+    """--ndv beats the band's value; the config default fills in where it has none."""
     ds = types.SimpleNamespace(nodatavals=(None, -32768.0))
 
     assert validate_dem._band_nodata(ds, 2, user_ndv=0.0, default_ndv=-1.0) == 0.0
@@ -78,7 +84,7 @@ def test_nodata_priority():
 
 
 def test_split_pieces_keep_the_scale_and_offset(tmp_path):
-    """Large DEMs are validated in pieces, which would be read as raw integers without these."""
+    """Large DEMs are validated in pieces, read as raw integers without these."""
     src = tmp_path / "packed.tif"
     with rasterio.open(
         src,
@@ -105,7 +111,7 @@ def test_split_pieces_keep_the_scale_and_offset(tmp_path):
 
 @pytest.fixture
 def no_transformez_check(monkeypatch):
-    """Skip transformez's check of vertical references; these tests only test the choosing."""
+    """Skip transformez's vertical-reference check; these tests test only the choice."""
     monkeypatch.setattr(
         validate_dem.ivert.vdatum_lookup,
         "check_vdatum",
@@ -120,14 +126,14 @@ NAVD88 = pyproj.CRS("EPSG:5703")
 
 @pytest.mark.usefixtures("no_transformez_check")
 def test_missing_crs_without_projection_is_an_error():
-    """A DEM with no CRS once failed with an AttributeError; now the message points to -p."""
+    """A DEM with no CRS once raised AttributeError; now the message points to -p."""
     with pytest.raises(ValueError, match="-p/--projection"):
         validate_dem._resolve_dem_crs("dem.nc", None, EGM2008)
 
 
 @pytest.mark.usefixtures("no_transformez_check")
 def test_missing_vertical_datum_is_an_error():
-    """With no vertical datum from -V, -p or the file, there is nothing to shift photons to."""
+    """Without a vertical datum from -V, -p or the file, there's nothing to shift to."""
     with pytest.raises(ValueError, match="-V/--vdatum"):
         validate_dem._resolve_dem_crs("dem.tif", WGS84, None)
 
@@ -153,7 +159,7 @@ def test_projection_fills_in_a_missing_crs(caplog):
 
 @pytest.mark.usefixtures("no_transformez_check")
 def test_projection_overrides_the_file_crs_with_a_warning(caplog):
-    """-p wins over the file's CRS, with a warning in case the difference wasn't intended."""
+    """-p wins over the file's CRS, with a warning in case that wasn't intended."""
     with caplog.at_level(logging.WARNING):
         horz, _ = validate_dem._resolve_dem_crs("dem.tif", WGS84, EGM2008, "EPSG:26910")
 
@@ -184,7 +190,7 @@ def test_compound_projection_gives_the_vertical_datum(
     expected_horz,
     expected_vert,
 ):
-    """-p may carry the vertical datum too, as one compound code or two codes joined by '+'."""
+    """-p may carry the vertical datum too: one compound code, or two joined by '+'."""
     horz, vert = validate_dem._resolve_dem_crs("dem.nc", None, None, projection)
 
     assert horz.equals(pyproj.CRS(expected_horz))
@@ -193,7 +199,7 @@ def test_compound_projection_gives_the_vertical_datum(
 
 @pytest.mark.usefixtures("no_transformez_check")
 def test_projection_with_a_transformez_tidal_datum():
-    """A tidal datum has no EPSG code, so its transformez reference is kept as a string."""
+    """A tidal datum has no EPSG code, so its transformez reference stays a string."""
     horz, vert = validate_dem._resolve_dem_crs(
         "dem.nc",
         None,
@@ -248,7 +254,7 @@ def test_command_line_vertical_overrides_the_file_with_a_warning(
     vdatum,
     flag,
 ):
-    """Either flag outranks the file's vertical datum, and the warning names the flag."""
+    """Either flag outranks the file's vertical datum; the warning names the flag."""
     with caplog.at_level(logging.WARNING):
         _, vert = validate_dem._resolve_dem_crs(
             "dem.tif",
@@ -273,7 +279,7 @@ def test_projection_without_a_horizontal_crs_is_an_error():
 
 
 def test_exports_use_the_projection():
-    """Error exports are written in -p's horizontal CRS, without a transformez vertical part."""
+    """Error exports use -p's horizontal CRS, without a transformez vertical part."""
     ds = types.SimpleNamespace(crs=None)
 
     assert validate_dem._output_crs(ds, None) is None

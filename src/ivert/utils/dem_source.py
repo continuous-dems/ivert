@@ -1,4 +1,4 @@
-"""Work out which raster a DEM path refers to: a plain file, or one variable inside a NetCDF or HDF5 file.
+"""Work out which raster a DEM path refers to: a file, or a NetCDF/HDF5 variable.
 
 A NetCDF or HDF5 file with a single data variable opens as an ordinary raster. One with
 several variables opens with no bands of its own, so the elevation variable has to be
@@ -19,7 +19,8 @@ import rasterio
 
 from ivert.utils.paths import absolute_path
 
-# Variable names tried, in order, when a multi-variable file is given without --variable.
+# Variable names tried, in order, when a multi-variable file is given without
+# --variable.
 DEFAULT_ELEVATION_VARIABLES = ("elev", "elevation", "z")
 
 # Files whose variables resolve_dem_source() looks into, and the GDAL driver prefix of
@@ -32,8 +33,8 @@ VARIABLE_FILE_DRIVERS = {
     ".hdf5": "HDF5",
 }
 
-# 'DRIVER:"path":variable' or 'DRIVER:path:variable'. The driver name must be at least two
-# characters so a Windows drive letter ('C:\...') isn't read as one.
+# 'DRIVER:"path":variable' or 'DRIVER:path:variable'. The driver name must be at least
+# two characters so a Windows drive letter ('C:\...') isn't read as one.
 _SUBDATASET_RE = re.compile(
     r'^(?P<driver>[A-Za-z0-9_]{2,}):(?:"(?P<qpath>[^"]+)"|(?P<path>[^:]+)):(?P<var>.+)$',
 )
@@ -44,7 +45,7 @@ class DEMSourceError(ValueError):
 
 
 class DEMVariableError(DEMSourceError):
-    """The DEM variable asked for (or any default elevation variable) isn't in the file."""
+    """The DEM variable asked for (or every default one) isn't in the file."""
 
 
 class DEMNotGeoreferencedError(DEMSourceError):
@@ -52,11 +53,11 @@ class DEMNotGeoreferencedError(DEMSourceError):
 
 
 class DEMUnreadableError(DEMSourceError):
-    """GDAL can't open the DEM file as a raster (corrupt, truncated, or not a raster)."""
+    """GDAL can't open the DEM file as a raster (corrupt, truncated, or not one)."""
 
 
 def _open_dem(dem_name):
-    """Return rasterio.open(dem_name), raising DEMUnreadableError if GDAL can't open it."""
+    """Return rasterio.open(dem_name); raise DEMUnreadableError if GDAL can't."""
     try:
         return rasterio.open(dem_name)
     except rasterio.errors.RasterioIOError as exc:
@@ -65,7 +66,7 @@ def _open_dem(dem_name):
 
 
 def _parse_subdataset(dem_name):
-    """Return (driver, file path, variable) for a subdataset string, or None for a plain path."""
+    """Return (driver, path, variable) of a subdataset string; None for a plain path."""
     m = _SUBDATASET_RE.match(dem_name)
     if m is None:
         return None
@@ -73,7 +74,7 @@ def _parse_subdataset(dem_name):
 
 
 def _variable_path(var):
-    """Return a subdataset's variable without the leading '/'s HDF5 puts on it ('grid/elev')."""
+    """Return a subdataset's variable without HDF5's leading '/'s ('grid/elev')."""
     return var.strip("/")
 
 
@@ -91,8 +92,8 @@ def dem_base_name(dem_name):
     """Return the base name used for a DEM's output files.
 
     For a plain file this is the file name without its extension. For a subdataset the
-    variable is appended ('dem_elev', or 'dem_grid_elev' for an HDF5 dataset in a group),
-    so two variables of one file don't share outputs.
+    variable is appended ('dem_elev', or 'dem_grid_elev' for an HDF5 dataset in a
+    group), so two variables of one file don't share outputs.
     """
     base = Path(dem_file_path(dem_name)).stem
     parsed = _parse_subdataset(dem_name)
@@ -116,7 +117,7 @@ def dem_display_name(dem_name):
 
 
 def _variable_file_driver(dem_name):
-    """Return the subdataset driver prefix for a plain NetCDF or HDF5 path, else None."""
+    """Return the subdataset driver prefix of a plain NetCDF or HDF5 path, or None."""
     if _parse_subdataset(dem_name) is not None:
         return None
     return VARIABLE_FILE_DRIVERS.get(Path(dem_name).suffix.lower())
@@ -182,7 +183,7 @@ def _opens(subdataset):
 
 
 def _georeferenced_source(subdataset):
-    """Return the NetCDF form of an HDF5 subdataset string if only that one is georeferenced.
+    """Return an HDF5 subdataset string's NetCDF form if only that one is georeferenced.
 
     GDAL's HDF5 driver never reads coordinate variables, so a NetCDF-4 file (which is an
     HDF5 file) with CF latitude/longitude or x/y coordinates opens through 'HDF5:' with
@@ -291,8 +292,8 @@ def resolve_dem_source(dem_name, variable=None):
 
     Raises:
         FileNotFoundError: if the file doesn't exist.
-        DEMVariableError: if the variable (or, with no variable given, every default name)
-            isn't in the file.
+        DEMVariableError: if the variable (or, with no variable given, every default
+            name) isn't in the file.
 
     """
     if variable is None and _parse_subdataset(dem_name) is not None:
@@ -307,7 +308,8 @@ def resolve_dem_source(dem_name, variable=None):
         raise FileNotFoundError(msg)
     abs_path = absolute_path(file_path)
 
-    # A multi-variable file has no georeferencing of its own, which rasterio warns about.
+    # A multi-variable file has no georeferencing of its own, which rasterio warns
+    # about.
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", rasterio.errors.NotGeoreferencedWarning)
         with _open_dem(file_path) as ds:

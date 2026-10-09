@@ -1,4 +1,4 @@
-"""Quick utility for splitting a large DEM into sub-segments to ease processing constraints."""
+"""Split a large DEM into sub-segments to ease processing constraints."""
 
 import glob
 import logging
@@ -23,12 +23,15 @@ def split(
     factor: int = 2,
     output_dir: str | Path | None = None,
 ) -> list[str]:
-    """Split a DEM into sub-segments, each side split by a factor. 2 will create 4 sub-segments.
+    """Split a DEM into sub-segments, each side split by a factor.
+
+    A factor of 2 creates 4 sub-segments.
 
     Args:
         dem_name: The name of the DEM, with path, or a list of DEM names.
         factor: The factor by which to split the DEM.
-        output_dir: The directory to which the sub-segments will be written. Defaults to the same directory as the DEM.
+        output_dir: The directory to which the sub-segments will be written. Defaults to
+            the same directory as the DEM.
 
     Returns:
         list[str]: The names of the new DEM files. They are DEM names, which are
@@ -112,7 +115,8 @@ def split(
 def evenly_split(n: int, factor: int) -> list:
     """Split n evenly into factor pieces by index.
 
-    If it doesn't split evenly, add an extra to the last (remainder) pieces to make it as even as possible.
+    If it doesn't split evenly, add an extra to the last (remainder) pieces to make it
+    as even as possible.
 
     Returns the starting and ending index of each sub-segment.
     """
@@ -138,19 +142,25 @@ def evenly_split(n: int, factor: int) -> list:
     "--factor",
     type=int,
     default=2,
-    help="The factor by which to split each side of the DEM. This will create f^2 files.",
+    help=(
+        "The factor by which to split each side of the DEM. This will create f^2 files."
+    ),
 )
 @click.option(
     "-o",
     "--output_dir",
     type=str,
     default=None,
-    help="The directory to which the sub-segments will be written. Default: will use the same directory as the input DEM.",
+    help=(
+        "The directory to which the sub-segments will be written. Default: will use "
+        "the same directory as the input DEM."
+    ),
 )
 def main(dem_name, factor, output_dir):
     """Split a DEM into sub-segments, each side split by a factor.
 
-    DEM_NAME is the name of the DEM file. May use bash-style glob flags (*.tif) to select multiple files.
+    DEM_NAME is the name of the DEM file. May use bash-style glob flags (*.tif) to
+    select multiple files.
     """
     split(list(dem_name), factor, output_dir)
 
