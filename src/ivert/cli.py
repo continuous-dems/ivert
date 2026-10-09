@@ -1129,6 +1129,7 @@ def _check_projection_option(projection):
 )
 def database_download(
     bbox_or_files,
+    *,
     date_start,
     date_end,
     projection,
@@ -1596,6 +1597,7 @@ def _export_single_granule(
     nc_path,
     fmt_keys,
     output,
+    *,
     overwrite,
     class_list,
     delta_time_range,
@@ -1711,6 +1713,7 @@ def _export_single_granule(
 )
 def database_convert(
     bbox_or_file,
+    *,
     output_format,
     output,
     classes,
@@ -1819,9 +1822,9 @@ def database_convert(
             target.path,
             fmt_keys,
             output,
-            overwrite,
-            class_list,
-            (
+            overwrite=overwrite,
+            class_list=class_list,
+            delta_time_range=(
                 (_yyyymmdd_to_delta_time(tmin), _yyyymmdd_to_delta_time(tmax))
                 if date_filtering
                 else None
@@ -2017,6 +2020,7 @@ database.add_command(
 )
 def database_dump(
     bbox_or_file,
+    *,
     output,
     date_start,
     date_end,
@@ -2461,7 +2465,7 @@ def _real_dem_path(dem_name):
     return real if file_part == dem_name else dem_name.replace(file_part, real, 1)
 
 
-def _write_run_manifest(path, options, inputs, outdir, num_reused=0, num_dems=1):
+def _write_run_manifest(path, options, inputs, outdir, *, num_reused=0, num_dems=1):
     """Write a run's manifest, warning first if it replaces one with different settings.
 
     Without --overwrite, DEMs that already have results are reused rather than
@@ -2502,6 +2506,7 @@ def _write_run_manifest(path, options, inputs, outdir, num_reused=0, num_dems=1)
 
 def _run_validate(
     files_or_directory,
+    *,
     vdatum,
     region_name,
     include_photons,
@@ -3148,6 +3153,7 @@ def _run_validate(
 )
 def validate(
     files_or_directory,
+    *,
     vdatum,
     list_vdatums,
     region_name,
@@ -3302,18 +3308,18 @@ def validate(
     try:
         _run_validate(
             files_or_directory,
-            vdatum,
-            region_name,
-            include_photons,
-            measure_coverage,
-            band_num,
-            outlier_sd_threshold,
-            classes,
-            min_photons,
-            buildings,
-            confidence_level,
-            bathy_confidence,
-            outdir,
+            vdatum=vdatum,
+            region_name=region_name,
+            include_photons=include_photons,
+            measure_coverage=measure_coverage,
+            band_num=band_num,
+            outlier_sd_threshold=outlier_sd_threshold,
+            classes=classes,
+            min_photons=min_photons,
+            buildings=buildings,
+            confidence_level=confidence_level,
+            bathy_confidence=bathy_confidence,
+            outdir=outdir,
             ndv=ndv,
             export_formats=export_formats,
             overwrite=overwrite,

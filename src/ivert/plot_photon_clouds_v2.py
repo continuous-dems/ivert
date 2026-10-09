@@ -230,6 +230,7 @@ def _sample_dem_along_track(
     lons,
     lats,
     along_track_m,
+    *,
     target_vert=None,
     cache_dir=None,
 ):
@@ -364,6 +365,7 @@ def _collect_dem_profiles(
     lons,
     lats,
     along_track_m,
+    *,
     target_vert,
     cache_dir,
 ):
@@ -375,8 +377,8 @@ def _collect_dem_profiles(
             lons,
             lats,
             along_track_m,
-            target_vert,
-            cache_dir,
+            target_vert=target_vert,
+            cache_dir=cache_dir,
         )
         if result is not None:
             logger.info(
@@ -410,6 +412,7 @@ def plot_beam(
     df_beam,
     beam_name,
     outpath,
+    *,
     zlim=None,
     dlim=None,
     classes=None,
@@ -579,6 +582,7 @@ _H5_SEARCH_CACHE = "__SEARCH_CACHE__"
 )
 def main(
     input_file,
+    *,
     laser,
     outdir,
     zmin,
@@ -697,8 +701,8 @@ def main(
                 _dlons,
                 _dlats,
                 _datm,
-                target_vert,
-                cache_dir,
+                target_vert=target_vert,
+                cache_dir=cache_dir,
             )
             outpath = outdir / f"{h5_stem}_{beam}.png"
             plot_beam(
@@ -788,8 +792,8 @@ def main(
                 _dlons,
                 _dlats,
                 _datm,
-                target_vert,
-                cache_dir,
+                target_vert=target_vert,
+                cache_dir=cache_dir,
             )
             outpath = outdir / f"{nc_stem}_{beam}.png"
             plot_beam(
@@ -826,8 +830,8 @@ def main(
                 _dlons,
                 _dlats,
                 _datm,
-                target_vert,
-                cache_dir,
+                target_vert=target_vert,
+                cache_dir=cache_dir,
             )
             outpath = outdir / f"{nc_stem}_{beam}.png"
             plot_beam(

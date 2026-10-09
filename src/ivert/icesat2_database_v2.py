@@ -1123,6 +1123,7 @@ class IS2Database:
         nc_fn: str,
         query_bbox: tuple,
         vertical_datum: str,
+        *,
         progress: str = "",
     ) -> dict:
         """Save classified photons as a NetCDF granule file and return its index record.
@@ -1267,6 +1268,7 @@ class IS2Database:
         h5_fn: str,
         query_bbox: tuple,
         tiles: list,
+        *,
         classes_to_keep: tuple = (1, 2, 3, 6, 7, 40, 41, 42),
         overwrite: bool = False,
         min_confidence_level: int = 1,
@@ -1400,6 +1402,7 @@ class IS2Database:
         self,
         files_to_process: list,
         query_bbox: tuple,
+        *,
         classes_to_keep: tuple = (1, 2, 3, 6, 7, 40, 41, 42),
         min_confidence_level: int = 1,
         min_bathy_confidence: float = 0.0,
@@ -1518,6 +1521,7 @@ class IS2Database:
         h5_fn: str,
         nc_fn: str,
         query_bbox: tuple,
+        *,
         classes_to_keep: tuple = (1, 2, 3, 6, 7, 40, 41, 42),
         overwrite: bool = False,
         min_confidence_level: int = 1,
@@ -1956,13 +1960,13 @@ class IS2Database:
         # Vectorized bbox-overlap test (x, y, and time) on the scalar data_bbox_*
         # columns — same semantics as the per-row cuboids_intersect it replaces.
         int_mask = ivert.utils.cuboid_funcs.cuboids_intersect_vectorized(
-            gdf["data_bbox_xmin"].to_numpy(),
-            gdf["data_bbox_xmax"].to_numpy(),
-            gdf["data_bbox_ymin"].to_numpy(),
-            gdf["data_bbox_ymax"].to_numpy(),
-            gdf["data_bbox_tmin"].to_numpy(),
-            gdf["data_bbox_tmax"].to_numpy(),
-            bbox,
+            xmin=gdf["data_bbox_xmin"].to_numpy(),
+            xmax=gdf["data_bbox_xmax"].to_numpy(),
+            ymin=gdf["data_bbox_ymin"].to_numpy(),
+            ymax=gdf["data_bbox_ymax"].to_numpy(),
+            zmin=gdf["data_bbox_tmin"].to_numpy(),
+            zmax=gdf["data_bbox_tmax"].to_numpy(),
+            query=bbox,
             bbox_order="axis",
         )
 
@@ -1997,6 +2001,7 @@ class IS2Database:
     def download_new_granules(
         self,
         bbox: list | tuple,
+        *,
         classes_to_keep=(1, 2, 3, 6, 7, 40, 41, 42),
         tile_size_deg=2.0,
         max_tile_scale_factor=1.5,
@@ -2427,13 +2432,13 @@ class IS2Database:
                     # doing so would discard original data rather than de-duplicate it.
                     bbox_overlaps = pd.Series(
                         ivert.utils.cuboid_funcs.cuboids_intersect_vectorized(
-                            existing_gdf["query_bbox_xmin"].to_numpy(),
-                            existing_gdf["query_bbox_xmax"].to_numpy(),
-                            existing_gdf["query_bbox_ymin"].to_numpy(),
-                            existing_gdf["query_bbox_ymax"].to_numpy(),
-                            existing_gdf["query_bbox_tmin"].to_numpy(),
-                            existing_gdf["query_bbox_tmax"].to_numpy(),
-                            sbbox,
+                            xmin=existing_gdf["query_bbox_xmin"].to_numpy(),
+                            xmax=existing_gdf["query_bbox_xmax"].to_numpy(),
+                            ymin=existing_gdf["query_bbox_ymin"].to_numpy(),
+                            ymax=existing_gdf["query_bbox_ymax"].to_numpy(),
+                            zmin=existing_gdf["query_bbox_tmin"].to_numpy(),
+                            zmax=existing_gdf["query_bbox_tmax"].to_numpy(),
+                            query=sbbox,
                             bbox_order="axis",
                         ),
                         index=existing_gdf.index,

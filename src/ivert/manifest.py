@@ -214,6 +214,7 @@ def reconcile_options(
     manifest_options,
     tracked_names,
     current_version,
+    *,
     interactive,
     current_values=None,
     command_line=(),
