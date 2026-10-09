@@ -216,6 +216,7 @@ def write_vector(
     gdf: geopandas.GeoDataFrame,
     outpath: str | Path,
     fmt_key: str,
+    *,
     overwrite: bool = False,
     kind: str = KIND_PHOTONS,
 ):
@@ -367,6 +368,7 @@ def write_vector_multi(
     gdf: geopandas.GeoDataFrame,
     out_base: str | Path,
     fmt_keys,
+    *,
     overwrite: bool = False,
     kind: str = KIND_PHOTONS,
 ) -> list:

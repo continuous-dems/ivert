@@ -185,7 +185,13 @@ def _fetch_osm_landmask(bbox, cache_dir: str) -> None:
         )
 
 
-def ensure_landmasks(tiles, store_dir: str, cache_dir: str, fetch: bool = True) -> list:
+def ensure_landmasks(
+    tiles,
+    store_dir: str,
+    cache_dir: str,
+    *,
+    fetch: bool = True,
+) -> list:
     """Make sure the store holds a landmask for each rectangle in tiles.
 
     A rectangle missing from the store is filled from the cached OSM landmasks if

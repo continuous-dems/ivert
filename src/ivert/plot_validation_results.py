@@ -28,6 +28,7 @@ def is_iterable(obj):
 def get_data_from_h5_or_list(
     h5_name_or_list: str | Path | list[str | Path],
     orig_filenames: str | list[str] | None = None,
+    *,
     include_filenames: bool = False,
 ) -> pd.DataFrame:
     """Return the data either from a single hdf5 results file, or a list of them. Filter out empty (bad data) values."""

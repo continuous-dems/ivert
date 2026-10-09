@@ -137,6 +137,7 @@ class ICESat2RequestsCSV:
         atl_dataset: str,
         query_bbox,
         json_dict,
+        *,
         write_file: bool = True,
         atl_version: int | str = "",
     ):
@@ -181,6 +182,7 @@ class ICESat2RequestsCSV:
         atl_dataset: str,
         query_bbox,
         json_dict,
+        *,
         write_file: bool = True,
         fail_quietly: bool = False,
     ):
@@ -217,7 +219,7 @@ class ICESat2RequestsCSV:
             self.export()
         return self.df
 
-    def open(self, read_again: bool = False, create_if_nonexistent: bool = True):
+    def open(self, *, read_again: bool = False, create_if_nonexistent: bool = True):
         """Load the CSV into self.df, creating it if needed."""
         if self.df is not None and not read_again:
             return self.df

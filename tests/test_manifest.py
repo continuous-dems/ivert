@@ -10,6 +10,7 @@ _TRACKED = ("band_num", "projection", "variable")
 
 def _reconcile(
     manifest_options,
+    *,
     interactive=False,
     current_values=None,
     command_line=(),

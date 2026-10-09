@@ -276,7 +276,7 @@ def _write_error_marker(path, dem, message, traceback_text=None):
     Path(path).write_text(text, encoding="utf-8")
 
 
-def _failed_earlier(dem, dem_output_dir, include_photons=False, variable=None):
+def _failed_earlier(dem, dem_output_dir, *, include_photons=False, variable=None):
     """Return this DEM's error marker if it has one and no results, else None."""
     marker = _existing_error_marker(dem, dem_output_dir, variable)
     if marker is not None and validate_dem.dem_needs_validation(
@@ -289,7 +289,7 @@ def _failed_earlier(dem, dem_output_dir, include_photons=False, variable=None):
     return None
 
 
-def _dem_is_done(dem, dem_output_dir, include_photons=False, variable=None):
+def _dem_is_done(dem, dem_output_dir, *, include_photons=False, variable=None):
     """Return True if a collection run without -ow would leave this DEM alone.
 
     It is done if it has results, was marked empty, or failed in an earlier run.
