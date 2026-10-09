@@ -307,15 +307,8 @@ def test_a_part_with_only_wrong_release_granules_fails(db, monkeypatch):
 # ---------------------------------------------------------------------------
 
 
-def test_globato_is_told_which_release_to_classify(db, tmp_path, monkeypatch):
+def test_globato_is_told_which_release_to_classify(db, tmp_path, fake_globato_read):
     """The version is normalised for globato, which checks the release too, even from an int."""
-    seen = {}
-
-    def fake_read(*_args: object, **kwargs: object):
-        seen.update(kwargs)
-        return iter([])
-
-    monkeypatch.setattr(is2db.globato, "read", fake_read)
     db.config.nsidc_atl_version = 7  # an int, as a hand-edited config may give
 
     result = db._process_h5_to_nc(
@@ -325,7 +318,9 @@ def test_globato_is_told_which_release_to_classify(db, tmp_path, monkeypatch):
     )
 
     assert result is None
-    assert seen["atl_version"] == "007"
+    # On the stream-init hook, where fetchez hands it to the reader.
+    assert [name for name, _ in fake_globato_read.hooks] == ["stream-init"]
+    assert fake_globato_read.hooks[0][1]["atl_version"] == "007"
 
 
 def test_the_installed_globato_accepts_the_version_and_refuses_other_releases(tmp_path):

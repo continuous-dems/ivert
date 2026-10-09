@@ -925,14 +925,18 @@ class IS2Database:
         classes_str = "/".join([str(int(c)) for c in classes_to_keep])
         region_str = f"{query_bbox[0]}/{query_bbox[1]}/{query_bbox[2]}/{query_bbox[3]}"
 
+        # The reader's options go on the stream-init hook: fetchez (since #471) no
+        # longer hands options given to globato.read() on to the reader. region
+        # stays with read(), which gives it to the reader itself.
         stream = globato.read(
             h5_fn,
-            data_type="ATL03",
+            data_type="icesat-atl03",  # globato's ATL03 reader
             region=region_str,
+        ).pipe(
+            "stream-init",
             classes=classes_str,
             vertical_datum=self._vertical_epsg_to_globato_datum(vertical_datum),
             reject_failed_qa=True,
-            append_atl24=True,
             atl_version=normalize_atl_version(self.config.nsidc_atl_version),
             cache_dir=str(self.icesat2_download_dir),  # a string, for globato
             use_external_masks=use_external_masks,

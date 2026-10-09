@@ -125,7 +125,7 @@ def _records(delta_time):
     )
 
 
-def test_classified_photons_carry_along_track_m(tmp_path, monkeypatch):
+def test_classified_photons_carry_along_track_m(tmp_path, fake_globato_read):
     """The column reaches the stored tile.
 
     It was once never written: the beam name arrived as bytes, built a wrong
@@ -134,11 +134,7 @@ def test_classified_photons_carry_along_track_m(tmp_path, monkeypatch):
     h5 = _write_h5(tmp_path / "ATL03_test.h5")
     query_bbox = (-81.0, -79.0, 24.0, 26.0, 20220101, 20220201)
     delta_time = is2db._yyyymmdd_to_delta_time(20220115)
-    monkeypatch.setattr(
-        is2db.globato,
-        "read",
-        lambda *_a, **_k: iter([_records(delta_time)]),
-    )
+    fake_globato_read.chunks = [_records(delta_time)]
     config = SimpleNamespace(
         ivert_database_directory=str(tmp_path / "db"),
         ivert_landmask_directory=str(tmp_path / "landmasks"),
@@ -167,14 +163,14 @@ def test_classified_photons_carry_along_track_m(tmp_path, monkeypatch):
         assert tile["along_track_m"].to_numpy().tolist() == df["along_track_m"].tolist()
 
 
-def test_no_along_track_without_the_segment_columns(tmp_path, monkeypatch):
+def test_no_along_track_without_the_segment_columns(tmp_path, fake_globato_read):
     """Without globato's segment columns the granule is still classified, just without the column."""
     h5 = _write_h5(tmp_path / "ATL03_test.h5")
     query_bbox = (-81.0, -79.0, 24.0, 26.0, 20220101, 20220201)
     delta_time = is2db._yyyymmdd_to_delta_time(20220115)
     records = _records(delta_time)
     without = records[[n for n in records.dtype.names if n != "ph_index_within_seg"]]
-    monkeypatch.setattr(is2db.globato, "read", lambda *_a, **_k: iter([without]))
+    fake_globato_read.chunks = [without]
     config = SimpleNamespace(
         ivert_database_directory=str(tmp_path / "db"),
         ivert_landmask_directory=str(tmp_path / "landmasks"),
