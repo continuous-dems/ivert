@@ -1636,7 +1636,7 @@ class IS2Database:
         ds.to_netcdf(self.db_fname, encoding=encoding)
 
     @classmethod
-    def read_index_file(cls, index_fname: str) -> pd.DataFrame:
+    def read_index_file(cls, index_fname: str | Path) -> pd.DataFrame:
         """Read any IVERT NetCDF index file into a plain pandas DataFrame.
 
         Every column comes back as a numpy array with no per-row Python loops and

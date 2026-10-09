@@ -567,7 +567,13 @@ def _options_set_values(assignments, *, assume_yes=False):
             raise click.UsageError(msg)
         parsed.append((key, value))
 
-    user_path = Path(config.user_config_path)
+    user_path = config.user_config_path
+    if user_path is None:
+        msg = (
+            "IVERT has no user config file to write to: set IVERT_USER_CONFIG, or "
+            "pass --config."
+        )
+        raise click.ClickException(msg)
     user_config = configparser.ConfigParser()
     if user_path.exists():
         try:
@@ -822,7 +828,7 @@ def database_list(show_all, boxes):
         unique_boxes = sorted(
             {tuple(r) for r in gdf[qcols].itertuples(index=False)},
         )
-        rows = [(*b[:4], _fmt_date(b[4]), _fmt_date(b[5])) for b in unique_boxes]
+        rows = [[*b[:4], _fmt_date(b[4]), _fmt_date(b[5])] for b in unique_boxes]
         headers = ["Xmin", "Xmax", "Ymin", "Ymax", "Date Start", "Date End"]
         click.echo(tabulate_mod.tabulate(rows, headers=headers, tablefmt="simple"))
         click.echo(f"\n{len(unique_boxes)} unique query box(es)  —  db: {db.db_fname}")
@@ -1916,7 +1922,7 @@ def database_convert(
             gdf = ev.subset_gdf_to_bbox(gdf, bbox)
         if target.geometry is not None:
             gdf = ev.subset_gdf_to_geometry(gdf, target.geometry)
-        if date_filtering:
+        if dt_min is not None and dt_max is not None:
             gdf = ev.subset_gdf_to_date_range(gdf, dt_min, dt_max)
 
         if len(gdf) > 0:
@@ -3251,7 +3257,11 @@ def validate(
         ctx = click.get_current_context()
         option_values.update(_manifest_option_values(ctx, manifest))
         option_values["manifest"] = None
-        ctx.invoke(validate.callback, **option_values)
+        callback = validate.callback
+        if callback is None:
+            msg = "'ivert validate' has no callback."
+            raise RuntimeError(msg)
+        ctx.invoke(callback, **option_values)
         return
 
     # A coverage threshold needs coverage measured, so any of them implies -mc.

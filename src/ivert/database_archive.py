@@ -85,7 +85,7 @@ def _move(src, dst) -> None:
 
 def _intersection(a, b):
     """Return the overlap of two same-length axis-order boxes, or None if it's empty."""
-    out = []
+    out: list[float] = []
     for i in range(0, len(a), 2):
         lo, hi = max(a[i], b[i]), min(a[i + 1], b[i + 1])
         if hi <= lo:

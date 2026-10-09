@@ -279,19 +279,17 @@ class ICESat2RequestsCSV:
     def export(self):
         """Write self.df back to disk."""
         self.csv_file.parent.mkdir(parents=True, exist_ok=True)
-        self.df.to_csv(self.csv_file, index=False, header=True)
+        self.open().to_csv(self.csv_file, index=False, header=True)
 
     def clean_csv(self):
         """Remove expired records from the CSV."""
-        if self.df is None:
-            self.open()
-
-        expired = self.df["expiration_date"].apply(self._is_expired)
+        df = self.open()
+        expired = df["expiration_date"].apply(self._is_expired)
         if np.any(expired):
             logger.info("Removing %s expired Harmony request record(s).", expired.sum())
-            self.df = self.df[~expired]
+            df = self.df = df[~expired]
             self.export()
-        return self.df
+        return df
 
     # ------------------------------------------------------------------
     # Internal helpers

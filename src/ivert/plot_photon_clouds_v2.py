@@ -13,8 +13,10 @@ Photon class codes and their meanings come from globato's ATL03 reader; run
 'ivert classes' (or see ivert.photon_classes) for the authoritative list.
 """
 
+import configparser
 import logging
 import sys
+import typing
 from pathlib import Path
 
 import click
@@ -23,8 +25,6 @@ import numpy as np
 import pandas as pd
 
 mpl.use("Agg")
-import configparser
-
 import h5py
 import matplotlib.pyplot as plt
 import netCDF4
@@ -34,6 +34,9 @@ import ivert.vdatum_lookup
 from ivert.photon_classes import class_labels
 from ivert.utils.paths import absolute_path
 
+if typing.TYPE_CHECKING:
+    import pyproj
+
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
@@ -41,7 +44,7 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # Visual attributes only; legend labels come from ivert.photon_classes so they
 # stay in sync with the globato classifier.
-CLASS_STYLE = {
+CLASS_STYLE: dict[int, dict[str, typing.Any]] = {
     0: {"color": "grey", "zorder": 0.5, "alpha": 0.5, "s": 1},
     1: {"color": "saddlebrown", "zorder": 2, "alpha": 1.0, "s": 3},
     2: {"color": "limegreen", "zorder": 1, "alpha": 0.8, "s": 2},
@@ -51,7 +54,12 @@ CLASS_STYLE = {
     41: {"color": "dodgerblue", "zorder": 1, "alpha": 0.6, "s": 1},
     42: {"color": "dodgerblue", "zorder": 1, "alpha": 0.6, "s": 1},
 }
-DEFAULT_STYLE = {"color": "lightgrey", "zorder": 0, "alpha": 0.3, "s": 1}
+DEFAULT_STYLE: dict[str, typing.Any] = {
+    "color": "lightgrey",
+    "zorder": 0,
+    "alpha": 0.3,
+    "s": 1,
+}
 
 # Photons further than this from sea level, in meters, are bad values and not plotted.
 _MAX_ABS_ELEVATION_M = 1e5
@@ -329,7 +337,11 @@ def _sample_dem_along_track(
         from ivert.utils import dem_geom  # noqa: PLC0415 - slow import
 
         try:
-            _, dem_vert = dem_geom.get_dem_reference_frame_from_file(dem_path)
+            # With its default of "both", this returns a (horizontal, vertical) pair.
+            _, dem_vert = typing.cast(
+                "tuple[pyproj.CRS | None, pyproj.CRS | None]",
+                dem_geom.get_dem_reference_frame_from_file(dem_path),
+            )
         except (
             OSError,
             ValueError,
@@ -661,6 +673,7 @@ def main(
     # ---------------------------------------------------------------------- h5-only
     h5_only = h5_only or input_path.suffix.lower() == ".h5"
 
+    h5_path: Path | None
     if h5_only:
         # Resolve the h5 file to use
         if input_path.suffix.lower() == ".h5":
