@@ -87,7 +87,7 @@ def _touch(directory, names):
         (directory / name).write_text("")
 
 
-def _run(tmp_path, out, overwrite=False):
+def _run(tmp_path, out, *, overwrite=False):
     validate_dem_collection.validate_list_of_dems(
         str(tmp_path),
         output_dir=str(out),

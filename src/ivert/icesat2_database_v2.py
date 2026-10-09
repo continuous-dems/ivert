@@ -484,6 +484,7 @@ class IS2Database:
 
     def create_new_database(
         self,
+        *,
         populate: bool = True,
         overwrite: bool = False,
     ) -> pd.DataFrame:
@@ -937,6 +938,7 @@ class IS2Database:
         query_bbox: tuple,
         classes_to_keep: tuple = (1, 2, 3, 6, 7, 40, 41, 42),
         min_confidence_level: int = 1,
+        *,
         use_external_masks: bool = True,
     ) -> tuple[pd.DataFrame, str] | None:
         """Classify an ATL03 HDF5 file with globato and return its photons over a box.
@@ -1645,6 +1647,7 @@ class IS2Database:
 
     def open_gdf(
         self,
+        *,
         force_reread: bool = False,
     ):
         """Get the index DataFrame from the database.

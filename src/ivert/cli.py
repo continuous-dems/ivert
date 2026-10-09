@@ -211,7 +211,7 @@ def _check_netrc_permissions(netrc_path):
         click.echo(f"Could not change the permissions on {netrc_path}: {e}", err=True)
 
 
-def _setup_earthdata_credentials(announce_if_present=True, prompt_note=None):
+def _setup_earthdata_credentials(*, announce_if_present=True, prompt_note=None):
     """Check for NASA Earthdata credentials in .netrc, offering to save them.
 
     Returns True if credentials are in place afterwards. Callers that only want
@@ -526,7 +526,7 @@ def _confirm_inherited_copy(config, dependents, changed_keys, assume_yes):
     )
 
 
-def _options_set_values(assignments, assume_yes=False):
+def _options_set_values(assignments, *, assume_yes=False):
     """Write one or more key=value pairs to the user config file."""
     import configparser as _cp
 
@@ -2376,7 +2376,7 @@ def cache_delete(force):
 _EXCLUDE_VECTOR_EXTENSIONS = (".shp", ".geojson", ".gpkg")
 
 
-def _parse_exclude_spec(value, wsen=False):
+def _parse_exclude_spec(value, *, wsen=False):
     """Parse a single -ex/--exclude value into a (minx, miny, maxx, maxy) tuple or a file path.
 
     Accepts either a 4-value slash-separated bounding box or a path to a

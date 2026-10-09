@@ -1095,6 +1095,7 @@ def _empty_results_filename(results_dataframe_file):
 def dem_needs_validation(
     dem_name,
     output_dir,
+    *,
     include_photons=False,
     overwrite=False,
     variable=None,

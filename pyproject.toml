@@ -93,8 +93,6 @@ ignore = [
     # LICENSE at the repository root already covers all of them.
     "CPY001",   # missing-copyright-notice
     "E501",     # line-too-long
-    "FBT001",   # boolean-type-hint-positional-argument
-    "FBT002",   # boolean-default-value-positional-argument
     "PLC0415",  # import-outside-top-level
     "PLR0912",  # too-many-branches
     # Permanent: PLR0913 caps a function at five parameters, keyword-only ones
