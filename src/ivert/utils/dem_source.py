@@ -19,7 +19,8 @@ import rasterio
 
 from ivert.utils.paths import absolute_path
 
-# Variable names tried, in order, when a multi-variable file is given without --variable.
+# Variable names tried, in order, when a multi-variable file is given without
+# --variable.
 DEFAULT_ELEVATION_VARIABLES = ("elev", "elevation", "z")
 
 # Files whose variables resolve_dem_source() looks into, and the GDAL driver prefix of
@@ -32,8 +33,8 @@ VARIABLE_FILE_DRIVERS = {
     ".hdf5": "HDF5",
 }
 
-# 'DRIVER:"path":variable' or 'DRIVER:path:variable'. The driver name must be at least two
-# characters so a Windows drive letter ('C:\...') isn't read as one.
+# 'DRIVER:"path":variable' or 'DRIVER:path:variable'. The driver name must be at least
+# two characters so a Windows drive letter ('C:\...') isn't read as one.
 _SUBDATASET_RE = re.compile(
     r'^(?P<driver>[A-Za-z0-9_]{2,}):(?:"(?P<qpath>[^"]+)"|(?P<path>[^:]+)):(?P<var>.+)$',
 )
@@ -91,8 +92,8 @@ def dem_base_name(dem_name):
     """Return the base name used for a DEM's output files.
 
     For a plain file this is the file name without its extension. For a subdataset the
-    variable is appended ('dem_elev', or 'dem_grid_elev' for an HDF5 dataset in a group),
-    so two variables of one file don't share outputs.
+    variable is appended ('dem_elev', or 'dem_grid_elev' for an HDF5 dataset in a
+    group), so two variables of one file don't share outputs.
     """
     base = Path(dem_file_path(dem_name)).stem
     parsed = _parse_subdataset(dem_name)
@@ -291,8 +292,8 @@ def resolve_dem_source(dem_name, variable=None):
 
     Raises:
         FileNotFoundError: if the file doesn't exist.
-        DEMVariableError: if the variable (or, with no variable given, every default name)
-            isn't in the file.
+        DEMVariableError: if the variable (or, with no variable given, every default
+            name) isn't in the file.
 
     """
     if variable is None and _parse_subdataset(dem_name) is not None:
@@ -307,7 +308,8 @@ def resolve_dem_source(dem_name, variable=None):
         raise FileNotFoundError(msg)
     abs_path = absolute_path(file_path)
 
-    # A multi-variable file has no georeferencing of its own, which rasterio warns about.
+    # A multi-variable file has no georeferencing of its own, which rasterio warns
+    # about.
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", rasterio.errors.NotGeoreferencedWarning)
         with _open_dem(file_path) as ds:

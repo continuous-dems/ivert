@@ -152,7 +152,8 @@ DEM_RASTER_EXTENSIONS = (
     ".hdf5",
 )
 
-# IVERT's own HDF5 outputs, which must never be taken for DEMs if they share a directory.
+# IVERT's own HDF5 outputs, which must never be taken for DEMs if they share a
+# directory.
 _IVERT_OUTPUT_SUFFIXES = ("_results.h5", "_photons.h5")
 
 
@@ -198,7 +199,8 @@ def _resolve_dem_list(dem_list_or_dir, fname_filter, fname_omit):
         skipped = [fn for fn in path if not _is_dem_raster(fn)]
         if skipped:
             logger.warning(
-                "Skipping %d file(s) that are not a recognized DEM raster type (%s): %s",
+                "Skipping %d file(s) that are not a recognized DEM raster type (%s): "
+                "%s",
                 len(skipped),
                 ", ".join(DEM_RASTER_EXTENSIONS),
                 ", ".join(skipped),
@@ -271,7 +273,11 @@ def _absolute_dem_name(dem):
 def _write_error_marker(path, dem, message, traceback_text=None):
     """Write a DEM's error marker: the DEM, when it failed, the error, and any traceback."""
     failed_at = datetime.datetime.now(datetime.UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
-    text = f"DEM: {_absolute_dem_name(dem)}\nFailed: {failed_at} (IVERT {ivert.__version__})\nError: {message}\n"
+    text = (
+        f"DEM: {_absolute_dem_name(dem)}\n"
+        f"Failed: {failed_at} (IVERT {ivert.__version__})\n"
+        f"Error: {message}\n"
+    )
     if traceback_text:
         text += "\n" + traceback_text
     Path(path).write_text(text, encoding="utf-8")
@@ -375,12 +381,13 @@ def validate_list_of_dems(
 ):
     """Take a list of DEMs, presumably in a single area, and output validation files for those DEMs.
 
-    DEMs should encompass a contiguous area so as to use the same set of ICESat-2 granules for
-    validation. 'bathy_filter_settings' is passed to validate_dem.validate_dem(); None uses
-    the 'bathy_*' config values. 'variable' picks the variable to validate in NetCDF and
-    HDF5 files, as in validate_dem.validate_dem(). A file without that variable (or,
-    with no variable given, without a default elevation variable) is logged and skipped.
-    'dem_projection' is the DEMs' CRS, as in validate_dem.validate_dem().
+    DEMs should encompass a contiguous area so as to use the same set of ICESat-2
+    granules for validation. 'bathy_filter_settings' is passed to
+    validate_dem.validate_dem(); None uses the 'bathy_*' config values. 'variable' picks
+    the variable to validate in NetCDF and HDF5 files, as in
+    validate_dem.validate_dem(). A file without that variable (or, with no variable
+    given, without a default elevation variable) is logged and skipped. 'dem_projection'
+    is the DEMs' CRS, as in validate_dem.validate_dem().
     """
     single_input = isinstance(dem_list_or_dir, (str, Path))
     if output_dir is None:
@@ -495,8 +502,8 @@ def validate_list_of_dems(
             )
         return None
 
-    # Generate a single photon database object and pass it repeatedly to all the objects.
-    # This saves us a lot of re-reading the geodataframe repeatedly.
+    # Generate a single photon database object and pass it repeatedly to all the
+    # objects. This saves us a lot of re-reading the geodataframe repeatedly.
     photon_db_obj = ivert.icesat2_database_v2.IS2Database()
     # Read the index now, so the loaded copy is pickled into each tile's validation
     # sub-process instead of every sub-process re-reading it from disk.
@@ -578,8 +585,8 @@ def validate_list_of_dems(
         try:
             shared_ret_values = {}
             # Do the validation.
-            # Note: We automatically skip the icesat-2 download here because we already downloaded it above for the
-            # whole directory.
+            # Note: We automatically skip the icesat-2 download here because we already
+            # downloaded it above for the whole directory.
             validate_dem.validate_dem(
                 dem_path,
                 output_dir,

@@ -204,14 +204,15 @@ class Config:
          >> c.varname
          0
 
-    When initialized, it will check whether it is running in an AWS (Amazon Web Services) cloud environment
-    and if so, use the [AWS] section of the configfile.
+    When initialized, it will check whether it is running in an AWS (Amazon Web
+    Services) cloud environment and if so, use the [AWS] section of the configfile.
 
-    All paths are considered relative to the location of the configfile. Absolute paths will be left unchanged.
-    All other paths that contain a file-delimeter character ("/" on linux, "\" on Windows) will be joined with the
-    path of the configfile and converted to an absolute path.
-    The EXCEPTION ot the above rule is if the variable name begins with "s3_", in which case it is assumed to be
-    an AWS S3 bucket prefix and will not be converted to an absolute path on the local machine.
+    All paths are considered relative to the location of the configfile. Absolute paths
+    will be left unchanged. All other paths that contain a file-delimeter character ("/"
+    on linux, "\" on Windows) will be joined with the path of the configfile and
+    converted to an absolute path. The EXCEPTION ot the above rule is if the variable
+    name begins with "s3_", in which case it is assumed to be an AWS S3 bucket prefix
+    and will not be converted to an absolute path on the local machine.
 
     The two sections in the .ini configfile should be [DEFAULT] and [AWS].
     No other sections are read by this object, for now.
@@ -572,7 +573,8 @@ class Config:
         for k, v in self._config["DEFAULT"].items():
             self._read_option(k, v)
 
-        # Then, if we're running in an AWS environment, read all the values from the [AWS] section (if it exists).
+        # Then, if we're running in an AWS environment, read all the values from the
+        # [AWS] section (if it exists).
         if self.is_aws and ("AWS" in self._config):
             section = self._config["AWS"]
             for k, v in section.items():
@@ -583,16 +585,19 @@ class Config:
 
         Will use "ast.literal_eval()"  to parse it,
         and then attempt to read as a boolean if that fails. It helps to keep the
-        .ini file a python-readable format, and allows base python objects to be in there.
+        .ini file a python-readable format, and allows base python objects to be in
+        there.
         """
         # Re-reading an option (e.g. a user config overriding a default) decides
         # afresh whether it is a path, so drop any earlier verdict first.
         self._path_keys.pop(key, None)
 
         try:
-            # Using ast.literal_eval() rather than eval(), because literal_eval only allows the creation of generic
-            # python objects but doesn't allow the calling of functions or commands that could pose security risks.
-            # It will natively evaluate things like lists, dictionaries, or other generic python data types.
+            # Using ast.literal_eval() rather than eval(), because literal_eval only
+            # allows the creation of generic python objects but doesn't allow the
+            # calling of functions or commands that could pose security risks. It will
+            # natively evaluate things like lists, dictionaries, or other generic python
+            # data types.
             setattr(self, key, ast.literal_eval(value))
         except (NameError, ValueError, SyntaxError):
             pass
@@ -616,10 +621,10 @@ class Config:
                     setattr(self, key, number)
                     return
 
-        # In some boolean cases, you can put other things besides "True/False", such as "yes/no"
-        # Use configparser's boolean vocabulary to try to interpret it as a boolean.
-        # The value is converted directly (rather than looked up by key) so that
-        # this also works for options coming from the [AWS] section or from the
+        # In some boolean cases, you can put other things besides "True/False", such as
+        # "yes/no" Use configparser's boolean vocabulary to try to interpret it as a
+        # boolean. The value is converted directly (rather than looked up by key) so
+        # that this also works for options coming from the [AWS] section or from the
         # user config file, which need not exist in this parser's [DEFAULT].
         if isinstance(value, str):
             bool_value = configparser.ConfigParser.BOOLEAN_STATES.get(
@@ -629,10 +634,10 @@ class Config:
                 setattr(self, key, bool_value)
                 return
 
-        # Check to see if this is potentially a path. Interpret it as such if it is a string and contains path
-        # characters ('\' in Windows or '/' in Linux).
-        # If this is the case, return the absolute path of that file/directory *relative* to the current directory the
-        # Config.ini file is contained.
+        # Check to see if this is potentially a path. Interpret it as such if it is a
+        # string and contains path characters ('\' in Windows or '/' in Linux). If this
+        # is the case, return the absolute path of that file/directory *relative* to the
+        # current directory the Config.ini file is contained.
         try:
             if key.lower() in _RELATIVE_PATH_KEYS:
                 # This path is resolved later against a different base directory
@@ -644,7 +649,8 @@ class Config:
                 pass
 
             elif re.match(r"[a-zA-Z][a-zA-Z0-9+\-.]*://", value.strip()):
-                # This is a URL (http://, https://, ftp://, s3://, etc.). Leave it as-is.
+                # This is a URL (http://, https://, ftp://, s3://, etc.). Leave it
+                # as-is.
                 pass
 
             # Treat the value as a path if it references the home directory ('~') or
@@ -661,7 +667,8 @@ class Config:
                 # so shared config files resolve correctly on either platform.
                 elif _is_absolute_path(value):
                     setattr(self, key, absolute_path(value))
-                # If it's a relative path, make it relative to the _configfile's directory.
+                # If it's a relative path, make it relative to the _configfile's
+                # directory.
                 else:
                     setattr(self, key, self._abspath(value))
                 # Record that this option names a local path, so callers such as

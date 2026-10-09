@@ -50,8 +50,10 @@ def get_dem_reference_frame_from_user_input(
     """Return the horizontal and/or vertical CRS derived from an input CRS value.
 
     Args:
-        crs: A CRS expressed as a pyproj.CRS, rasterio.crs.CRS, WKT string, EPSG int, or None.
-        vert_horz_or_both: 'h' → horizontal only, 'v' → vertical only, 'b' → both (default).
+        crs: A CRS expressed as a pyproj.CRS, rasterio.crs.CRS, WKT string, EPSG int, or
+            None.
+        vert_horz_or_both: 'h' → horizontal only, 'v' → vertical only, 'b' → both
+            (default).
 
     Returns:
         pyproj.CRS, a (horz, vert) tuple of pyproj.CRS, or None when unresolvable.
@@ -151,7 +153,9 @@ def get_dem_srs_string(
 
     if horz_reference.equals(vert_reference):
         return horz_reference.srs
-    return f"{horz_auth}:{horz_reference.list_authority()[0].code}+{vert_reference.list_authority()[0].code}"
+    horz_code = horz_reference.list_authority()[0].code
+    vert_code = vert_reference.list_authority()[0].code
+    return f"{horz_auth}:{horz_code}+{vert_code}"
 
 
 def split_srs_string(
@@ -207,8 +211,9 @@ def get_wgs84_bounding_box(
             - A filename string → CRS is read from the file.
             - A 4-item (xmin, xmax, ymin, ymax) list/tuple.
             - A shapely Polygon.
-        dem_horz_reference_frame: Override the horizontal CRS (string, int, or pyproj.CRS).
-            Required when passing a bbox or polygon; optional (overrides file CRS) for filenames.
+        dem_horz_reference_frame: Override the horizontal CRS (string, int, or
+            pyproj.CRS). Required when passing a bbox or polygon; optional (overrides
+            file CRS) for filenames.
 
     Returns:
         (xmin, xmax, ymin, ymax) in WGS84 (EPSG:4326).
@@ -231,7 +236,8 @@ def get_wgs84_bounding_box(
     elif type(polygon_bbox_or_dem_fname) in (list, tuple):
         bbox = polygon_bbox_or_dem_fname
         if len(bbox) == BBOX_LEN:
-            # Convert (xmin, xmax, ymin, ymax) → shapely box expects (xmin, ymin, xmax, ymax)
+            # Convert (xmin, xmax, ymin, ymax) → shapely box expects (xmin, ymin, xmax,
+            # ymax)
             polygon = shapely.geometry.box(bbox[0], bbox[2], bbox[1], bbox[3])
         elif len(bbox) > BBOX_LEN and len(bbox) % 2 == 0:
             polygon = shapely.geometry.Polygon(bbox)
@@ -282,7 +288,10 @@ def get_wgs84_bounding_box(
         msg = f"Expected a pyproj.CRS, got {type(dem_horz_reference_frame).__name__}."
         raise TypeError(msg)
     if dem_horz_reference_frame.is_compound:
-        msg = f"Expected a horizontal CRS, got the compound CRS {dem_horz_reference_frame.name}."
+        msg = (
+            "Expected a horizontal CRS, got the compound CRS "
+            f"{dem_horz_reference_frame.name}."
+        )
         raise RuntimeError(msg)
 
     wgs84_crs = pyproj.CRS.from_user_input("EPSG:4326")
@@ -347,8 +356,8 @@ def resolve_horizontal_crs(dem_name, file_horz_crs, projection_horz=None):
     if projection_horz is None:
         if file_horz_crs is None:
             msg = (
-                f"{dem_source.dem_file_path(dem_name)} has no coordinate reference system. "
-                "Use -p/--projection to give one."
+                f"{dem_source.dem_file_path(dem_name)} has no coordinate reference "
+                "system. Use -p/--projection to give one."
             )
             raise ValueError(msg)
         return file_horz_crs

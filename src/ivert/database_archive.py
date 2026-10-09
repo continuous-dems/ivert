@@ -234,7 +234,10 @@ def _extract_all(zf, dest) -> None:
         for info in infos:
             target = (root / info.filename).resolve()
             if not target.is_relative_to(root):
-                msg = f"{zf.filename} holds a file outside its own folders: {info.filename}"
+                msg = (
+                    f"{zf.filename} holds a file outside its own folders: "
+                    f"{info.filename}"
+                )
                 raise ArchiveError(msg)
             target.parent.mkdir(parents=True, exist_ok=True)
             with zf.open(info) as fin, target.open("wb") as fout:
@@ -309,8 +312,8 @@ def summarize(manifest: dict) -> str:
     else:
         queries = sorted({tuple(g["query_bbox"]) for g in all_records})
         lines.append(
-            f"  Granule files: {len(granules):,} "
-            f"(from {len({g['source_granule'] for g in granules}):,} ICESat-2 granules)",
+            f"  Granule files: {len(granules):,} (from "
+            f"{len({g['source_granule'] for g in granules}):,} ICESat-2 granules)",
         )
         if markers:
             lines.append(

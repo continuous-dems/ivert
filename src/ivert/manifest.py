@@ -44,8 +44,9 @@ _RUN_COMMENT = """\
 """
 
 _OPTIONS_COMMENT = """\
-# [options] holds the settings applied when this manifest is passed to 'ivert validate -m'.
-# The keys are the long option names of 'ivert validate', with dashes as underscores.
+# [options] holds the settings applied when this manifest is passed to
+# 'ivert validate -m'. The keys are the long option names of 'ivert validate',
+# with dashes as underscores.
 """
 
 
@@ -146,10 +147,12 @@ def read_manifest(path):
     """Read a manifest.
 
     Returns:
-        (version, options): the IVERT version that wrote it, and {option name: raw text}.
+        (version, options): the IVERT version that wrote it, and {option name: raw
+        text}.
 
     Raises:
-        click.ClickException: the file can't be parsed or lacks [ivert] version or [options].
+        click.ClickException: the file can't be parsed or lacks [ivert] version or
+            [options].
 
     """
     parser = _new_parser()
@@ -161,7 +164,10 @@ def read_manifest(path):
         raise click.ClickException(msg) from exc
 
     if not parser.has_option("ivert", "version"):
-        msg = f"'{path}' is not an IVERT manifest: it has no 'version' in an [ivert] section."
+        msg = (
+            f"'{path}' is not an IVERT manifest: it has no 'version' in an [ivert] "
+            "section."
+        )
         raise click.ClickException(msg)
     if not parser.has_section("options"):
         msg = f"'{path}' is not an IVERT manifest: it has no [options] section."
@@ -187,8 +193,9 @@ def _version_mismatch_message(manifest_version, current_version):
 
     if manifest_release is not None and manifest_release < current_release:
         return (
-            f"This manifest belongs to a previous version of IVERT ({manifest_version}) "
-            f"that is no longer compatible with the current version ({current_version})."
+            "This manifest belongs to a previous version of IVERT "
+            f"({manifest_version}) that is no longer compatible with the current "
+            f"version ({current_version})."
         )
     if manifest_release is not None and manifest_release > current_release:
         return (

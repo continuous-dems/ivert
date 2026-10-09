@@ -517,7 +517,8 @@ class IS2Database:
             overwrite: Whether to overwrite the database if it already exists.
 
         Raises:
-            OSError if database file cannot be created or already exists and overwrite is False.
+            OSError if database file cannot be created or already exists and overwrite
+            is False.
 
         Returns:
             pandas.DataFrame containing the granule records from the database.
@@ -621,13 +622,13 @@ class IS2Database:
 
         if not granule_fnames:
             msg = (
-                "No IVERT ICESat-2 photon database exists where IVERT is looking "
-                "for it. Neither the index file nor any .nc granule files were found.\n"
+                "No IVERT ICESat-2 photon database exists where IVERT is looking for "
+                "it. Neither the index file nor any .nc granule files were found.\n"
                 f"  index file:         {self.db_fname}\n"
                 f"  granules directory: {self.granules_dir}\n"
-                "Run 'ivert database download <bbox or DEM>' to begin creating an IVERT "
-                "database, or point IVERT at an existing one with "
-                "'ivert options ivert_database_directory=<path>'."
+                "Run 'ivert database download <bbox or DEM>' to begin creating an "
+                "IVERT database, or point IVERT at an existing one with 'ivert "
+                "options ivert_database_directory=<path>'."
             )
             raise DatabaseNotFoundError(msg)
 
@@ -806,17 +807,18 @@ class IS2Database:
     def _nc_filename(cls, h5_fn: str, query_bbox: tuple) -> str:
         """Build a unique .nc filename by appending the query bbox to the granule base name.
 
-        Format: <granule_base>_<W|E><xmin>_<W|E><xmax>_<S|N><ymin>_<S|N><ymax>_<tmin>_<tmax>.nc
+        Format:
+        <granule_base>_<W|E><xmin>_<W|E><xmax>_<S|N><ymin>_<S|N><ymax>_<tmin>_<tmax>.nc
 
-        This ensures that the same granule downloaded for different query regions or time
-        spans produces distinct files rather than overwriting each other. A query suffix
-        already on the h5 name (see _subset_cache_filename) is not repeated.
+        This ensures that the same granule downloaded for different query regions or
+        time spans produces distinct files rather than overwriting each other. A query
+        suffix already on the h5 name (see _subset_cache_filename) is not repeated.
         """
         return cls._granule_stem(h5_fn) + cls._query_bbox_suffix(query_bbox) + ".nc"
 
-    # Matches the "_<W|E><xmin>_<W|E><xmax>_<S|N><ymin>_<S|N><ymax>_<tmin>_<tmax>.nc" suffix
-    # appended by _nc_filename(), so the source granule id can be recovered from any nc
-    # filename regardless of which query bbox/dates produced it.
+    # Matches the "_<W|E><xmin>_<W|E><xmax>_<S|N><ymin>_<S|N><ymax>_<tmin>_<tmax>.nc"
+    # suffix appended by _nc_filename(), so the source granule id can be recovered from
+    # any nc filename regardless of which query bbox/dates produced it.
     _NC_SUFFIX_RE = re.compile(
         r"_[EW]\d{3}\.\d{5}_[EW]\d{3}\.\d{5}_[NS]\d{2}\.\d{5}_[NS]\d{2}\.\d{5}_\d+_\d+\.nc$",
     )
@@ -826,8 +828,8 @@ class IS2Database:
         """Recover the original NASA granule id from a database/nc filename.
 
         Strips the bbox/date suffix appended by _nc_filename(), so that the same granule
-        downloaded under different query regions or dates is still recognized as the same
-        underlying source data (used to match records for --replace).
+        downloaded under different query regions or dates is still recognized as the
+        same underlying source data (used to match records for --replace).
         """
         return cls._NC_SUFFIX_RE.sub("", filename)
 
@@ -1678,7 +1680,8 @@ class IS2Database:
         """Get the index DataFrame from the database.
 
         Args:
-            force_reread: If True, read the file again even if we've already read the database into memory.
+            force_reread: If True, read the file again even if we've already read the
+                database into memory.
 
         Returns:
             pandas.DataFrame of the granule records in the database (bounding boxes
@@ -1709,7 +1712,8 @@ class IS2Database:
     ):
         """Read the master database into a DataFrame.
 
-        Subset list of granules by bounding box and date range of the data (not the query box).
+        Subset list of granules by bounding box and date range of the data (not the
+        query box).
 
         Return the subset of the database read off of disk.
         """
@@ -1770,7 +1774,10 @@ class IS2Database:
             ]
 
         else:
-            msg = "Bounding boxes must be either 4 values or 6 values, in format (xmin, xmax, ymin, ymax, [tmin, tmax])."
+            msg = (
+                "Bounding boxes must be either 4 values or 6 values, in format (xmin, "
+                "xmax, ymin, ymax, [tmin, tmax])."
+            )
             raise ValueError(msg)
 
         return df_sub
@@ -1785,11 +1792,14 @@ class IS2Database:
 
         Args:
             granule_fn: Path to a processed .nc granule file in the granules directory.
-            subset_bbox: 6-value bounding box (xmin, xmax, ymin, ymax, tmin, tmax) where t is YYYYMMDD.
-            photon_classes: Photon class codes to return. Defaults to (1, 40) (ground and bathy floor).
+            subset_bbox: 6-value bounding box (xmin, xmax, ymin, ymax, tmin, tmax) where
+                t is YYYYMMDD.
+            photon_classes: Photon class codes to return. Defaults to (1, 40) (ground
+                and bathy floor).
 
         Returns:
-            pandas.DataFrame with columns x, y, z, class_code, bathy_confidence, delta_time.
+            pandas.DataFrame with columns x, y, z, class_code, bathy_confidence,
+            delta_time.
 
         """
         if photon_classes is None:
@@ -1802,7 +1812,10 @@ class IS2Database:
 
         if subset_bbox is not None:
             if len(subset_bbox) != BBOX_WITH_DATES_LEN:
-                msg = "subset_bbox must have 6 values (xmin, xmax, ymin, ymax, tmin, tmax)."
+                msg = (
+                    "subset_bbox must have 6 values (xmin, xmax, ymin, ymax, tmin, "
+                    "tmax)."
+                )
                 raise ValueError(msg)
             x, y = df["x"], df["y"]
             df = df[
@@ -1840,25 +1853,33 @@ class IS2Database:
         """Query the database for photons in a given bounding box and date range.
 
         Args:
-            bbox: Bounding box to limit the data to, in [xmin, xmax, ymin, ymax, tmin, tmax]. Must be in WGS84 (EPSG: 4326)
-                coordinates, and yyyymmdd integers for the date. Date range is not inclusive of the max date.
-            photon_classes: Photon classes to include in the query. See globato/streams/readers/icesat2.py for the full list.
-                Defaults to (1, 6, 40) (ground, land_ice, and bathy_floor photons).
-            min_bathy_confidence (float): The minimum ATL24 confidence for bathymetric (class 40) photons to include (0.0-1.0).
-            min_confidence_level: The minimum ATL03 signal confidence level to include (1-4). 1 keeps all photons.
-            omit_bboxes (list, tuple, or None): Bounding box(es) whose photons are dropped from the results. Accepts a
-                single 4- or 6-value bbox, or a sequence of them. Defaults to None,
-                which excludes nothing.
+            bbox: Bounding box to limit the data to, in [xmin, xmax, ymin, ymax, tmin,
+                tmax]. Must be in WGS84 (EPSG: 4326) coordinates, and yyyymmdd integers
+                for the date. Date range is not inclusive of the max date.
+            photon_classes: Photon classes to include in the query. See
+                globato/streams/readers/icesat2.py for the full list. Defaults to (1, 6,
+                40) (ground, land_ice, and bathy_floor photons).
+            min_bathy_confidence (float): The minimum ATL24 confidence for bathymetric
+                (class 40) photons to include (0.0-1.0).
+            min_confidence_level: The minimum ATL03 signal confidence level to include
+                (1-4). 1 keeps all photons.
+            omit_bboxes (list, tuple, or None): Bounding box(es) whose photons are
+                dropped from the results. Accepts a single 4- or 6-value bbox, or a
+                sequence of them. Defaults to None, which excludes nothing.
             # download_new_data : bool
-            #     Whether to download new ICESat-2 data from NASA if the current database doesn't contain the entire bounding box.
+            #     Whether to download new ICESat-2 data from NASA if the current
+            database doesn't contain the entire bounding box.
 
         Returns:
-            pandas.DataFrame containing classified photons that fit in the bounding box and date range.
-            If no photons are found, return None.
+            pandas.DataFrame containing classified photons that fit in the bounding box
+            and date range. If no photons are found, return None.
 
         """
         if len(bbox) != BBOX_WITH_DATES_LEN:
-            msg = "bbox must be a list or tuple of length 6 (xmin, xmax, ymin, ymax, tmin, tmax)."
+            msg = (
+                "bbox must be a list or tuple of length 6 (xmin, xmax, ymin, ymax, "
+                "tmin, tmax)."
+            )
             raise ValueError(msg)
 
         gdf_subset = self.query_granules(bbox)
@@ -1894,7 +1915,8 @@ class IS2Database:
         if omit_bboxes is None:
             omit_bboxes = []
 
-        # If we're given a single bounding box of exclusions as a 4- or 6-tuple of numbers (not iterables), put it in a 1-length list.
+        # If we're given a single bounding box of exclusions as a 4- or 6-tuple of
+        # numbers (not iterables), put it in a 1-length list.
         if len(omit_bboxes) in (4, 6) and not np.any(
             [self.is_iterable(num) for num in omit_bboxes],
         ):
@@ -1915,8 +1937,9 @@ class IS2Database:
         else:
             logger.info("No photons in bbox.")
 
-        # all of this subsetting can create a fractured dataframe that is a subset-of-subset-of... iteration.
-        # If we simply copy the dataframe upon returning it will be cleaner, without pointing to larger datasets and masks.
+        # all of this subsetting can create a fractured dataframe that is a
+        # subset-of-subset-of... iteration. If we simply copy the dataframe upon
+        # returning it will be cleaner, without pointing to larger datasets and masks.
         return photons_df.copy()
 
     def convert_date_range(
@@ -1941,7 +1964,8 @@ class IS2Database:
 
         Raises:
             TypeError: If date is not an int, str, datetime.datetime or datetime.date.
-            ValueError: If an int date is not 8 digits, or a string date can't be parsed.
+            ValueError: If an int date is not 8 digits, or a string date can't be
+                parsed.
         """
         if isinstance(date, int):
             # If it's an integer, make sure it's 8 digits and then return as-is.
@@ -1998,15 +2022,16 @@ class IS2Database:
             bbox_order="axis",
         )
 
-        # Return the subset of the dataframe of granules whose data bounding-box intersects the query bounding box.
+        # Return the subset of the dataframe of granules whose data bounding-box
+        # intersects the query bounding box.
         return gdf[int_mask]
 
     def get_photon_src_epsg(self) -> str:
         """Return the compound EPSG src string for photon coordinates stored in this database.
 
-        Reads horizontal_datum and vertical_datum from the first database record and builds
-        a compound string (e.g. 'EPSG:4326+3855' or 'EPSG:4326+4979').
-        Falls back to 'EPSG:4326+3855' for databases created before datum fields were added.
+        Reads horizontal_datum and vertical_datum from the first database record and
+        builds a compound string (e.g. 'EPSG:4326+3855' or 'EPSG:4326+4979'). Falls back
+        to 'EPSG:4326+3855' for databases created before datum fields were added.
         """
         gdf = self.open_gdf()
         if (
@@ -2041,10 +2066,11 @@ class IS2Database:
     ) -> DownloadSummary:
         """Download ICESat-2 ATL03 granules from NASA using fetchez and register them in the database.
 
-        Downloads raw HDF5 files into granules_dir; classification is deferred to read time via globato.
-        Only downloads granules covering bboxes not already in the database, unless 'replace' is True,
-        in which case the full requested bbox is (re-)downloaded and any existing granules it overlaps
-        are replaced with the newly-downloaded data.
+        Downloads raw HDF5 files into granules_dir; classification is deferred to read
+        time via globato. Only downloads granules covering bboxes not already in the
+        database, unless 'replace' is True, in which case the full requested bbox is
+        (re-)downloaded and any existing granules it overlaps are replaced with the
+        newly-downloaded data.
 
         The area is ``geometry`` (a shapely polygon or multipolygon in WGS84) if
         given, else the horizontal part of ``bbox``. Either way it is covered with as
@@ -2093,10 +2119,10 @@ class IS2Database:
                         "Datum mismatch: the existing database stores data in "
                         "horizontal datum %s and vertical datum %s, but the current "
                         "configuration requests vertical datum %s "
-                        "(icesat2_vertical_datum=%r). All granules in a single database "
-                        "must share the same datum. Change 'icesat2_vertical_datum' in "
-                        "your user config to match the existing database, or create a "
-                        "new database.",
+                        "(icesat2_vertical_datum=%r). All granules in a single "
+                        "database must share the same datum. Change "
+                        "'icesat2_vertical_datum' in your user config to match the "
+                        "existing database, or create a new database.",
                         existing_hd,
                         existing_vd,
                         target_vd,
@@ -2133,7 +2159,8 @@ class IS2Database:
 
             if len(bboxes) == 0:
                 logger.info(
-                    "All required granules already exist in the database. Nothing new to download.",
+                    "All required granules already exist in the database. Nothing new "
+                    "to download.",
                 )
                 return DownloadSummary()
 
@@ -2142,8 +2169,9 @@ class IS2Database:
 
             if _as_floats(bboxes) != _as_floats(requested):
                 logger.info(
-                    "Existing database coverage partially overlaps the requested region. "
-                    "Downloading only the missing sub-region(s) (%d area(s) to fill).",
+                    "Existing database coverage partially overlaps the requested "
+                    "region. Downloading only the missing sub-region(s) (%d area(s) "
+                    "to fill).",
                     len(bboxes),
                 )
 
@@ -2269,8 +2297,8 @@ class IS2Database:
                     # Without a job ID, mod.run() would submit a job of its own, which
                     # requests.csv would never record. Leave this part for a rerun.
                     logger.warning(
-                        "Harmony did not accept the request for bbox %s. Skipping for now. "
-                        "You may re-run the command later to try again.",
+                        "Harmony did not accept the request for bbox %s. Skipping for "
+                        "now. You may re-run the command later to try again.",
                         sbbox,
                     )
                     parts_failed += 1
@@ -2302,9 +2330,10 @@ class IS2Database:
             results = fetchez.core.run_fetchez([mod])
             if not results:
                 logger.warning(
-                    "Harmony request returned no results for bbox %s. Skipping for now. "
-                    "This may be because zero files were returned or Harmony is temporarily down. "
-                    "You may re-run the command later if you feel this was in error.",
+                    "Harmony request returned no results for bbox %s. Skipping for "
+                    "now. This may be because zero files were returned or Harmony is "
+                    "temporarily down. You may re-run the command later if you feel "
+                    "this was in error.",
                     sbbox,
                 )
                 parts_failed += 1
@@ -2352,8 +2381,9 @@ class IS2Database:
             ]
             if wrong_release:
                 logger.error(
-                    "Ignoring %d granule(s) that are not ATL03 v%s (nsidc_atl_version), e.g. %s. "
-                    "The installed fetchez may not support that version yet.",
+                    "Ignoring %d granule(s) that are not ATL03 v%s "
+                    "(nsidc_atl_version), e.g. %s. The installed fetchez may not "
+                    "support that version yet.",
                     len(wrong_release),
                     atl_version,
                     Path(wrong_release[0]).name,
@@ -2435,10 +2465,11 @@ class IS2Database:
                 self.gdf = new_gdf
             else:
                 if replace:
-                    # Match on the underlying NASA granule id (source_granule), not the full
-                    # nc filename: the nc filename embeds the query bbox/dates, which can
-                    # differ between the original download and this --replace re-download,
-                    # so a filename-only comparison would fail to find the old record to drop.
+                    # Match on the underlying NASA granule id (source_granule), not the
+                    # full nc filename: the nc filename embeds the query bbox/dates,
+                    # which can differ between the original download and this --replace
+                    # re-download, so a filename-only comparison would fail to find the
+                    # old record to drop.
                     new_source_granules = set(new_gdf["source_granule"].values)
                     if "source_granule" in existing_gdf.columns:
                         existing_source_granules = existing_gdf[
@@ -2453,11 +2484,12 @@ class IS2Database:
                             self._source_granule_from_filename,
                         )
                     same_granule = existing_source_granules.isin(new_source_granules)
-                    # Only replace records whose query bbox (lat/lon + time) overlaps the
-                    # region/dates just (re-)downloaded (sbbox). Records for the same source
-                    # granule but a non-overlapping query bbox are legitimately distinct data
-                    # (e.g. a different date range or region) and must not be dropped, since
-                    # doing so would discard original data rather than de-duplicate it.
+                    # Only replace records whose query bbox (lat/lon + time) overlaps
+                    # the region/dates just (re-)downloaded (sbbox). Records for the
+                    # same source granule but a non-overlapping query bbox are
+                    # legitimately distinct data (e.g. a different date range or region)
+                    # and must not be dropped, since doing so would discard original
+                    # data rather than de-duplicate it.
                     bbox_overlaps = pd.Series(
                         ivert.utils.cuboid_funcs.cuboids_intersect_vectorized(
                             xmin=existing_gdf["query_bbox_xmin"].to_numpy(),
@@ -2475,7 +2507,8 @@ class IS2Database:
                     n_replaced = int(is_replaced.sum())
                     if n_replaced:
                         logger.info(
-                            "Replacing %d existing record(s) with newly-downloaded data.",
+                            "Replacing %d existing record(s) with newly-downloaded "
+                            "data.",
                             n_replaced,
                         )
                         for old_fname in existing_gdf.loc[is_replaced, "filename"]:
@@ -2584,8 +2617,8 @@ class IS2Database:
 
         Args:
             axis: The axis to get bounds for. Must be one of 'x', 'y', or 't'.
-            data_or_query: Whether to use the data bounds or query-box bounds, by default "data".
-                Must be one of "data" or "query".
+            data_or_query: Whether to use the data bounds or query-box bounds, by
+                default "data". Must be one of "data" or "query".
 
         Raises:
             ValueError if parameters are invalid.
@@ -2593,7 +2626,8 @@ class IS2Database:
         Returns:
             list or None
                 A 2-tuple containing (min, max) values for the requested axis.
-                Returns None if no data is available or if invalid parameters are provided.
+                Returns None if no data is available or if invalid parameters are
+                provided.
 
         """
         gdf = self.open_gdf()
@@ -2632,22 +2666,24 @@ class IS2Database:
     ) -> list | None:
         """Return a numpy array of unique query bounding boxes in the database.
 
-        This is useful to see what query bounding-boxes have already been populated in the database.
+        This is useful to see what query bounding-boxes have already been populated in
+        the database.
 
         Args:
             gdf: An already-loaded granule index to read the boxes from. When None
                 (the default), the database index is opened with open_gdf().
-            data_or_query: Whether to use the data bounds or query-box bounds, by default "query".
-                Must be one of "data" or "query".
+            data_or_query: Whether to use the data bounds or query-box bounds, by
+                default "query". Must be one of "data" or "query".
 
         Raises:
-            ValueError: If data_or_query parameter is invalid or not one of 'data' or 'query'.
+            ValueError: If data_or_query parameter is invalid or not one of 'data' or
+                'query'.
 
         Returns:
             list or None
-                List of unique bounding boxes from the database, where each box is a 6-tuple
-                containing (xmin, xmax, ymin, ymax, tmin, tmax).
-                Returns None if no data is available in the database.
+                List of unique bounding boxes from the database, where each box is a
+                6-tuple containing (xmin, xmax, ymin, ymax, tmin, tmax). Returns None if
+                no data is available in the database.
 
         """
         if gdf is None:
@@ -2687,8 +2723,8 @@ class IS2Database:
         """Validate a bounding box. Make sure all min-max values are correctly ordered.
 
         Args:
-            bbox: A 6-item bounding box in [xmin, xmax, ymin, ymax, tmin, tmax] format where t is YYYYMMDD.
-                In each case, the following cases must be true:
+            bbox: A 6-item bounding box in [xmin, xmax, ymin, ymax, tmin, tmax] format
+                where t is YYYYMMDD. In each case, the following cases must be true:
                     xmin < mmax
                     ymin < ymax
                     tmin <= tmax
@@ -2704,16 +2740,19 @@ class IS2Database:
         """Given an (x,y,t) ICESat-2 bounding box, remove existing regions and return bboxes for the rest of the data.
 
         Args:
-            query_bbox: The input bounding box to filter, in [xmin, xmax, ymin, ymax, tmin, tmax] format where t is YYYYMMDD.
+            query_bbox: The input bounding box to filter, in [xmin, xmax, ymin, ymax,
+                tmin, tmax] format where t is YYYYMMDD.
 
         Raises:
-            ValueError: If query_bbox is not in the correct format or contains invalid values.
+            ValueError: If query_bbox is not in the correct format or contains invalid
+                values.
 
         Returns:
             List of bounding boxes that represent areas not already in the database,
-                where each box is a 6-tuple containing (xmin, xmax, ymin, ymax, tmin, tmax).
-                tmin and tmax are in YYYYMMDD format and are inclusive.
-                Returns an empty list if the entire query_bbox is already present in the database.
+                where each box is a 6-tuple containing (xmin, xmax, ymin, ymax, tmin,
+                tmax). tmin and tmax are in YYYYMMDD format and are inclusive. Returns
+                an empty list if the entire query_bbox is already present in the
+                database.
 
         """
         return self.filter_query_bboxes([query_bbox])
@@ -2730,7 +2769,8 @@ class IS2Database:
                 [xmin, xmax, ymin, ymax, tmin, tmax] format where t is YYYYMMDD.
 
         Raises:
-            ValueError: If any box is not in the correct format or contains invalid values.
+            ValueError: If any box is not in the correct format or contains invalid
+                values.
 
         Returns:
             List of (xmin, xmax, ymin, ymax, tmin, tmax) boxes covering the parts of
@@ -2740,15 +2780,20 @@ class IS2Database:
         """
         for query_bbox in query_bboxes:
             if not self.bbox_valid(query_bbox):
-                msg = "query_bbox must be a non-zero-volume valid 6-tuple or 6-value bbox, with values in the correct order."
+                msg = (
+                    "query_bbox must be a non-zero-volume valid 6-tuple or 6-value "
+                    "bbox, with values in the correct order."
+                )
                 raise ValueError(msg)
 
-        # First, get a list of the active unique query cuboids within the current database
+        # First, get a list of the active unique query cuboids within the current
+        # database
         existing_bboxes = self.unique_bboxes(data_or_query="query")
         if existing_bboxes is None or len(existing_bboxes) == 0:
             return list(query_bboxes)
 
-        # Simplify by merging these bboxes together (could have been gathered on a number of queries).
+        # Simplify by merging these bboxes together (could have been gathered on a
+        # number of queries).
         e_bboxes = ivert.utils.cuboid_funcs.merge_cuboids(
             existing_bboxes,
             bbox_order="axis",

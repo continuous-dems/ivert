@@ -136,7 +136,10 @@ def read_dataframe_file(df_filename: str | Path) -> pd.DataFrame:
     elif ext == ".feather":
         dataframe = pd.read_feather(df_filename)
     else:
-        msg = f"ERROR: Unknown dataframe file extension '{ext}'. (Currently supporting .h5, .hdf, .csv, .txt, or .feather)"
+        msg = (
+            f"ERROR: Unknown dataframe file extension '{ext}'. (Currently supporting "
+            ".h5, .hdf, .csv, .txt, or .feather)"
+        )
         raise NotImplementedError(msg)
 
     return dataframe
@@ -185,8 +188,9 @@ def _check_cell_validation_params(photon_limit, min_photons, num_subdivisions):
 
     if photon_limit < _MIN_PHOTON_LIMIT:
         msg = (
-            f"photon_limit must be at least {_MIN_PHOTON_LIMIT}, not {photon_limit}. A cell "
-            "needs two or more photons for its elevation statistics to be meaningful."
+            f"photon_limit must be at least {_MIN_PHOTON_LIMIT}, not {photon_limit}. "
+            "A cell needs two or more photons for its elevation statistics to be "
+            "meaningful."
         )
         raise ValueError(msg)
     if photon_limit < min_photons:
@@ -250,14 +254,17 @@ def validate_dem_child_process(
     cell's photons in the shared arrays; it sends back the cells' results, until it
     gets a "STOP" command over the connection.
 
-    'measure_coverage' is a boolean parameter to measure how well a given pixel is covered by ICESat-2 photons.
-    We'll measure a couple of different measures (centrality and coverage), and insert those parameters in the output.
+    'measure_coverage' is a boolean parameter to measure how well a given pixel is
+    covered by ICESat-2 photons. We'll measure a couple of different measures
+    (centrality and coverage), and insert those parameters in the output.
 
-    'min_photons' is the fewest photons a grid cell may contain and still be validated. Cells with fewer than
-    this many photons are omitted from the returned dataframe entirely; nothing is reported for them.
+    'min_photons' is the fewest photons a grid cell may contain and still be validated.
+    Cells with fewer than this many photons are omitted from the returned dataframe
+    entirely; nothing is reported for them.
 
-    Cells with at least INTERDECILE_MIN_PHOTONS photons have their outliers trimmed to the interdecile range
-    before their statistics are computed. Cells below that use every photon they contain.
+    Cells with at least INTERDECILE_MIN_PHOTONS photons have their outliers trimmed to
+    the interdecile range before their statistics are computed. Cells below that use
+    every photon they contain.
 
     'coordinator_pid' is the process that hands out the chunks. If it disappears
     without sending "STOP" (killed for running out of memory, say), this process exits
@@ -298,7 +305,8 @@ def validate_dem_child_process(
     while True:
         if connection.poll(_WORKER_WAIT_S):
             if measure_coverage:
-                # If we're measuring the coverage, also give us the bounding boxes of the grid cells
+                # If we're measuring the coverage, also give us the bounding boxes of
+                # the grid cells
                 (
                     dem_i_list,
                     dem_j_list,
@@ -321,7 +329,8 @@ def validate_dem_child_process(
                 cell_xmax_list = None
                 cell_ymax_list = None
 
-            # Upon the "STOP" mesage, break the loop, close the shared memory objects, and return.
+            # Upon the "STOP" mesage, break the loop, close the shared memory objects,
+            # and return.
             if (type(dem_i_list) is str) and (dem_i_list == "STOP"):
                 h_shm.close()
                 pc_shm.close()
@@ -375,7 +384,8 @@ def validate_dem_child_process(
                     # has already confirmed is north-up and unrotated. That makes
                     # cell_xstep > 0 and cell_ystep < 0 hold for every cell.
                     cell_xstep = (cell_xmax - cell_xmin) / num_subdivisions
-                    # Equal to the geotransform, the y-value starts at the top (max) and iterate downward (negative step.)
+                    # Equal to the geotransform, the y-value starts at the top (max) and
+                    # iterate downward (negative step.)
                     cell_ystep = (cell_ymin - cell_ymax) / num_subdivisions
 
                     subset_i = np.floor((ph_y[cell] - cell_ymax) / cell_ystep).astype(
@@ -384,15 +394,17 @@ def validate_dem_child_process(
                     subset_j = np.floor((ph_x[cell] - cell_xmin) / cell_xstep).astype(
                         int,
                     )
-                    # By taking i * (number_of_rows) + j, we come up with unique single values for the sub-cell this is in.
+                    # By taking i * (number_of_rows) + j, we come up with unique single
+                    # values for the sub-cell this is in.
                     subset_ij = (subset_i * num_subdivisions) + subset_j
-                    # Count how many unique subset-cells are covered and divide by the number of total sub-cells.
+                    # Count how many unique subset-cells are covered and divide by the
+                    # number of total sub-cells.
                     r_coverage_frac[counter] = len(np.unique(subset_ij)) / (
                         num_subdivisions**2
                     )
 
-                # After calculating the coverage, if we want to limit the number of photons we're dealing with total,
-                # do it here.
+                # After calculating the coverage, if we want to limit the number of
+                # photons we're dealing with total, do it here.
                 if photon_limit is not None and len(cell_heights) > photon_limit:
                     sample = pd.DataFrame(
                         {"height": cell_heights, "ph_code": cell_codes},
@@ -624,7 +636,8 @@ def reset_results_indexes_after_merge(
     sub_results_df["i"] = sub_results_df.index.get_level_values("i") + y_offset
     sub_results_df["j"] = sub_results_df.index.get_level_values("j") + x_offset
 
-    # Re-create an (i,j) multi-index into the array, dropping the old index and the new columns.
+    # Re-create an (i,j) multi-index into the array, dropping the old index and the new
+    # columns.
     return sub_results_df.set_index(["i", "j"], drop=True)
 
 
@@ -676,83 +689,97 @@ def validate_dem(
 ):
     """Validate a DEM and produce output results.
 
-    Most of this work is done in validate_dem_parallel. This function is a wrapper that calls validate_dem_parallel as
-    a sub-function and tests whether it dies because of RAM limitations. If that happens, sub-divide the DEM in quarters
-    and re-try, to a max recursion depth of max_subdivides.
+    Most of this work is done in validate_dem_parallel. This function is a wrapper that
+    calls validate_dem_parallel as a sub-function and tests whether it dies because of
+    RAM limitations. If that happens, sub-divide the DEM in quarters and re-try, to a
+    max recursion depth of max_subdivides.
 
     Args:
         dem_name: Name of the DEM file to validate.
         output_dir: Output directory for results.
-        dates: 2-tuple of photon dates (mutually inclusive) for ICESat-2 data to use in this
-            validation. Default: use all dates available in the database.
+        dates: 2-tuple of photon dates (mutually inclusive) for ICESat-2 data to use in
+            this validation. Default: use all dates available in the database.
         classes: The ICESat-2 photon classes to use for validation. Photons in any other
-            class are dropped before any statistics are computed. Default: [1, 6, 40], meaning ground (1),
-            land ice (6), and bathy floor (40). Run 'ivert classes' for the full list of codes.
-        shared_ret_values: Shared return values from validate_dem_parallel. This is an analagous way to get
-            the return values back from the calling function if this is called as a sub-process.
+            class are dropped before any statistics are computed. Default: [1, 6, 40],
+            meaning ground (1), land ice (6), and bathy floor (40). Run 'ivert classes'
+            for the full list of codes.
+        shared_ret_values: Shared return values from validate_dem_parallel. This is an
+            analagous way to get the return values back from the calling function if
+            this is called as a sub-process.
         icesat2_photon_database_obj: icesat-2 photon database object. Only
-            used if we've already created one, such as in validate_dem_collection, for efficiency.
-            Typically ignored for a single DEM validation.
-        band_num: The raster band to use in the DEMs. 1-indexed. Defaults to 1 (first band).
+            used if we've already created one, such as in validate_dem_collection, for
+            efficiency. Typically ignored for a single DEM validation.
+        band_num: The raster band to use in the DEMs. 1-indexed. Defaults to 1 (first
+            band).
         variable: The variable to validate in a NetCDF or HDF5 DEM file. Defaults to
-            None: a single-variable file is used as-is, and a multi-variable one is searched for
-            'elev', 'elevation' and then 'z' (see ivert.utils.dem_source.resolve_dem_source).
+            None: a single-variable file is used as-is, and a multi-variable one is
+                searched for
+            'elev', 'elevation' and then 'z' (see
+            ivert.utils.dem_source.resolve_dem_source).
         dem_vertical_datum: The vertical datum of the DEM: a common name ("navd88",
             "mllw"), an EPSG code, or a transformez reference ID ("vdatum:mllw"); see
             ivert.vdatum_lookup. Defaults to "egm2008".
-        dem_projection: The CRS of the DEM: a horizontal CRS ("EPSG:26910"), or a compound
-            one that also gives the vertical datum ("EPSG:6893", "EPSG:4326+3855",
-            "EPSG:4326+vdatum:mllw"). Required if the DEM file has no CRS of its own.
-            Overrides the file's CRS, with a warning, if it differs. Its vertical part
-            is in turn overridden by dem_vertical_datum. Defaults to None, which uses
-            the file's CRS.
+        dem_projection: The CRS of the DEM: a horizontal CRS ("EPSG:26910"), or a
+            compound one that also gives the vertical datum ("EPSG:6893",
+            "EPSG:4326+3855", "EPSG:4326+vdatum:mllw"). Required if the DEM file has no
+            CRS of its own. Overrides the file's CRS, with a warning, if it differs. Its
+            vertical part is in turn overridden by dem_vertical_datum. Defaults to None,
+            which uses the file's CRS.
         dem_ndv: No-data value to exclude from the DEM pixels before validation.
-            Overrides any no-data value in the DEM file header. Defaults to None, which uses the
-            file header value, falling back to the config default (dem_default_ndv).
+            Overrides any no-data value in the DEM file header. Defaults to None, which
+            uses the file header value, falling back to the config default
+            (dem_default_ndv).
         overwrite: Overwrite existing files.
         write_summary_stats: Write summary statistics of results to a textfile.
-        outliers_sd_threshold: Threshold for outlier detection in errors. Defaults to 2.5.
-        include_photon_level_validation: Include photon level validation (not just cell-level validation).
+        outliers_sd_threshold: Threshold for outlier detection in errors. Defaults to
+            2.5.
+        include_photon_level_validation: Include photon level validation (not just
+            cell-level validation).
         plot_results: Plot results.
         location_name: Name of the location being validated.
-        mark_empty_results: Mark results that are empty in a "<dem>_results_EMPTY.txt" file.
-        measure_coverage: Measure the coverage of ICESat-2 photons within each grid-cell.
+        mark_empty_results: Mark results that are empty in a "<dem>_results_EMPTY.txt"
+            file.
+        measure_coverage: Measure the coverage of ICESat-2 photons within each
+            grid-cell.
         min_coverage_pct: If set, drop grid cells whose measured coverage is below this
             percentage (0-100) from the validation results, stats, and plots. Requires
-            measure_coverage=True (coverage must be measured to filter on it). Defaults to None
-            (no coverage filtering).
-        min_coverage_pct_land: As min_coverage_pct, but for land cells only (cells with no
-            bathymetry photons), overriding min_coverage_pct for them. Defaults to None.
-        min_coverage_pct_bathy: As min_coverage_pct, but for bathymetry cells only (cells
-            with any bathymetry photons), overriding min_coverage_pct for them. Defaults to None.
+            measure_coverage=True (coverage must be measured to filter on it). Defaults
+            to None (no coverage filtering).
+        min_coverage_pct_land: As min_coverage_pct, but for land cells only (cells with
+            no bathymetry photons), overriding min_coverage_pct for them. Defaults to
+            None.
+        min_coverage_pct_bathy: As min_coverage_pct, but for bathymetry cells only
+            (cells with any bathymetry photons), overriding min_coverage_pct for them.
+            Defaults to None.
         max_photons_per_cell: Maximum number of photons per cell.
         min_photons_per_cell: Minimum number of photons a grid cell must contain to be
-            validated. Cells with fewer photons are omitted from the results entirely. Cells with
-            at least INTERDECILE_MIN_PHOTONS photons have their outliers trimmed to the interdecile
-            range before their statistics are computed; cells below that use every photon they
-            contain. Defaults to 3.
+            validated. Cells with fewer photons are omitted from the results entirely.
+            Cells with at least INTERDECILE_MIN_PHOTONS photons have their outliers
+            trimmed to the interdecile range before their statistics are computed; cells
+            below that use every photon they contain. Defaults to 3.
         numprocs: Number of processes to use for parallelized validation.
-        max_subdivides: Maximum number of times to subdivide the DEM in quarters before giving up.
-        subdivision_number: The current recursion depth of this subdivision. Will not subdivide further if
-            subdivision_number == max_subdivides.
+        max_subdivides: Maximum number of times to subdivide the DEM in quarters before
+            giving up.
+        subdivision_number: The current recursion depth of this subdivision. Will not
+            subdivide further if subdivision_number == max_subdivides.
         orig_dem_name: Name of the original DEM file. Only used for error messages.
-        min_confidence_level: Minimum ATL03 signal confidence level to use (1-4). Photons
-            below this level are excluded from validation. 1=low (keep all), 2=medium, 3=high,
-            4=very-high. Defaults to 4.
+        min_confidence_level: Minimum ATL03 signal confidence level to use (1-4).
+            Photons below this level are excluded from validation. 1=low (keep all),
+            2=medium, 3=high, 4=very-high. Defaults to 4.
         min_bathy_confidence: Minimum ATL24 bathymetry confidence to use (0.0-1.0).
-            Bathy-floor photons (class 40) below this confidence are excluded from validation.
-            Defaults to 0.90.
+            Bathy-floor photons (class 40) below this confidence are excluded from
+            validation. Defaults to 0.90.
         bathy_filter_settings: Which filters to run on bathy-floor (class 40) photons
             to remove misclassified ones, and their thresholds. See ivert.bathy_filters.
             Defaults to None, which uses the 'bathy_*' config values.
         export_error_formats: GIS formats to export the per-cell errors into,
-            as a comma-separated string or list drawn from 'tif', 'gpkg', 'shp', 'xyz'. Defaults
-            to None, which uses the 'export_error_formats' config value.
+            as a comma-separated string or list drawn from 'tif', 'gpkg', 'shp', 'xyz'.
+            Defaults to None, which uses the 'export_error_formats' config value.
         exclude_zones: Zones to exclude ICESat-2 photons from before validation.
-            Each item is either a 4-value (minx, miny, maxx, maxy) bounding box in the DEM's own
-            horizontal CRS, or a path to a vector file (.shp, .geojson, .gpkg) containing exclusion
-            polygon(s) in any CRS. Photons falling within any zone are dropped. Defaults to None
-            (no exclusions).
+            Each item is either a 4-value (minx, miny, maxx, maxy) bounding box in the
+            DEM's own horizontal CRS, or a path to a vector file (.shp, .geojson, .gpkg)
+            containing exclusion polygon(s) in any CRS. Photons falling within any zone
+            are dropped. Defaults to None (no exclusions).
         config: The IVERT settings to use. Defaults to None, which uses the photon
             database's settings if icesat2_photon_database_obj is given, and otherwise
             reads them from the config files.
@@ -830,7 +857,8 @@ def validate_dem(
     # branch simply doesn't apply and we fall through to the RuntimeError below.
     sigkill = getattr(signal, "SIGKILL", None)
     if sigkill is not None and abs(exitcode) == abs(sigkill):
-        # The job was killed by the operating system. This happens with a Memory Error. Divvy the file up and try again.
+        # The job was killed by the operating system. This happens with a Memory Error.
+        # Divvy the file up and try again.
 
         # Unless we've already hit max recursion. In that case, error-out.
         if subdivision_number == max_subdivides:
@@ -842,7 +870,10 @@ def validate_dem(
 
         # Make sure the DEM exists that we're trying to sub-divide
         if not Path(dem_source.dem_file_path(dem_name)).exists():
-            msg = f"validate_dem.validate_dem_parallell({orig_dem_name},...) could not find {dem_name}."
+            msg = (
+                f"validate_dem.validate_dem_parallell({orig_dem_name},...) could not "
+                f"find {dem_name}."
+            )
             raise FileNotFoundError(msg)
 
         with rasterio.open(dem_name) as parent_ds:
@@ -858,10 +889,14 @@ def validate_dem(
 
         sub_shared_ret_values = [manager.dict() for i in range(len(sub_dem_names))]
         if len(sub_dem_names) != factor**2:
-            msg = f"Splitting {dem_name} gave {len(sub_dem_names)} pieces, not {factor**2}."
+            msg = (
+                f"Splitting {dem_name} gave {len(sub_dem_names)} pieces, not "
+                f"{factor**2}."
+            )
             raise RuntimeError(msg)
 
-        # Pre-read the photon database. This is easier than reading it in 4 separate times.
+        # Pre-read the photon database. This is easier than reading it in 4 separate
+        # times.
         if icesat2_photon_database_obj is None:
             icesat2_photon_database_obj = ivert.icesat2_database_v2.IS2Database(
                 ivert_config=config,
@@ -887,9 +922,12 @@ def validate_dem(
                 overwrite=overwrite,
                 dates=dates,
                 classes=classes,
-                write_summary_stats=False,  # No need to write the summary stats file for subsets.
-                export_error_formats=[],  # No need to export per-subset error files; done once after merge.
-                outliers_sd_threshold=None,  # Don't filter outliers until we get all the results back.
+                # No need to write the summary stats file for subsets.
+                write_summary_stats=False,
+                # No need to export per-subset error files; done once after merge.
+                export_error_formats=[],
+                # Don't filter outliers until we get all the results back.
+                outliers_sd_threshold=None,
                 include_photon_level_validation=include_photon_level_validation,
                 plot_results=False,  # Don't bother plotting the sub-results.
                 location_name=location_name,
@@ -958,7 +996,8 @@ def validate_dem(
                 output_dfs.append(dem_results_df)
 
             shared_results_df = pd.concat(output_dfs, ignore_index=False, axis=0)
-            # After we've combined all the resutls, *then* filter out outliers if they exist.
+            # After we've combined all the resutls, *then* filter out outliers if they
+            # exist.
             if outliers_sd_threshold is not None:
                 if not isinstance(outliers_sd_threshold, (int, float)):
                     msg = "outliers_sd_threshold must be a number."
@@ -1008,13 +1047,15 @@ def validate_dem(
             written_files.extend(exported)
             shared_ret_values["error_export_files"] = exported
 
-        # If we're doing an empty results file, create one in the output directory if no results were returned.
+        # If we're doing an empty results file, create one in the output directory if no
+        # results were returned.
         if (
             mark_empty_results
             and (shared_results_df is None)
             and subdivision_number == 0
         ):
-            # If any of the results existed, we don't need to do this just because one sub-result doesn't exist.
+            # If any of the results existed, we don't need to do this just because one
+            # sub-result doesn't exist.
             empty_fname = _empty_results_filename(
                 _results_dataframe_filename(dem_name, output_dir),
             )
@@ -1028,7 +1069,8 @@ def validate_dem(
             and shared_results_df is not None
             and subdivision_number == 0
         ):
-            # Generate a new summary stats file only if we have results and if the recursion depth is zero.
+            # Generate a new summary stats file only if we have results and if the
+            # recursion depth is zero.
             output_fname = Path(output_dir) / (
                 dem_source.dem_base_name(dem_name) + "_summary_stats.txt"
             )
@@ -1083,7 +1125,10 @@ def validate_dem(
         log_written_files(written_files)
         return list(shared_ret_values.values())
 
-    msg = f"validate_dem.validate_dem({orig_dem_name},...) exited with exitcode {exitcode}."
+    msg = (
+        f"validate_dem.validate_dem({orig_dem_name},...) exited with exitcode "
+        f"{exitcode}."
+    )
     raise RuntimeError(msg)
 
 
@@ -1230,8 +1275,9 @@ def _check_existing_outputs(
     files_to_export = []
 
     if results_dataframe_file.exists():
-        # Photon-level results can't be regenerated from the results dataframe alone — they require
-        # the raw photon data. If they're missing, signal the caller to run the full pipeline.
+        # Photon-level results can't be regenerated from the results dataframe alone —
+        # they require the raw photon data. If they're missing, signal the caller to run
+        # the full pipeline.
         photon_results_file = None
         if include_photon_level_validation:
             photon_results_file = _photon_results_filename(results_dataframe_file)
@@ -1344,7 +1390,8 @@ def _resolve_dem_crs(
 ):
     """Return the DEM's (horizontal CRS, vertical reference), with the user's settings applied.
 
-    Horizontal: -p/--projection, else the file's. Vertical: -V/--vdatum, else the vertical
+    Horizontal: -p/--projection, else the file's. Vertical: -V/--vdatum, else the
+        vertical
     part of -p/--projection, else the file's. Each override that differs from what it
     replaces is logged as a warning. The vertical reference is a pyproj.CRS, or a
     transformez reference ID such as 'vdatum:mllw' that pyproj can't represent.
@@ -1498,10 +1545,12 @@ def _resolve_exclude_geometry(exclude_zones, dem_epsg_str):
     """Resolve exclude-zone specs into a single shapely geometry in the DEM's horizontal CRS.
 
     Each item in exclude_zones is either a 4-value (minx, miny, maxx, maxy) bounding box
-    already in the DEM's horizontal CRS, or a path to a vector file (.shp, .geojson, .gpkg)
-    containing polygon(s) in any CRS, which get reprojected into the DEM's horizontal CRS.
+    already in the DEM's horizontal CRS, or a path to a vector file (.shp, .geojson,
+    .gpkg) containing polygon(s) in any CRS, which get reprojected into the DEM's
+    horizontal CRS.
 
-    Returns a single (possibly multi-part) shapely geometry, or None if exclude_zones is empty.
+    Returns a single (possibly multi-part) shapely geometry, or None if exclude_zones is
+    empty.
     """
     dem_horz_crs, _ = dem_geom.split_srs_string(dem_epsg_str)
 
@@ -1524,7 +1573,8 @@ def _resolve_exclude_geometry(exclude_zones, dem_epsg_str):
 def _band_nodata(dem_ds, band_num, user_ndv=None, default_ndv=None):
     """Return the nodata value to mask band 'band_num' with.
 
-    In order: the user's value, the band's own nodata value in the file, the config default.
+    In order: the user's value, the band's own nodata value in the file, the config
+    default.
     """
     if user_ndv is not None:
         return user_ndv
@@ -1581,7 +1631,8 @@ def _compute_photon_overlap(
 
     Returns (photon_df, height_field, dem_overlap_i, dem_overlap_j,
              dem_overlap_elevs, n, coverage_coords) or None if no valid overlap exists.
-    coverage_coords is (xmin_arr, xmax_arr, ymin_arr, ymax_arr) when measure_coverage=True, else None.
+    coverage_coords is (xmin_arr, xmax_arr, ymin_arr, ymax_arr) when
+    measure_coverage=True, else None.
     """
     try:
         photon_df["dem_x"], photon_df["dem_y"], photon_df["dem_z"] = (
@@ -1669,7 +1720,8 @@ def _compute_photon_overlap(
     num_goodpixels = np.count_nonzero(dem_goodpixel_mask)
     if num_goodpixels == 0:
         logger.info(
-            "No land cells found in DEM with overlapping ICESat-2 data. Stopping and moving on.",
+            "No land cells found in DEM with overlapping ICESat-2 data. Stopping and "
+            "moving on.",
         )
         return None
     logger.info(
@@ -1681,7 +1733,8 @@ def _compute_photon_overlap(
 
     if np.count_nonzero(dem_overlap_mask) == 0:
         logger.info(
-            "No overlapping ICESat-2 data with valid land cells. Stopping and moving on.",
+            "No overlapping ICESat-2 data with valid land cells. Stopping and moving "
+            "on.",
         )
         return None
 
@@ -2058,7 +2111,8 @@ def _run_parallel_cell_validation(
 
     finally:
         progress.close()
-        # Also on KeyboardInterrupt: workers left running keep this process from exiting.
+        # Also on KeyboardInterrupt: workers left running keep this process from
+        # exiting.
         clean_procs_and_pipes(
             running_procs,
             open_pipes_parent,
@@ -2608,7 +2662,8 @@ def write_summary_stats_file(
 
     if len(results_df) == 0:
         logger.info(
-            "write_summary_stats_file(): No stats to compute in results dataframe. Returning",
+            "write_summary_stats_file(): No stats to compute in results dataframe. "
+            "Returning",
         )
         return
 
@@ -2647,7 +2702,8 @@ def write_summary_stats_file(
     )
 
     lines.append(
-        "== Decile ranges of errors (DEM - ICESat-2) (m) (Look for long-tails, indicating possible artifacts.) ===",
+        "== Decile ranges of errors (DEM - ICESat-2) (m) (Look for long-tails, "
+        "indicating possible artifacts.) ===",
     )
 
     percentile_levels = [0, 1, 5, 10, 20, 30, 40, 50, 60, 70, 80, 90, 95, 99, 100]
@@ -2666,13 +2722,15 @@ def write_summary_stats_file(
             "(how coverage/sampling bias affects reported accuracy) ===",
         )
         for pct_of_cells in range(100, 0, -10):
-            # The coverage threshold that retains this fraction of the best-covered cells.
+            # The coverage threshold that retains this fraction of the best-covered
+            # cells.
             coverage_threshold = np.percentile(coverage_frac, 100 - pct_of_cells)
             mask = coverage_frac >= coverage_threshold
             subset_diff = mean_diff[mask]
             rmse = np.sqrt(np.mean(np.power(subset_diff, 2)))
             lines.append(
-                f"    RMSE for grid cells with >{coverage_threshold * 100:0.1f}% coverage ({pct_of_cells:d}% of cells) (m): {_format_stat(rmse)}",
+                f"    RMSE for grid cells with >{coverage_threshold * 100:0.1f}% "
+                f"coverage ({pct_of_cells:d}% of cells) (m): {_format_stat(rmse)}",
             )
 
     if bathy_filter_report is not None:
@@ -2881,11 +2939,15 @@ def export_error_results(
         'xyz'  - Whitespace-delimited 'x y error' text file.
 
     Args:
-        results_dataframe: validation results, (i, j)-multi-indexed, with a 'diff_mean' column.
-        dem_ds: an open rasterio dataset for the source DEM (supplies CRS and geotransform).
-        results_dataframe_file: path to the '<dem>_results.h5' file (used to derive output names).
+        results_dataframe: validation results, (i, j)-multi-indexed, with a 'diff_mean'
+            column.
+        dem_ds: an open rasterio dataset for the source DEM (supplies CRS and
+            geotransform).
+        results_dataframe_file: path to the '<dem>_results.h5' file (used to derive
+            output names).
         formats: comma-separated string (e.g. 'tif,gpkg') or iterable of format names.
-        dem_crs: the CRS to write into the files. Defaults to None, which uses dem_ds.crs.
+        dem_crs: the CRS to write into the files. Defaults to None, which uses
+            dem_ds.crs.
 
     Returns:
         list of file paths written.

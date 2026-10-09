@@ -145,7 +145,8 @@ def _photons(xs, y=32.5):
             "class_code": [1] * len(xs),
             "delta_time": [t0 + i for i in range(len(xs))],
             "confidence": [4] * len(xs),
-            # 4-byte beam names, as globato hands them over and the .nc files store them.
+            # 4-byte beam names, as globato hands them over and the .nc files store
+            # them.
             "laser": [b"gt1l"] * len(xs),
         },
     )

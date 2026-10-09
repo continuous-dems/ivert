@@ -436,7 +436,8 @@ def plot_beam(
         df_beam["z"].between(-_MAX_ABS_ELEVATION_M, _MAX_ABS_ELEVATION_M)
     ].reset_index(drop=True)
 
-    # Reclassify photons not in the requested set to noise (class 0) so they still appear
+    # Reclassify photons not in the requested set to noise (class 0) so they still
+    # appear
     if classes is not None:
         unselected = (df_beam["class_code"] != 0) & ~df_beam["class_code"].isin(classes)
         df_beam.loc[unselected, "class_code"] = 0
@@ -654,7 +655,7 @@ def main(
     else:
         classes = {int(c) for c in classes_str.split("/")}
 
-    # ------------------------------------------------------------------ h5-only
+    # ---------------------------------------------------------------------- h5-only
     h5_only = h5_only or input_path.suffix.lower() == ".h5"
 
     if h5_only:
@@ -715,7 +716,7 @@ def main(
             )
         return
 
-    # ------------------------------------------------------------------ nc + optional h5
+    # -------------------------------------------------------------- nc + optional h5
     nc_path = input_path
     outdir = Path(outdir) if outdir else nc_path.parent
     outdir.mkdir(parents=True, exist_ok=True)

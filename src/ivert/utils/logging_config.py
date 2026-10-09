@@ -51,7 +51,8 @@ class LevelPrefixFormatter(logging.Formatter):
         """Build the formatter.
 
         Args:
-            always_prefix: If True, label every record with its level name, INFO included.
+            always_prefix: If True, label every record with its level name, INFO
+                included.
         """
         super().__init__("%(message)s")
         self.always_prefix = always_prefix
@@ -108,9 +109,9 @@ def _install_handler(level: int) -> None:
     logging.basicConfig(level=level, handlers=[handler], force=True)
     logging.getLogger().setLevel(level)
 
-    # pyogrio (the writer behind GeoDataFrame.to_file) logs "Created <n> records" at INFO
-    # on every vector file it writes, which reads as stray noise in IVERT's output. Keep
-    # its warnings, and let the INFO chatter through only at debug verbosity.
+    # pyogrio (the writer behind GeoDataFrame.to_file) logs "Created <n> records" at
+    # INFO on every vector file it writes, which reads as stray noise in IVERT's output.
+    # Keep its warnings, and let the INFO chatter through only at debug verbosity.
     logging.getLogger("pyogrio").setLevel(
         logging.NOTSET if level <= logging.DEBUG else logging.WARNING,
     )

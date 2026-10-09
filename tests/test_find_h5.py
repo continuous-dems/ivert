@@ -5,7 +5,10 @@ from types import SimpleNamespace
 from ivert import plot_photon_clouds_v2 as ppc
 
 GRANULE = "ATL03_20240307011821_12102202_007_01"
-NC_NAME = f"{GRANULE}_subsetted_W121.00000_W119.00000_N34.00000_N35.00000_20211101_20241101.nc"
+NC_NAME = (
+    f"{GRANULE}_subsetted_W121.00000_W119.00000_N34.00000_N35.00000"
+    "_20211101_20241101.nc"
+)
 
 
 def _touch(path):

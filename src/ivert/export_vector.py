@@ -256,9 +256,10 @@ def normalize_format_keys(output_format: str, allowed=None) -> list:
     """Parse a comma-separated output-format string into a validated list of format keys.
 
     Args:
-        output_format: One format key or a comma-separated combination (e.g. "gpkg,shp,xyz").
-        allowed (iterable of str, optional): Restrict which format keys are accepted. Defaults to every key in
-            SUPPORTED_FORMATS.
+        output_format: One format key or a comma-separated combination (e.g.
+            "gpkg,shp,xyz").
+        allowed (iterable of str, optional): Restrict which format keys are accepted.
+            Defaults to every key in SUPPORTED_FORMATS.
 
     Returns:
         list of str

@@ -35,7 +35,10 @@ def normalize_atl_version(value: int | str) -> str:
     """
     text = str(value).strip()
     if not text.isdigit() or len(text) > _ATL_VERSION_DIGITS:
-        msg = f"nsidc_atl_version must be a number of up to 3 digits such as 007, not {value!r}."
+        msg = (
+            "nsidc_atl_version must be a number of up to 3 digits such as 007, not "
+            f"{value!r}."
+        )
         raise ValueError(msg)
     return text.zfill(_ATL_VERSION_DIGITS)
 
@@ -43,9 +46,9 @@ def normalize_atl_version(value: int | str) -> str:
 def _atl_version_from_csv(value: str) -> str:
     """Return a version read from the requests CSV in normalized form, or "" if none is recorded.
 
-    A file saved by a spreadsheet program can hold the version as a number, "7" or "7.0",
-    and one written before the column existed holds nothing.
-    A value that is not a version at all is kept as it is, so it matches no lookup.
+    A file saved by a spreadsheet program can hold the version as a number, "7" or
+    "7.0", and one written before the column existed holds nothing. A value that is not
+    a version at all is kept as it is, so it matches no lookup.
     """
     text = value.strip().removesuffix(".0")
     if not text:
@@ -103,14 +106,19 @@ class ICESat2RequestsCSV:
         Args:
             atl_dataset: Short name, e.g. "ATL03".
             bbox (tuple): 6-tuple (xmin, xmax, ymin, ymax, tmin, tmax).
-            auto_clean_csv: When True, drop expired records from the CSV before searching, which
-                also makes `only_unexpired` redundant. Defaults to False.
-            only_unexpired: When True (default), ignore records whose dataExpiration has passed.
-            tolerance: Absolute tolerance for matching each bbox coordinate. Defaults to 1e-9.
-            return_rows: When True, return the matching DataFrame rows instead of the JSON dict.
-            atl_version: When given (e.g. "007" or 7), only match records of jobs that asked for
-                that version. Records with no version recorded never match, so a job submitted
-                before the version was tracked is not re-used. Defaults to None (any version).
+            auto_clean_csv: When True, drop expired records from the CSV before
+                searching, which also makes `only_unexpired` redundant. Defaults to
+                False.
+            only_unexpired: When True (default), ignore records whose dataExpiration has
+                passed.
+            tolerance: Absolute tolerance for matching each bbox coordinate. Defaults to
+                1e-9.
+            return_rows: When True, return the matching DataFrame rows instead of the
+                JSON dict.
+            atl_version: When given (e.g. "007" or 7), only match records of jobs that
+                asked for that version. Records with no version recorded never match, so
+                a job submitted before the version was tracked is not re-used. Defaults
+                to None (any version).
 
         """
         if self.df is None:
@@ -159,7 +167,10 @@ class ICESat2RequestsCSV:
             query_bbox = ast.literal_eval(query_bbox)
         query_bbox = tuple(query_bbox)
         if len(query_bbox) != BBOX_WITH_DATES_LEN:
-            msg = f"query_bbox must have 6 values (xmin, xmax, ymin, ymax, tmin, tmax), not {len(query_bbox)}."
+            msg = (
+                "query_bbox must have 6 values (xmin, xmax, ymin, ymax, tmin, tmax), "
+                f"not {len(query_bbox)}."
+            )
             raise ValueError(msg)
 
         if isinstance(json_dict, str):
