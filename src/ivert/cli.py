@@ -32,6 +32,9 @@ from ivert.utils.configfile import Config, parse_option_descriptions
 from ivert.utils.paths import absolute_path
 from ivert.utils.sizeof_format import sizeof_fmt
 
+if typing.TYPE_CHECKING:
+    import pyproj
+
 # The heavier modules (IVERT's own and libraries such as pandas, geopandas and
 # globato) are imported inside the commands that use them, so that `ivert --help`
 # and the quick commands start in a fraction of a second. Those imports are marked
@@ -128,19 +131,21 @@ _WGS84_EPSG = 4326
 _KIB = 1024
 
 
-def _netrc_path():
+def _netrc_path() -> Path:
     """Return the path to the user's .netrc file."""
     return Path.home() / ".netrc"
 
 
-def _has_earthdata_credentials(netrc_path, machine=_EARTHDATA_MACHINE) -> bool:
+def _has_earthdata_credentials(
+    netrc_path: Path,
+    machine: str = _EARTHDATA_MACHINE,
+) -> bool:
     """Return True if netrc_path has a login and password for the given machine.
 
     Parses the .netrc token stream directly rather than using the stdlib netrc
     module, which raises on files that are group/world-readable and does not
     tolerate some entries that are otherwise valid for our purposes.
     """
-    netrc_path = Path(netrc_path)
     if not netrc_path.exists():
         return False
 
@@ -176,17 +181,16 @@ def _has_earthdata_credentials(netrc_path, machine=_EARTHDATA_MACHINE) -> bool:
 
 
 def _append_earthdata_credentials(
-    netrc_path,
-    username,
-    password,
-    machine=_EARTHDATA_MACHINE,
+    netrc_path: Path,
+    username: str,
+    password: str,
+    machine: str = _EARTHDATA_MACHINE,
 ) -> None:
     """Append a machine entry for the given credentials to netrc_path.
 
     Existing content is preserved (the file is opened in append mode). The file
     permissions are tightened to owner-only, as .netrc requires.
     """
-    netrc_path = Path(netrc_path)
     prefix = ""
     if netrc_path.exists():
         with netrc_path.open(encoding="utf-8") as f:
@@ -203,7 +207,7 @@ def _append_earthdata_credentials(
         netrc_path.chmod(0o600)
 
 
-def _stdin_is_interactive():
+def _stdin_is_interactive() -> bool:
     """Return True if there is a terminal on stdin to prompt the user with."""
     try:
         return sys.stdin is not None and sys.stdin.isatty()
@@ -211,7 +215,7 @@ def _stdin_is_interactive():
         return False
 
 
-def _check_netrc_permissions(netrc_path) -> None:
+def _check_netrc_permissions(netrc_path: Path) -> None:
     """Warn, and offer to fix, if .netrc is readable by anyone but its owner.
 
     Downloads read credentials through the stdlib netrc module, which refuses
@@ -220,7 +224,7 @@ def _check_netrc_permissions(netrc_path) -> None:
     saved them.
     """
     try:
-        mode = Path(netrc_path).stat().st_mode
+        mode = netrc_path.stat().st_mode
     except OSError:
         return
     if not (mode & 0o077):
@@ -240,13 +244,17 @@ def _check_netrc_permissions(netrc_path) -> None:
     ):
         return
     try:
-        Path(netrc_path).chmod(0o600)
+        netrc_path.chmod(0o600)
         click.echo(f"Set {netrc_path} to owner-only (600).")
     except OSError as e:
         click.echo(f"Could not change the permissions on {netrc_path}: {e}", err=True)
 
 
-def _setup_earthdata_credentials(*, announce_if_present=True, prompt_note=None) -> bool:
+def _setup_earthdata_credentials(
+    *,
+    announce_if_present: bool = True,
+    prompt_note: str | None = None,
+) -> bool:
     """Check for NASA Earthdata credentials in .netrc, offering to save them.
 
     Returns True if credentials are in place afterwards. Callers that only want
@@ -471,7 +479,7 @@ def options(ctx: click.Context, *, yes: bool) -> None:
         click.echo(ctx.get_help())
 
 
-def _option_display_value(config, key):
+def _option_display_value(config: Config, key: str) -> str:
     """Return the current value of a setting, as the user should see it."""
     if key == "user_configfile":
         # --config / IVERT_USER_CONFIG can point IVERT at a different file than
@@ -480,7 +488,7 @@ def _option_display_value(config, key):
     return str(getattr(config, key, ""))
 
 
-def _option_source_label(config, key):
+def _option_source_label(config: Config, key: str) -> str:
     """Styled marker showing where a setting's current value came from."""
     if key == "user_configfile" and os.environ.get("IVERT_USER_CONFIG"):
         return click.style("[--config]", fg="yellow")
@@ -489,7 +497,11 @@ def _option_source_label(config, key):
     return click.style("[default]", fg="bright_black")
 
 
-def _inherited_options(config, user_config, changed_keys):
+def _inherited_options(
+    config: Config,
+    user_config: configparser.ConfigParser,
+    changed_keys: list[str],
+) -> tuple[list[str], list[str]]:
     """Return the settings that keep their default value after 'changed_keys' change.
 
     A setting like "cache_directory = %(user_data_directory)s/cache" lives only
@@ -522,7 +534,13 @@ def _inherited_options(config, user_config, changed_keys):
     return dependents, support
 
 
-def _confirm_inherited_copy(config, dependents, changed_keys, assume_yes):
+def _confirm_inherited_copy(
+    config: Config,
+    dependents: list[str],
+    changed_keys: list[str],
+    *,
+    assume_yes: bool,
+) -> bool:
     """Ask whether settings inheriting a changed value should follow it."""
     # The warning exists to flag settings that would silently stay behind. With
     # --yes they are all updated, so there is nothing to warn about.
@@ -558,7 +576,7 @@ def _confirm_inherited_copy(config, dependents, changed_keys, assume_yes):
     )
 
 
-def _options_set_values(assignments, *, assume_yes=False) -> None:
+def _options_set_values(assignments: list[str], *, assume_yes: bool = False) -> None:
     """Write one or more key=value pairs to the user config file."""
     config = Config()
 
@@ -614,7 +632,7 @@ def _options_set_values(assignments, *, assume_yes=False) -> None:
         config,
         dependents,
         changed_keys,
-        assume_yes,
+        assume_yes=assume_yes,
     ):
         # Copied raw, so they keep embedding "%(changed_key)s" and will follow
         # the changed setting again if it is ever changed a second time.
@@ -839,7 +857,7 @@ def database_list(*, show_all: bool, boxes: bool) -> None:
 
     if boxes:
 
-        def _fmt_date(d) -> str:
+        def _fmt_date(d: float) -> str:
             s = str(int(d))
             return f"{s[:4]}.{s[4:6]}.{s[6:]}"
 
@@ -1021,7 +1039,7 @@ def database_size() -> None:
     )
 
 
-def _check_projection_option(projection):
+def _check_projection_option(projection: str) -> tuple["pyproj.CRS", str | None]:
     """Check a -p/--projection value; return (horizontal CRS, vertical part or None).
 
     The value may be a horizontal CRS ('EPSG:26910') or a compound one
@@ -1568,7 +1586,7 @@ def _resolve_export_target(tokens, projection, wsen):
     return _ExportTarget("region", bbox, geometry, None)
 
 
-def _echo_export_summary(written, count, noun) -> None:
+def _echo_export_summary(written: list[Path], count: int, noun: str) -> None:
     """Report the files a conversion wrote (or that it wrote none)."""
     if not written:
         click.echo(
@@ -1984,7 +2002,7 @@ _EXPORT_DEPRECATION = (
 )
 
 
-def _database_export_deprecated(**kwargs: object):
+def _database_export_deprecated(**kwargs: object) -> None:
     """Run 'ivert database convert' under its old name, with a deprecation warning."""
     # Python hides DeprecationWarning by default, so say it on stderr as well.
     warnings.warn(_EXPORT_DEPRECATION, DeprecationWarning, stacklevel=2)
@@ -1993,7 +2011,7 @@ def _database_export_deprecated(**kwargs: object):
     if callback is None:
         msg = "'ivert database convert' has no callback."
         raise RuntimeError(msg)
-    return callback(**kwargs)
+    callback(**kwargs)
 
 
 # 'export' was renamed 'convert', since it converts photons into other formats rather
@@ -2318,12 +2336,12 @@ def database_restore(archive: Path, *, on_overlap: str | None, dry_run: bool) ->
 ###############################################################
 
 
-def _cache_dir():
+def _cache_dir() -> Path:
     """Return the configured cache directory path."""
     return Path(Config().cache_directory)
 
 
-def _fmt_size(nbytes) -> str:
+def _fmt_size(nbytes: float) -> str:
     """Format a byte count as a human-readable string."""
     for unit in ("B", "KB", "MB", "GB"):
         if nbytes < _KIB:
