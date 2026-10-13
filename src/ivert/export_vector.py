@@ -82,7 +82,7 @@ _INDEX_SHAPEFILE_ALIASES = {
 # ---------------------------------------------------------------------------
 # File-kind detection
 # ---------------------------------------------------------------------------
-def detect_nc_kind(nc_path: str) -> str | None:
+def detect_nc_kind(nc_path: str | Path) -> str | None:
     """Identify what kind of IVERT NetCDF file this is.
 
     Returns KIND_INDEX for the database index file, KIND_PHOTONS for a photon
@@ -106,7 +106,7 @@ def detect_nc_kind(nc_path: str) -> str | None:
 # Core conversion
 # ---------------------------------------------------------------------------
 def nc_to_geodataframe(
-    nc_path: str,
+    nc_path: str | Path,
     classes: list | None = None,
 ) -> geopandas.GeoDataFrame:
     """Read a single .nc granule file and return a GeoDataFrame.
@@ -170,7 +170,7 @@ def nc_to_geodataframe(
     return geopandas.GeoDataFrame(df, geometry=geometry, crs=WGS84_EPSG)
 
 
-def index_to_geodataframe(index_path: str) -> geopandas.GeoDataFrame:
+def index_to_geodataframe(index_path: str | Path) -> geopandas.GeoDataFrame:
     """Read an IVERT database index .nc file and return a polygon GeoDataFrame.
 
     Each row is one granule in the index, carrying every index field, with its

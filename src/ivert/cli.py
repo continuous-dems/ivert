@@ -28,12 +28,16 @@ from ivert import __version__ as ivert_version
 from ivert import vdatum_lookup
 from ivert.photon_classes import BUILDINGS, photon_classes
 from ivert.utils import logging_config
+from ivert.utils.bbox import BBox
 from ivert.utils.configfile import Config, parse_option_descriptions
 from ivert.utils.paths import absolute_path
 from ivert.utils.sizeof_format import sizeof_fmt
 
 if typing.TYPE_CHECKING:
     import pyproj
+    from shapely.geometry.base import BaseGeometry
+
+    from ivert.bathy_filters import BathyFilterSettings
 
 # The heavier modules (IVERT's own and libraries such as pandas, geopandas and
 # globato) are imported inside the commands that use them, so that `ivert --help`
@@ -1401,14 +1405,14 @@ class _ExportTarget(typing.NamedTuple):
 
     kind: str
     # WGS84 (xmin, xmax, ymin, ymax), or None.
-    bbox: tuple | None
+    bbox: BBox | None
     # A shapely (Multi)Polygon in WGS84 to clip photons to, or None.
-    geometry: object | None
+    geometry: "BaseGeometry | None"
     # The input file, for the "granule" and "index" kinds.
-    path: str | None
+    path: Path | None
 
 
-def _region_from_vector_file(path):
+def _region_from_vector_file(path: str) -> "tuple[BBox, BaseGeometry | None]":
     """Return (bbox, geometry) for a polygon-vector file defining a region.
 
     The bbox is the file's WGS84 total extent; the geometry is the union of the
@@ -1440,7 +1444,11 @@ def _region_from_vector_file(path):
     return bbox, geometry
 
 
-def _region_from_file(path, variable=None, projection_horz=None):
+def _region_from_file(
+    path: str,
+    variable: str | None = None,
+    projection_horz: "pyproj.CRS | None" = None,
+) -> "tuple[BBox, BaseGeometry | None]":
     """Return (bbox, geometry) for a raster or polygon-vector file.
 
     The geometry is None for a raster, and for a vector file with no polygons;
@@ -1471,7 +1479,11 @@ def _region_from_file(path, variable=None, projection_horz=None):
     ), None
 
 
-def _dissolve_region_files(paths, variable=None, projection_horz=None):
+def _dissolve_region_files(
+    paths: list[str],
+    variable: str | None = None,
+    projection_horz: "pyproj.CRS | None" = None,
+) -> "tuple[BBox, BaseGeometry]":
     """Dissolve the footprints of raster and polygon-vector files into one region.
 
     Each raster contributes its WGS84 extent as a rectangle, and each vector file
@@ -1512,7 +1524,12 @@ def _dissolve_region_files(paths, variable=None, projection_horz=None):
     return (xmin, xmax, ymin, ymax), geometry
 
 
-def _resolve_export_target(tokens, projection, wsen):
+def _resolve_export_target(
+    tokens: list[str],
+    projection: str,
+    *,
+    wsen: bool,
+) -> _ExportTarget:
     """Resolve the positional argument of 'ivert database convert' or 'dump'.
 
     Tokens are one of: nothing (export the entire database), a 4-value
@@ -1560,13 +1577,13 @@ def _resolve_export_target(tokens, projection, wsen):
         msg = "Region must be a 4-value bounding box or a single file."
         raise click.ClickException(msg)
 
-    path = tokens[0]
-    if not Path(path).exists():
+    path = Path(tokens[0])
+    if not path.exists():
         msg = f"'{path}' is neither a valid 4-value bounding box nor an existing file."
         raise click.ClickException(msg)
 
     # An IVERT .nc file is exported directly; which kind it is comes from its contents.
-    if Path(path).suffix.lower() == ".nc":
+    if path.suffix.lower() == ".nc":
         from ivert import export_vector as ev  # noqa: PLC0415 - slow import
 
         kind = ev.detect_nc_kind(path)
@@ -1578,7 +1595,7 @@ def _resolve_export_target(tokens, projection, wsen):
         raise click.ClickException(msg)
 
     try:
-        bbox, geometry = _region_from_file(path)
+        bbox, geometry = _region_from_file(str(path))
     except Exception as exc:
         msg = f"Could not read an export region from '{path}': {exc}"
         raise click.ClickException(msg) from exc
@@ -1600,7 +1617,7 @@ def _echo_export_summary(written: list[Path], count: int, noun: str) -> None:
         click.echo(f"  {path}")
 
 
-def _convert_output_base(output, default_name):
+def _convert_output_base(output: str | None, default_name: str) -> Path:
     """Return the base path 'ivert database convert' writes to, without extension.
 
     With no -o, it is default_name in the current directory. A -o that ends in a path
@@ -1617,11 +1634,12 @@ def _convert_output_base(output, default_name):
 
 
 def _export_database_index(
-    index_path,
-    fmt_keys,
-    output,
-    overwrite,
-    filters_given,
+    index_path: Path,
+    fmt_keys: list[str],
+    output: str | None,
+    *,
+    overwrite: bool,
+    filters_given: bool,
 ) -> None:
     """Export an IVERT database index file as a polygon layer of granule footprints."""
     from ivert import export_vector as ev  # noqa: PLC0415 - slow import
@@ -1659,13 +1677,13 @@ def _export_database_index(
 
 
 def _export_single_granule(
-    nc_path,
-    fmt_keys,
-    output,
+    nc_path: Path,
+    fmt_keys: list[str],
+    output: str | None,
     *,
-    overwrite,
-    class_list,
-    delta_time_range,
+    overwrite: bool,
+    class_list: list[int] | None,
+    delta_time_range: tuple[float, float] | None,
 ) -> None:
     """Export one IVERT .nc photon granule file in its entirety."""
     from ivert import export_vector as ev  # noqa: PLC0415 - slow import
@@ -1675,10 +1693,10 @@ def _export_single_granule(
         gdf = ev.subset_gdf_to_date_range(gdf, *delta_time_range)
 
     if len(gdf) == 0:
-        msg = f"No photons left to export from {Path(nc_path).name} after filtering."
+        msg = f"No photons left to export from {nc_path.name} after filtering."
         raise click.ClickException(msg)
 
-    out_base = _convert_output_base(output, Path(nc_path).stem)
+    out_base = _convert_output_base(output, nc_path.stem)
     written = ev.write_vector_multi(gdf, out_base, fmt_keys, overwrite=overwrite)
     _echo_export_summary(written, len(gdf), "photons")
 
@@ -1857,7 +1875,7 @@ def database_convert(
             raise click.ClickException(msg) from exc
 
     # --- Work out what was asked for. ---
-    target = _resolve_export_target(list(bbox_or_file), projection, wsen)
+    target = _resolve_export_target(list(bbox_or_file), projection, wsen=wsen)
     bbox = target.bbox
 
     db = is2db_mod.IS2Database()
@@ -1879,29 +1897,29 @@ def database_convert(
             raise click.ClickException(msg)
 
     # --- A single .nc file is read straight off disk, with no database lookup. ---
-    if target.kind == "index":
-        _export_database_index(
-            target.path,
-            fmt_keys,
-            output,
-            overwrite,
-            filters_given=bool(classes) or date_filtering,
-        )
-        return
-
-    if target.kind == "granule":
-        _export_single_granule(
-            target.path,
-            fmt_keys,
-            output,
-            overwrite=overwrite,
-            class_list=class_list,
-            delta_time_range=(
-                (_yyyymmdd_to_delta_time(tmin), _yyyymmdd_to_delta_time(tmax))
-                if date_filtering
-                else None
-            ),
-        )
+    # Only the "index" and "granule" kinds have a path.
+    if target.path is not None:
+        if target.kind == "index":
+            _export_database_index(
+                target.path,
+                fmt_keys,
+                output,
+                overwrite=overwrite,
+                filters_given=bool(classes) or date_filtering,
+            )
+        else:
+            _export_single_granule(
+                target.path,
+                fmt_keys,
+                output,
+                overwrite=overwrite,
+                class_list=class_list,
+                delta_time_range=(
+                    (_yyyymmdd_to_delta_time(tmin), _yyyymmdd_to_delta_time(tmax))
+                    if date_filtering
+                    else None
+                ),
+            )
         return
 
     # --- Open the database index. ---
@@ -2138,7 +2156,7 @@ def database_dump(
     from ivert import database_archive  # noqa: PLC0415 - slow import
     from ivert import icesat2_database_v2 as is2db_mod  # noqa: PLC0415 - slow import
 
-    target = _resolve_export_target(list(bbox_or_file), projection, wsen)
+    target = _resolve_export_target(list(bbox_or_file), projection, wsen=wsen)
     if target.kind in ("granule", "index"):
         msg = (
             "'ivert database dump' takes a region (a bounding box, raster or polygon "
@@ -2152,7 +2170,7 @@ def database_dump(
     if target.geometry is not None:
         rects = is2db_mod.tile_geometry_into_bboxes(target.geometry)
     elif target.bbox is not None:
-        rects = [tuple(target.bbox)]
+        rects = [target.bbox]
 
     date_range = None
     if date_start is not None or date_end is not None:
@@ -2452,8 +2470,8 @@ def cache_delete(*, force: bool) -> None:
 _EXCLUDE_VECTOR_EXTENSIONS = (".shp", ".geojson", ".gpkg")
 
 
-def _parse_exclude_spec(value, *, wsen=False):
-    """Parse one -ex/--exclude value into a (minx, miny, maxx, maxy) tuple or a path.
+def _parse_exclude_spec(value: str, *, wsen: bool = False) -> BBox | Path:
+    """Parse one -ex/--exclude value into a (minx, miny, maxx, maxy) box or a path.
 
     Accepts either a 4-value slash-separated bounding box or a path to a
     .shp/.geojson/.gpkg vector file of polygons. Bounding-box coordinates are in the
@@ -2476,23 +2494,27 @@ def _parse_exclude_spec(value, *, wsen=False):
                 minx, maxx, miny, maxy = nums
             return (minx, miny, maxx, maxy)
 
-    if not Path(value).exists():
+    path = Path(value)
+    if not path.exists():
         msg = (
             f"Invalid --exclude value '{value}': not a 4-value bounding box "
             "and not an existing file path."
         )
         raise click.ClickException(msg)
-    ext = Path(value).suffix.lower()
+    ext = path.suffix.lower()
     if ext not in _EXCLUDE_VECTOR_EXTENSIONS:
         msg = (
             f"Invalid --exclude file '{value}': expected one of "
             f"{', '.join(_EXCLUDE_VECTOR_EXTENSIONS)}."
         )
         raise click.ClickException(msg)
-    return value
+    return path
 
 
-def _manifest_option_values(ctx, manifest_file):
+def _manifest_option_values(
+    ctx: click.Context,
+    manifest_file: Path,
+) -> dict[str, object]:
     """Return manifest values for the tracked options not given on the command line.
 
     Options the manifest lacks take their command-line values, or else their defaults
@@ -2525,7 +2547,7 @@ def _manifest_option_values(ctx, manifest_file):
     }
 
 
-def _real_dem_path(dem_name):
+def _real_dem_path(dem_name: str) -> str:
     """Return a DEM path, or a subdataset string's file, as the real path on disk.
 
     Symlinks are followed, so a symlinked folder followed by '..' gives the folder the
@@ -2540,13 +2562,13 @@ def _real_dem_path(dem_name):
 
 
 def _write_run_manifest(
-    path,
-    options,
-    inputs,
-    outdir,
+    path: Path,
+    options: dict[str, object],
+    inputs: list[str],
+    outdir: Path,
     *,
-    num_reused=0,
-    num_dems=1,
+    num_reused: int = 0,
+    num_dems: int = 1,
 ) -> None:
     """Write a run's manifest, warning first if it replaces one with different settings.
 
@@ -2587,31 +2609,31 @@ def _write_run_manifest(
 
 
 def _run_validate(
-    files_or_directory,
+    files_or_directory: tuple[str, ...],
     *,
-    vdatum,
-    region_name,
-    include_photons,
-    measure_coverage,
-    band_num,
-    outlier_sd_threshold,
-    classes,
-    min_photons,
-    buildings,
-    confidence_level,
-    bathy_confidence,
-    outdir=None,
-    ndv=None,
-    export_formats=None,
-    overwrite=False,
-    exclude_zones=None,
-    minimum_coverage_pct=None,
-    minimum_coverage_pct_land=None,
-    minimum_coverage_pct_bathy=None,
-    bathy_filter_settings=None,
-    manifest_options=None,
-    variable=None,
-    projection=None,
+    vdatum: str,
+    region_name: str | None,
+    include_photons: bool,
+    measure_coverage: bool,
+    band_num: int,
+    outlier_sd_threshold: float,
+    classes: str,
+    min_photons: int,
+    buildings: bool,
+    confidence_level: int,
+    bathy_confidence: float,
+    outdir: Path | None = None,
+    ndv: str | None = None,
+    export_formats: str | None = None,
+    overwrite: bool = False,
+    exclude_zones: list[BBox | Path] | None = None,
+    minimum_coverage_pct: float | None = None,
+    minimum_coverage_pct_land: float | None = None,
+    minimum_coverage_pct_bathy: float | None = None,
+    bathy_filter_settings: "BathyFilterSettings | None" = None,
+    manifest_options: dict[str, object] | None = None,
+    variable: str | None = None,
+    projection: str | None = None,
 ) -> None:
     """Run validate_dem for one input file, or validate_list_of_dems for several.
 
@@ -2680,7 +2702,7 @@ def _run_validate(
 
     # Resolve the export-formats override. None means "use the config default"; an
     # explicit 'none'/empty value means "skip error exports for this run".
-    export_error_formats = None
+    export_error_formats: str | list[str] | None = None
     if export_formats is not None:
         if str(export_formats).strip().lower() in ("none", ""):
             export_error_formats = []
@@ -2690,7 +2712,7 @@ def _run_validate(
     if outdir is None:
         # Config keeps this setting relative, so it resolves against each DEM's
         # directory rather than the config file's.
-        outdir = Config().ivert_results_subdir
+        outdir = Path(Config().ivert_results_subdir)
 
     # Expand any glob patterns the shell left unexpanded (e.g., quoted patterns).
     expanded = []
@@ -3337,7 +3359,7 @@ def validate(
     )
     # Record exclusion files by absolute path so the manifest works from anywhere.
     option_values["exclude"] = tuple(
-        str(absolute_path(zone)) if isinstance(zone, str) else value
+        str(absolute_path(zone)) if isinstance(zone, Path) else value
         for value, zone in zip(exclude, exclude_zones or [], strict=True)
     )
 
