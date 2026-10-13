@@ -2015,14 +2015,18 @@ class IS2Database:
         )
 
         # Vectorized bbox-overlap test (x, y, and time) on the scalar data_bbox_*
-        # columns — same semantics as the per-row cuboids_intersect it replaces.
+        # columns. A granule's tmin and tmax are the days of its first and last
+        # photons, both included, while the test is strict, so a granule whose last
+        # day is the query's first day would be dropped. Comparing against tmax + 1
+        # makes that granule count: for whole YYYYMMDD days, tmax + 1 > start is
+        # tmax >= start, and the sum needn't be a real date.
         int_mask = ivert.utils.cuboid_funcs.cuboids_intersect_vectorized(
             xmin=gdf["data_bbox_xmin"].to_numpy(),
             xmax=gdf["data_bbox_xmax"].to_numpy(),
             ymin=gdf["data_bbox_ymin"].to_numpy(),
             ymax=gdf["data_bbox_ymax"].to_numpy(),
             zmin=gdf["data_bbox_tmin"].to_numpy(),
-            zmax=gdf["data_bbox_tmax"].to_numpy(),
+            zmax=gdf["data_bbox_tmax"].to_numpy() + 1,
             query=bbox,
             bbox_order="axis",
         )
