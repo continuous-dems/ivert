@@ -40,11 +40,32 @@ from ivert.utils.sizeof_format import sizeof_fmt
 logger = logging.getLogger(__name__)
 
 
+class _FilePath(click.Path):
+    """click.Path for a single file that also rejects a blank value.
+
+    click.Path turns "" into Path("."), which its dir_okay=False check doesn't catch.
+    """
+
+    def __init__(self) -> None:
+        super().__init__(dir_okay=False, path_type=Path)
+
+    def convert(
+        self,
+        value: str | os.PathLike[str],
+        param: click.Parameter | None,
+        ctx: click.Context | None,
+    ) -> str | bytes | os.PathLike[str]:
+        if not os.fspath(value).strip():
+            self.fail("A file path is required.", param, ctx)
+        return super().convert(value, param, ctx)
+
+
 @click.group()
 @click.version_option(version=ivert_version, prog_name="ivert")
 @click.option(
     "--config",
     "user_config",
+    type=_FilePath(),
     default=None,
     metavar="PATH",
     help=(
@@ -64,15 +85,13 @@ logger = logging.getLogger(__name__)
         "Change the persistent default with 'ivert options verbosity=<level>'."
     ),
 )
-def ivert_cli(user_config, verbosity) -> None:
+def ivert_cli(user_config: Path | None, verbosity: str | None) -> None:
     """IVERT: ICESat-2 Validation of Elevations Reporting Tool.
 
     Run 'ivert <command> --help' for detailed help on any command.
     """
-    if user_config:
-        os.environ["IVERT_USER_CONFIG"] = str(
-            absolute_path(Path(user_config).expanduser()),
-        )
+    if user_config is not None:
+        os.environ["IVERT_USER_CONFIG"] = str(absolute_path(user_config.expanduser()))
 
     if verbosity is None:
         # Reading the user config can itself emit warnings (an unparseable file, an
@@ -401,7 +420,7 @@ class _OptionsGroup(click.Group):
     so that Click never attempts to resolve them as subcommand names.
     """
 
-    def parse_args(self, ctx, args):
+    def parse_args(self, ctx: click.Context, args: list[str]) -> list[str]:
         assignment_positions = {
             i for i, a in enumerate(args) if not a.startswith("-") and "=" in a
         }
@@ -418,7 +437,7 @@ class _OptionsGroup(click.Group):
             return []
         return super().parse_args(ctx, args)
 
-    def invoke(self, ctx) -> None:
+    def invoke(self, ctx: click.Context) -> None:
         # Only a key=value passthrough runs the group callback directly. A real
         # subcommand (e.g. "info <name>") also populates ctx.args with its
         # positional arguments, so those must route through normal dispatch.
@@ -440,7 +459,7 @@ class _OptionsGroup(click.Group):
     ),
 )
 @click.pass_context
-def options(ctx, yes) -> None:
+def options(ctx: click.Context, *, yes: bool) -> None:
     """Configure IVERT settings and local data directories.
 
     Typically, run once before using IVERT on a new machine, or when
@@ -627,7 +646,7 @@ def _options_set_values(assignments, *, assume_yes=False) -> None:
     default=False,
     help="Show a description of what each setting means.",
 )
-def options_list(details) -> None:
+def options_list(*, details: bool) -> None:
     """List all configurable settings and their current values."""
     config = Config()
     keys = [k for k in config.option_names() if k not in _OPTIONS_EXCLUDED_KEYS]
@@ -677,7 +696,7 @@ def options_list(details) -> None:
 
 @options.command("info")
 @click.argument("option_name")
-def options_info(option_name) -> None:
+def options_info(option_name: str) -> None:
     """Show a description of a single setting, its current value, and default."""
     config = Config()
     key = option_name.strip().lower()
@@ -732,7 +751,7 @@ def options_info(option_name) -> None:
     default=False,
     help="Skip confirmation prompt.",
 )
-def options_reset(yes) -> None:
+def options_reset(*, yes: bool) -> None:
     """Reset all settings to IVERT defaults by deleting the user config file."""
     config = Config()
     user_path = config.user_config_path
@@ -758,7 +777,7 @@ def options_reset(yes) -> None:
 
 @ivert_cli.group("database", invoke_without_command=True)
 @click.pass_context
-def database(ctx) -> None:
+def database(ctx: click.Context) -> None:
     """Manage the local IVERT ICESat-2 photon database.
 
     Subcommands download new data, list, size, rebuild and delete what is
@@ -790,7 +809,7 @@ def database(ctx) -> None:
         "--all."
     ),
 )
-def database_list(show_all, boxes) -> None:
+def database_list(*, show_all: bool, boxes: bool) -> None:
     """List granules currently in the IVERT ICESat-2 database."""
     import tabulate as tabulate_mod  # noqa: PLC0415 - slow import
 
@@ -892,7 +911,7 @@ def database_rebuild() -> None:
     default=False,
     help="Skip confirmation prompt and delete immediately.",
 )
-def database_delete(delete_all, yes) -> None:
+def database_delete(*, delete_all: bool, yes: bool) -> None:
     """Delete the NetCDF database index file.
 
     The downloaded .nc granule files are kept unless --all is specified.
@@ -1143,18 +1162,18 @@ def _check_projection_option(projection):
     ),
 )
 def database_download(
-    bbox_or_files,
+    bbox_or_files: tuple[str, ...],
     *,
-    date_start,
-    date_end,
-    projection,
-    variable,
-    wsen,
-    replace,
-    classes,
-    confidence_level,
-    bathy_confidence,
-    force,
+    date_start: str,
+    date_end: str,
+    projection: str | None,
+    variable: str | None,
+    wsen: bool,
+    replace: bool,
+    classes: str,
+    confidence_level: int,
+    bathy_confidence: float,
+    force: bool,
 ) -> None:
     """Download ICESat-2 photon data for a region of interest.
 
@@ -1660,6 +1679,8 @@ def _export_single_granule(
         "format or a comma-separated combination (e.g. 'gpkg,shp')."
     ),
 )
+# A str, not a click.Path: a trailing separator ("-o mydir/") names a folder to
+# create, and Path would drop it.
 @click.option(
     "-o",
     "--output",
@@ -1743,17 +1764,17 @@ def _export_single_granule(
     help="Skip the confirmation prompt when the export is estimated to be large.",
 )
 def database_convert(
-    bbox_or_file,
+    bbox_or_file: tuple[str, ...],
     *,
-    output_format,
-    output,
-    classes,
-    date_start,
-    date_end,
-    projection,
-    wsen,
-    overwrite,
-    force,
+    output_format: str,
+    output: str | None,
+    classes: str | None,
+    date_start: str | None,
+    date_end: str | None,
+    projection: str,
+    wsen: bool,
+    overwrite: bool,
+    force: bool,
 ) -> None:
     """Convert IVERT ICESat-2 photons to GIS vector formats.
 
@@ -1998,6 +2019,7 @@ database.add_command(
     "-o",
     "--output",
     "output",
+    type=click.Path(path_type=Path),
     default=None,
     metavar="PATH",
     help=(
@@ -2056,15 +2078,15 @@ database.add_command(
     help="Skip the confirmation prompt when the dump is estimated to be large.",
 )
 def database_dump(
-    bbox_or_file,
+    bbox_or_file: tuple[str, ...],
     *,
-    output,
-    date_start,
-    date_end,
-    projection,
-    wsen,
-    overwrite,
-    force,
+    output: Path | None,
+    date_start: str | None,
+    date_end: str | None,
+    projection: str,
+    wsen: bool,
+    overwrite: bool,
+    force: bool,
 ) -> None:
     """Pack the IVERT database, or part of it, into a zip archive.
 
@@ -2139,16 +2161,16 @@ def database_dump(
         f"ivert_database_{datetime.datetime.now(datetime.UTC).strftime('%Y%m%d')}.zip"
     )
     if output is None:
-        output = Path.cwd() / default_name
+        archive_path = Path.cwd() / default_name
     else:
-        output = Path(output)
-        if output.is_dir():
-            output /= default_name
-        elif not output.suffix:
-            output = output.with_name(output.name + ".zip")
-    output = absolute_path(output)
-    if output.exists() and not overwrite:
-        msg = f"{output} already exists. Use -ow/--overwrite to replace it."
+        archive_path = output
+        if archive_path.is_dir():
+            archive_path /= default_name
+        elif not archive_path.suffix:
+            archive_path = archive_path.with_name(archive_path.name + ".zip")
+    archive_path = absolute_path(archive_path)
+    if archive_path.exists() and not overwrite:
+        msg = f"{archive_path} already exists. Use -ow/--overwrite to replace it."
         raise click.ClickException(msg)
 
     # Warn before a very large dump, from the index's photon counts.
@@ -2165,7 +2187,7 @@ def database_dump(
                 raise click.Abort
 
     try:
-        result = database_archive.dump(output, rects, date_range, db=db)
+        result = database_archive.dump(archive_path, rects, date_range, db=db)
     except database_archive.ArchiveError as exc:
         raise click.ClickException(str(exc)) from exc
 
@@ -2185,7 +2207,7 @@ _MAX_OVERLAPS_LISTED = 20
 
 
 @database.command("restore")
-@click.argument("archive", type=click.Path(exists=True, dir_okay=False))
+@click.argument("archive", type=click.Path(exists=True, dir_okay=False, path_type=Path))
 @click.option(
     "-oo",
     "--on-overlap",
@@ -2209,7 +2231,7 @@ _MAX_OVERLAPS_LISTED = 20
         "nothing."
     ),
 )
-def database_restore(archive, on_overlap, dry_run) -> None:
+def database_restore(archive: Path, *, on_overlap: str | None, dry_run: bool) -> None:
     """Unpack an 'ivert database dump' archive into the IVERT database.
 
     ARCHIVE is a zip written by 'ivert database dump'. Its photon granule files
@@ -2312,7 +2334,7 @@ def _fmt_size(nbytes) -> str:
 
 @ivert_cli.group("cache", invoke_without_command=True)
 @click.pass_context
-def cache(ctx) -> None:
+def cache(ctx: click.Context) -> None:
     """Manage the IVERT local file cache.
 
     Run 'ivert cache <subcommand> --help' for details.
@@ -2379,7 +2401,7 @@ def cache_list() -> None:
     default=False,
     help="Skip the confirmation prompt.",
 )
-def cache_delete(force) -> None:
+def cache_delete(*, force: bool) -> None:
     """Delete all files in the IVERT cache directory."""
     cache_dir = _cache_dir()
     if not cache_dir.is_dir():
@@ -2828,7 +2850,7 @@ def _run_validate(
     "-m",
     "--manifest",
     "manifest",
-    type=click.Path(exists=True, dir_okay=False),
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
     default=None,
     metavar="FILE",
     help=(
@@ -3129,6 +3151,7 @@ def _run_validate(
 @click.option(
     "-o",
     "--outdir",
+    type=click.Path(path_type=Path),
     default=None,
     metavar="DIR",
     help=(
@@ -3198,41 +3221,41 @@ def _run_validate(
     ),
 )
 def validate(
-    files_or_directory,
+    files_or_directory: tuple[str, ...],
     *,
-    vdatum,
-    list_vdatums,
-    region_name,
-    include_photons,
-    measure_coverage,
-    minimum_coverage_pct,
-    minimum_coverage_pct_land,
-    minimum_coverage_pct_bathy,
-    band_num,
-    variable,
-    projection,
-    outlier_sd_threshold,
-    classes,
-    min_photons,
-    buildings,
-    confidence_level,
-    bathy_confidence,
-    bathy_filters,
-    bathy_max_depth,
-    bathy_ref_window,
-    bathy_near_surface,
-    bathy_min_coast_dist,
-    bathy_ref_tolerance,
-    bathy_land_max_below_sl,
-    bathy_offshore_min_ref_depth,
-    bathy_ref_raster,
-    outdir,
-    ndv,
-    export_formats,
-    overwrite,
-    exclude,
-    wsen,
-    manifest,
+    vdatum: str,
+    list_vdatums: bool,
+    region_name: str | None,
+    include_photons: bool,
+    measure_coverage: bool,
+    minimum_coverage_pct: float | None,
+    minimum_coverage_pct_land: float | None,
+    minimum_coverage_pct_bathy: float | None,
+    band_num: int,
+    variable: str | None,
+    projection: str | None,
+    outlier_sd_threshold: float,
+    classes: str,
+    min_photons: int,
+    buildings: bool,
+    confidence_level: int,
+    bathy_confidence: float,
+    bathy_filters: str | None,
+    bathy_max_depth: float | None,
+    bathy_ref_window: float | None,
+    bathy_near_surface: float | None,
+    bathy_min_coast_dist: float | None,
+    bathy_ref_tolerance: float | None,
+    bathy_land_max_below_sl: float | None,
+    bathy_offshore_min_ref_depth: str | None,
+    bathy_ref_raster: str | None,
+    outdir: Path | None,
+    ndv: str | None,
+    export_formats: str | None,
+    overwrite: bool,
+    exclude: tuple[str, ...],
+    wsen: bool,
+    manifest: Path | None,
 ) -> None:
     """Validate one or more DEMs against ICESat-2 photon data.
 
