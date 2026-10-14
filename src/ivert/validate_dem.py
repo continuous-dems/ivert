@@ -1492,7 +1492,6 @@ def _fetch_photons(
     *,
     dates,
     classes,
-    omit_bboxes,
     min_confidence_level: int = 1,
     min_bathy_confidence: float = 0.75,
     dem_projection=None,
@@ -1541,7 +1540,6 @@ def _fetch_photons(
     photon_df = icesat2_photon_database_obj.query_photons(
         dem_3d_bbox,
         photon_classes=classes,
-        omit_bboxes=omit_bboxes if omit_bboxes is not None else [],
         min_confidence_level=min_confidence_level,
         min_bathy_confidence=min_bathy_confidence,
     )
@@ -2308,7 +2306,6 @@ def validate_dem_parallel(
     plot_results: bool = True,
     location_name: str | None = None,
     mark_empty_results: bool = True,
-    omit_bboxes: list[float] | tuple[float] | None = None,
     measure_coverage: bool = False,
     min_coverage_pct: float | None = None,
     min_coverage_pct_land: float | None = None,
@@ -2394,7 +2391,6 @@ def validate_dem_parallel(
         icesat2_photon_database_obj,
         dates=dates,
         classes=classes,
-        omit_bboxes=omit_bboxes,
         min_confidence_level=min_confidence_level,
         min_bathy_confidence=min_bathy_confidence,
         dem_projection=dem_projection,

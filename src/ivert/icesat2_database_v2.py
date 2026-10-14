@@ -18,10 +18,10 @@ import os
 import queue
 import re
 import sys
-from collections.abc import Iterator
+from collections.abc import Container, Iterable, Iterator, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
-from typing import ClassVar, NamedTuple, overload
+from typing import TYPE_CHECKING, ClassVar, NamedTuple, overload
 
 import fetchez
 import fetchez.core
@@ -55,8 +55,13 @@ from ivert.photon_classes import (
     TOP_CANOPY,
     UNCLASSIFIED,
 )
+from ivert.utils.bbox import BBox, BBoxWithDates, with_int_dates
 from ivert.utils.cuboid_funcs import BBOX_LEN, BBOX_WITH_DATES_LEN
 from ivert.utils.paths import absolute_path
+
+if TYPE_CHECKING:
+    from multiprocessing.process import BaseProcess
+    from multiprocessing.queues import Queue
 
 logger = logging.getLogger(__name__)
 
@@ -128,7 +133,11 @@ _READ_MIN_WORKERS_FOR_POOL = 2
 _ATL_RELEASE_FIELD = 3
 
 
-def _read_granules(paths, subset_bbox=None, photon_classes=None):
+def _read_granules(
+    paths: Sequence[Path],
+    subset_bbox: BBoxWithDates | None = None,
+    photon_classes: Sequence[int] | None = None,
+) -> list[pd.DataFrame]:
     """Return IS2Database.read_granule() for each path, in the order given.
 
     Many files are read by a pool of forked worker processes. Pool.map keeps the
@@ -198,8 +207,8 @@ _CLASSIFY_NICE = 5
 
 
 def classify_worker_count(
-    setting,
-    h5_files,
+    setting: int | str | None,
+    h5_files: Sequence[str | Path],
     *,
     cpu_count: int | None = None,
     available_bytes: int | None = None,
@@ -281,7 +290,12 @@ _READY_POLL_SECONDS = 5.0
 _GRANULE_COMPLEVEL = 1
 
 
-def _prefetch_aux_granules(h5_files, cache_dir, threads: int, ready) -> None:
+def _prefetch_aux_granules(
+    h5_files: list[str],
+    cache_dir: str,
+    threads: int,
+    ready: "Queue[str | None]",
+) -> None:
     """Fetch the ATL08 and ATL24 granules for each subset, several at a time.
 
     Runs in a process of its own (see :meth:`IS2Database._start_aux_prefetch`),
@@ -291,7 +305,7 @@ def _prefetch_aux_granules(h5_files, cache_dir, threads: int, ready) -> None:
     whether or not any were found, and ``None`` once all have.
     """
 
-    def fetch(h5_fn):
+    def fetch(h5_fn: str) -> list[str | None]:
         # Looked up when called, not imported by name, so tests can replace it.
         reader = globato.streams.readers.icesat2.ATL03Reader(
             h5_fn,
@@ -331,7 +345,7 @@ def _prefetch_aux_granules(h5_files, cache_dir, threads: int, ready) -> None:
 _WORKER_DB = None
 
 
-def _start_classify_worker(config, nice: int) -> None:
+def _start_classify_worker(config: ivert.utils.configfile.Config, nice: int) -> None:
     """Set up a forked classification worker: one database object, lower priority."""
     global _WORKER_DB  # noqa: PLW0603  (a Pool initializer can only hand state to its tasks through a global)
     with contextlib.suppress(AttributeError, OSError):
@@ -339,7 +353,10 @@ def _start_classify_worker(config, nice: int) -> None:
     _WORKER_DB = IS2Database(ivert_config=config)
 
 
-def _classify_granule(db, kwargs: dict) -> tuple[list | None, str | None]:
+def _classify_granule(
+    db: "IS2Database",
+    kwargs: dict,
+) -> tuple[list | None, str | None]:
     """Classify one subset, as (its tile records, None).
 
     If globato could not fetch or apply the subset's ATL08 or ATL24 granule, it is
@@ -354,6 +371,9 @@ def _classify_granule(db, kwargs: dict) -> tuple[list | None, str | None]:
 def _classify_in_worker(job: tuple) -> tuple:
     """Classify one subset in a worker; ``job`` is (granule index, kwargs)."""
     index, kwargs = job
+    if _WORKER_DB is None:
+        msg = "The classification worker was not set up (_start_classify_worker)."
+        raise RuntimeError(msg)
     return index, kwargs["h5_fn"], *_classify_granule(_WORKER_DB, kwargs)
 
 
@@ -432,7 +452,7 @@ class IS2Database:
     _INDEX_ZBOUNDS_COLS = ("zbounds_zmin", "zbounds_zmax")
 
     @classmethod
-    def _stored_col_name(cls, col: str, source) -> str:
+    def _stored_col_name(cls, col: str, source: Container[object]) -> str:
         """Return the name `col` is actually stored under in `source`.
 
         `source` is anything supporting `in` over its field names (an xarray
@@ -462,7 +482,7 @@ class IS2Database:
         )
 
     @classmethod
-    def _bbox_to_cols(cls, base: str, bbox) -> dict:
+    def _bbox_to_cols(cls, base: str, bbox: Sequence[float] | np.ndarray) -> dict:
         """Explode a 6-element [xmin, xmax, ymin, ymax, tmin, tmax] bbox to scalars."""
         c = cls.bbox_cols(base)
         return {
@@ -732,10 +752,10 @@ class IS2Database:
         Format: _<W|E><xmin>_<W|E><xmax>_<S|N><ymin>_<S|N><ymax>_<tmin>_<tmax>
         """
 
-        def _lon_tag(v) -> str:
+        def _lon_tag(v: float) -> str:
             return f"{'W' if v < 0 else 'E'}{abs(float(v)):09.5f}"
 
-        def _lat_tag(v) -> str:
+        def _lat_tag(v: float) -> str:
             return f"{'S' if v < 0 else 'N'}{abs(float(v)):08.5f}"
 
         xmin, xmax, ymin, ymax, tmin, tmax = query_bbox
@@ -784,7 +804,7 @@ class IS2Database:
             for xmin, xmax, ymin, ymax in gdf[cols].drop_duplicates().to_numpy()
         ]
 
-    def _store_landmasks(self, storage_tiles) -> None:
+    def _store_landmasks(self, storage_tiles: Sequence[BBox | BBoxWithDates]) -> None:
         """Copy the cached OSM landmask of each storage tile into the landmask store.
 
         Only from the cache, which globato has just filled for these tiles; a tile
@@ -835,7 +855,7 @@ class IS2Database:
         return cls._NC_SUFFIX_RE.sub("", filename)
 
     @staticmethod
-    def _h5_along_track_m(h5_fn: str, beams) -> dict:
+    def _h5_along_track_m(h5_fn: str, beams: Iterable[str]) -> dict:
         """Read what each photon of the given beams needs for its along-track distance.
 
         Cumulative along-track distance is the sum of ``segment_length`` over the
@@ -959,7 +979,7 @@ class IS2Database:
         self,
         h5_fn: str,
         query_bbox: tuple,
-        classes_to_keep: tuple = (1, 2, 3, 6, 7, 40, 41, 42),
+        classes_to_keep: Sequence[int] = (1, 2, 3, 6, 7, 40, 41, 42),
         min_confidence_level: int = 1,
         *,
         use_external_masks: bool = True,
@@ -1128,7 +1148,7 @@ class IS2Database:
         xr_ds.to_netcdf(nc_fn, encoding=encoding)
 
     @staticmethod
-    def _read_granule_nc(nc_fn: str) -> tuple[pd.DataFrame, dict]:
+    def _read_granule_nc(nc_fn: str | Path) -> tuple[pd.DataFrame, dict]:
         """Read a granule file's photons and global attributes.
 
         Reads files in the current format as well as older ones, which are
@@ -1230,7 +1250,12 @@ class IS2Database:
         return self._index_record_from_attrs(attrs, nc_fn.name)
 
     @classmethod
-    def clip_granule_file(cls, nc_fn: str, cuboids, out_dir: str) -> list[dict]:
+    def clip_granule_file(
+        cls,
+        nc_fn: str,
+        cuboids: Sequence[BBoxWithDates],
+        out_dir: str,
+    ) -> list[dict]:
         """Write a granule file's photons in each cuboid to a file of its own.
 
         Each (xmin, xmax, ymin, ymax, tmin, tmax) cuboid, with tmin/tmax as YYYYMMDD,
@@ -1299,7 +1324,7 @@ class IS2Database:
         query_bbox: tuple,
         tiles: list,
         *,
-        classes_to_keep: tuple = (1, 2, 3, 6, 7, 40, 41, 42),
+        classes_to_keep: Sequence[int] = (1, 2, 3, 6, 7, 40, 41, 42),
         overwrite: bool = False,
         min_confidence_level: int = 1,
         min_bathy_confidence: float = 0.0,
@@ -1364,7 +1389,10 @@ class IS2Database:
             )
         return records
 
-    def _start_aux_prefetch(self, h5_files: list):
+    def _start_aux_prefetch(
+        self,
+        h5_files: list,
+    ) -> "tuple[BaseProcess, Queue[str | None]] | None":
         """Start fetching the subsets' ATL08 and ATL24 granules in a child process.
 
         Returns ``(child, ready)``: the child process to join, and a queue on
@@ -1396,7 +1424,10 @@ class IS2Database:
         return child, ready
 
     @staticmethod
-    def _as_ready(h5_files: list, prefetch) -> Iterator[str]:
+    def _as_ready(
+        h5_files: list,
+        prefetch: "tuple[BaseProcess, Queue[str | None]] | None",
+    ) -> Iterator[str]:
         """Yield the subsets in the order their aux granules become available.
 
         With no prefetch, that is the given order. Otherwise each subset is
@@ -1433,7 +1464,7 @@ class IS2Database:
         files_to_process: list,
         query_bbox: tuple,
         *,
-        classes_to_keep: tuple = (1, 2, 3, 6, 7, 40, 41, 42),
+        classes_to_keep: Sequence[int] = (1, 2, 3, 6, 7, 40, 41, 42),
         min_confidence_level: int = 1,
         min_bathy_confidence: float = 0.0,
         use_external_masks: bool = True,
@@ -1467,7 +1498,7 @@ class IS2Database:
         if not ordered:
             return records, failed
 
-        def job(index, h5_fn):
+        def job(index: int, h5_fn: str) -> dict:
             return {
                 "h5_fn": h5_fn,
                 "query_bbox": query_bbox,
@@ -1480,7 +1511,12 @@ class IS2Database:
                 "use_external_masks": use_external_masks,
             }
 
-        def take(index, h5_fn, metas, error=None) -> None:
+        def take(
+            index: int,
+            h5_fn: str,
+            metas: list | None,
+            error: str | None = None,
+        ) -> None:
             if error is not None:
                 failed.append(h5_fn)
                 logger.error(
@@ -1552,7 +1588,7 @@ class IS2Database:
         nc_fn: str,
         query_bbox: tuple,
         *,
-        classes_to_keep: tuple = (1, 2, 3, 6, 7, 40, 41, 42),
+        classes_to_keep: Sequence[int] = (1, 2, 3, 6, 7, 40, 41, 42),
         overwrite: bool = False,
         min_confidence_level: int = 1,
         min_bathy_confidence: float = 0.0,
@@ -1579,7 +1615,7 @@ class IS2Database:
         )
         return records[0] if records else None
 
-    def _write_index(self, df) -> None:
+    def _write_index(self, df: pd.DataFrame) -> None:
         """Serialize the index DataFrame to the single NetCDF index file.
 
         Every column is written as a plain 1-D variable over the "record"
@@ -1663,7 +1699,7 @@ class IS2Database:
         # Restore the canonical column order used elsewhere in the codebase.
         return df[list(cls._empty_db_dict().keys())]
 
-    def _read_index(self):
+    def _read_index(self) -> pd.DataFrame | None:
         """Read this database's index file back into a plain pandas DataFrame.
 
         Returns None if the index file does not exist.
@@ -1677,7 +1713,7 @@ class IS2Database:
         self,
         *,
         force_reread: bool = False,
-    ):
+    ) -> pd.DataFrame | None:
         """Get the index DataFrame from the database.
 
         Args:
@@ -1708,9 +1744,9 @@ class IS2Database:
 
     def read_database_file(
         self,
-        bbox: list | tuple | None = None,
+        bbox: BBox | None = None,
         date_range: list | tuple | None = None,
-    ):
+    ) -> pd.DataFrame | None:
         """Read the master database into a DataFrame.
 
         Subset list of granules by bounding box and date range of the data (not the
@@ -1745,49 +1781,10 @@ class IS2Database:
         return gdf_subset
 
     @staticmethod
-    def omit_photons_from_exclusion_bbox(
-        dataframe,
-        bbox_to_exclude,
-    ) -> pd.DataFrame:
-        """Exclude any photons that fall within the particular bounding box."""
-        x = dataframe["x"]
-        y = dataframe["y"]
-        dt = dataframe["delta_time"]
-
-        if len(bbox_to_exclude) == BBOX_WITH_DATES_LEN:
-            bbox_dt_min = _yyyymmdd_to_delta_time(bbox_to_exclude[4])
-            bbox_dt_max = _yyyymmdd_to_delta_time(bbox_to_exclude[5])
-            df_sub = dataframe[
-                (x < bbox_to_exclude[0])
-                | (x >= bbox_to_exclude[1])
-                | (y < bbox_to_exclude[2])
-                | (y >= bbox_to_exclude[3])
-                | (dt < bbox_dt_min)
-                | (dt >= bbox_dt_max)
-            ]
-
-        elif len(bbox_to_exclude) == BBOX_LEN:
-            df_sub = dataframe[
-                (x < bbox_to_exclude[0])
-                | (x >= bbox_to_exclude[1])
-                | (y < bbox_to_exclude[2])
-                | (y >= bbox_to_exclude[3])
-            ]
-
-        else:
-            msg = (
-                "Bounding boxes must be either 4 values or 6 values, in format (xmin, "
-                "xmax, ymin, ymax, [tmin, tmax])."
-            )
-            raise ValueError(msg)
-
-        return df_sub
-
-    @staticmethod
     def read_granule(
-        granule_fn: str,
-        subset_bbox: list | tuple | None = None,
-        photon_classes: list | tuple | None = None,
+        granule_fn: str | Path,
+        subset_bbox: BBoxWithDates | None = None,
+        photon_classes: Sequence[int] | None = None,
     ) -> pd.DataFrame:
         """Read classified photons from a NetCDF granule file.
 
@@ -1833,23 +1830,12 @@ class IS2Database:
 
         return df
 
-    @staticmethod
-    def is_iterable(obj) -> bool:
-        """Return True if obj can be iterated over, False otherwise."""
-        try:
-            iter(obj)
-        except TypeError:
-            return False
-        else:
-            return True
-
     def query_photons(
         self,
-        bbox: list | tuple | None = None,
-        photon_classes: list | tuple | None = (1, 6, 40),
-        min_bathy_confidence=0.75,
+        bbox: BBoxWithDates,
+        photon_classes: Sequence[int] | None = (1, 6, 40),
+        min_bathy_confidence: float = 0.75,
         min_confidence_level: int = 1,
-        omit_bboxes=None,
     ) -> pd.DataFrame | None:
         """Query the database for photons in a given bounding box and date range.
 
@@ -1860,13 +1846,10 @@ class IS2Database:
             photon_classes: Photon classes to include in the query. See
                 globato/streams/readers/icesat2.py for the full list. Defaults to (1, 6,
                 40) (ground, land_ice, and bathy_floor photons).
-            min_bathy_confidence (float): The minimum ATL24 confidence for bathymetric
+            min_bathy_confidence: The minimum ATL24 confidence for bathymetric
                 (class 40) photons to include (0.0-1.0).
             min_confidence_level: The minimum ATL03 signal confidence level to include
                 (1-4). 1 keeps all photons.
-            omit_bboxes (list, tuple, or None): Bounding box(es) whose photons are
-                dropped from the results. Accepts a single 4- or 6-value bbox, or a
-                sequence of them. Defaults to None, which excludes nothing.
             # download_new_data : bool
             #     Whether to download new ICESat-2 data from NASA if the current
             database doesn't contain the entire bounding box.
@@ -1912,20 +1895,6 @@ class IS2Database:
 
         if min_confidence_level > 1 and "confidence" in photons_df.columns:
             photons_df = photons_df[photons_df["confidence"] >= min_confidence_level]
-
-        if omit_bboxes is None:
-            omit_bboxes = []
-
-        # If we're given a single bounding box of exclusions as a 4- or 6-tuple of
-        # numbers (not iterables), put it in a 1-length list.
-        if len(omit_bboxes) in (4, 6) and not np.any(
-            [self.is_iterable(num) for num in omit_bboxes],
-        ):
-            omit_bboxes = [omit_bboxes]
-
-        if len(omit_bboxes) >= 1:
-            for omit_bb in omit_bboxes:
-                photons_df = self.omit_photons_from_exclusion_bbox(photons_df, omit_bb)
 
         if len(photons_df) > 0:
             logger.debug(
@@ -1999,7 +1968,7 @@ class IS2Database:
             msg = "Date must be an int, str, datetime.datetime, or datetime.date."
             raise TypeError(msg)
 
-    def query_granules(self, bbox: list | tuple) -> pd.DataFrame | None:
+    def query_granules(self, bbox: BBoxWithDates) -> pd.DataFrame | None:
         """Return the granules whose data bounding boxes may intersect the bbox."""
         gdf = self.open_gdf()
         if gdf is None or len(gdf) == 0:
@@ -2064,10 +2033,10 @@ class IS2Database:
         self,
         bbox: list | tuple,
         *,
-        classes_to_keep=(1, 2, 3, 6, 7, 40, 41, 42),
-        tile_size_deg=2.0,
-        max_tile_scale_factor=1.5,
-        min_bathy_confidence=0.01,
+        classes_to_keep: Sequence[int] = (1, 2, 3, 6, 7, 40, 41, 42),
+        tile_size_deg: float = 2.0,
+        max_tile_scale_factor: float = 1.5,
+        min_bathy_confidence: float = 0.01,
         min_confidence_level: int = 1,
         cache_subdir: str | None = None,
         replace: bool = False,
@@ -2173,7 +2142,9 @@ class IS2Database:
                 )
                 return DownloadSummary()
 
-            def _as_floats(boxes):
+            def _as_floats(
+                boxes: Iterable[Sequence[float]],
+            ) -> list[tuple[float, ...]]:
                 return sorted(tuple(float(v) for v in b) for b in boxes)
 
             if _as_floats(bboxes) != _as_floats(requested):
@@ -2554,20 +2525,32 @@ class IS2Database:
         )
 
     @staticmethod
-    def _tile_key(bbox) -> tuple:
+    def _tile_key(bbox: Sequence[float]) -> BBoxWithDates:
         """Return a hashable key for a (xmin, xmax, ymin, ymax, tmin, tmax) query box.
 
         The dates are part of it: a record for the same tile over other dates does
         not cover these. Coordinates are rounded so float noise can't split a key.
         """
-        return (*(round(float(v), 9) for v in bbox[:4]), int(bbox[4]), int(bbox[5]))
+        return (
+            round(float(bbox[0]), 9),
+            round(float(bbox[1]), 9),
+            round(float(bbox[2]), 9),
+            round(float(bbox[3]), 9),
+            int(bbox[4]),
+            int(bbox[5]),
+        )
 
     @classmethod
-    def _record_query_bbox(cls, record) -> tuple:
+    def _record_query_bbox(cls, record: Mapping[str, float]) -> tuple:
         """Return an index record's query box as a 6-tuple."""
         return tuple(record[c] for c in cls.bbox_cols("query_bbox"))
 
-    def _record_empty_tiles(self, storage_tiles, new_records, vertical_datum) -> int:
+    def _record_empty_tiles(
+        self,
+        storage_tiles: Sequence[BBoxWithDates],
+        new_records: list[dict],
+        vertical_datum: str,
+    ) -> int:
         """Write and index a marker for each storage tile of a part that has no record.
 
         Called only for a part whose downloads all succeeded. A tile counts as
@@ -2601,7 +2584,10 @@ class IS2Database:
         self._write_index(self.gdf)
         return len(markers)
 
-    def _drop_empty_tiles_now_filled(self, new_records) -> pd.DataFrame | None:
+    def _drop_empty_tiles_now_filled(
+        self,
+        new_records: list[dict],
+    ) -> pd.DataFrame | None:
         """Remove the markers of tiles that new_records now hold photons for.
 
         A marker can be left over from a run that found no photons where a later
@@ -2745,7 +2731,7 @@ class IS2Database:
         xmin, xmax, ymin, ymax, tmin, tmax = bbox
         return (xmin < xmax) and (ymin < ymax) and (tmin <= tmax)
 
-    def filter_query_bbox(self, query_bbox: list | tuple) -> list[tuple]:
+    def filter_query_bbox(self, query_bbox: BBoxWithDates) -> list[BBoxWithDates]:
         """Return bboxes for the parts of an (x,y,t) box not already in the database.
 
         Args:
@@ -2766,7 +2752,10 @@ class IS2Database:
         """
         return self.filter_query_bboxes([query_bbox])
 
-    def filter_query_bboxes(self, query_bboxes: list | tuple) -> list[tuple]:
+    def filter_query_bboxes(
+        self,
+        query_bboxes: Sequence[BBoxWithDates],
+    ) -> list[BBoxWithDates]:
         """Remove the regions already in the database from several (x,y,t) boxes.
 
         The same as :meth:`filter_query_bbox`, but the database's existing coverage
@@ -2823,11 +2812,15 @@ class IS2Database:
 
             query_bboxes = new_bboxes
 
-        # Do a quick merger on all the remaining bboxes to make sure they're simplified
-        return ivert.utils.cuboid_funcs.merge_cuboids(
-            query_bboxes,
-            bbox_order="axis",
-        )
+        # Do a quick merger on all the remaining bboxes to make sure they're simplified.
+        # merge_cuboids() returns floats throughout, so the dates go back to integers.
+        return [
+            with_int_dates(b)
+            for b in ivert.utils.cuboid_funcs.merge_cuboids(
+                query_bboxes,
+                bbox_order="axis",
+            )
+        ]
 
     @staticmethod
     def increment_yyyymmdd_by_n(yyyymmdd: float | str, days: int) -> int:
