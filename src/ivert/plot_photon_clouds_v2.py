@@ -17,6 +17,7 @@ import configparser
 import logging
 import sys
 import typing
+from collections.abc import Iterable, Sequence
 from pathlib import Path
 
 import click
@@ -66,8 +67,13 @@ _MAX_ABS_ELEVATION_M = 1e5
 
 DEM_COLORS = ["dimgrey", "purple", "darkcyan", "darkmagenta", "darkgoldenrod"]
 
+# A DEM sampled along a track: (along-track km, elevations, label).
+_DemProfile = tuple[np.ndarray, np.ndarray, str]
+# Plot limits, (low, high), either of which may be left open.
+_Limits = tuple[float | None, float | None]
 
-def _granule_id(filepath):
+
+def _granule_id(filepath: str | Path) -> str:
     """Return a file path's bare granule ID, without _subsetted or bbox suffixes."""
     stem = Path(filepath).stem
     for marker in ("_subsetted", "_W", "_N", "_E", "_S"):
@@ -77,7 +83,7 @@ def _granule_id(filepath):
     return stem
 
 
-def _h5_search_dirs(config):
+def _h5_search_dirs(config: ivert.utils.configfile.Config) -> list[Path]:
     """Return the configured folders that may hold downloaded ATL03 .h5 files.
 
     The ICESat-2 download folder comes first, then the cache folder, which holds it
@@ -91,7 +97,7 @@ def _h5_search_dirs(config):
     return dirs
 
 
-def _find_h5(nc_path, cache_dirs=()):
+def _find_h5(nc_path: Path, cache_dirs: Iterable[str | Path] = ()) -> Path | None:
     """Search for a matching ATL03 .h5 whose name starts with the same granule ID.
 
     The .nc file's own folder is searched first, then each of cache_dirs, all with
@@ -108,7 +114,7 @@ def _find_h5(nc_path, cache_dirs=()):
     return None
 
 
-def _beam_delta_times(h5_path):
+def _beam_delta_times(h5_path: Path) -> dict[str, np.ndarray]:
     """Return {beam_name: delta_time_array} for all beams present in the .h5."""
     beams = {}
     with h5py.File(h5_path, "r") as f:
@@ -121,7 +127,7 @@ def _beam_delta_times(h5_path):
     return beams
 
 
-def _load_h5_beam_photons(h5_path, beam):
+def _load_h5_beam_photons(h5_path: Path, beam: str) -> pd.DataFrame:
     """Load all of one beam's photons from an ATL03 .h5, with class_code 0.
 
     Heights are converted from ellipsoidal to EGM2008 geoid by subtracting the
@@ -181,7 +187,7 @@ def _load_h5_beam_photons(h5_path, beam):
     )
 
 
-def load_nc(nc_path):
+def load_nc(nc_path: str | Path) -> pd.DataFrame:
     """Load the .nc granule into a DataFrame."""
     data = {}
     with netCDF4.Dataset(nc_path) as ds:
@@ -199,7 +205,7 @@ def load_nc(nc_path):
     return pd.DataFrame(data)
 
 
-def _get_vdatum_label(reference):
+def _get_vdatum_label(reference: str) -> str:
     """Return a short human-readable label for a vertical reference.
 
     The reference is a string such as 'EPSG:5703' or 'vdatum:mllw'.
@@ -210,7 +216,11 @@ def _get_vdatum_label(reference):
     return reference
 
 
-def _apply_vdatum_to_df(df, target_vert, cache_dir=None):
+def _apply_vdatum_to_df(
+    df: pd.DataFrame,
+    target_vert: str,
+    cache_dir: str | None = None,
+) -> pd.DataFrame:
     """Return a copy of df with z transformed from EGM2008 to target vertical datum.
 
     'target_vert' is a bare EPSG code ('5703') or a transformez reference ID
@@ -239,14 +249,14 @@ def _apply_vdatum_to_df(df, target_vert, cache_dir=None):
 
 
 def _sample_dem_along_track(
-    dem_path,
-    lons,
-    lats,
-    along_track_m,
+    dem_path: str,
+    lons: np.ndarray,
+    lats: np.ndarray,
+    along_track_m: np.ndarray,
     *,
-    target_vert=None,
-    cache_dir=None,
-):
+    target_vert: str | None = None,
+    cache_dir: str | None = None,
+) -> _DemProfile | None:
     """Sample a DEM raster along a laser track at the DEM's native pixel resolution.
 
     Rather than sampling only at photon locations (which leaves flat gaps between
@@ -378,17 +388,17 @@ def _sample_dem_along_track(
 
 
 def _collect_dem_profiles(
-    dem_paths,
-    lons,
-    lats,
-    along_track_m,
+    dem_paths: Sequence[str],
+    lons: np.ndarray,
+    lats: np.ndarray,
+    along_track_m: np.ndarray,
     *,
-    target_vert,
-    cache_dir,
-):
+    target_vert: str | None,
+    cache_dir: str | None,
+) -> list[_DemProfile]:
     """Sample each DEM and return a list of (along_km, z, label) profiles."""
     profiles = []
-    for p in dem_paths or []:
+    for p in dem_paths:
         result = _sample_dem_along_track(
             p,
             lons,
@@ -407,7 +417,10 @@ def _collect_dem_profiles(
     return profiles
 
 
-def _positions_for_dem_sampling(df, dlim):
+def _positions_for_dem_sampling(
+    df: pd.DataFrame,
+    dlim: _Limits | None,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Return (lons, lats, along_m) restricted to the dlim window (km).
 
     When dlim is None or both bounds are None, the full arrays are returned.
@@ -426,16 +439,16 @@ def _positions_for_dem_sampling(df, dlim):
 
 
 def plot_beam(
-    df_beam,
-    beam_name,
-    outpath,
+    df_beam: pd.DataFrame,
+    beam_name: str,
+    outpath: str | Path,
     *,
-    zlim=None,
-    dlim=None,
-    classes=None,
-    title_extra="",
-    dem_profiles=None,
-    ylabel=None,
+    zlim: _Limits | None = None,
+    dlim: _Limits | None = None,
+    classes: set[int] | None = None,
+    title_extra: str = "",
+    dem_profiles: list[_DemProfile] | None = None,
+    ylabel: str | None = None,
 ) -> None:
     """Plot one beam's photon curtain (along-track km vs elevation).
 
@@ -515,7 +528,7 @@ _H5_SEARCH_CACHE = "__SEARCH_CACHE__"
 
 
 @click.command(help="Plot classified ICESat-2 photon curtains.")
-@click.argument("input_file")
+@click.argument("input_file", type=click.Path(path_type=Path))
 @click.option(
     "--laser",
     "-b",
@@ -599,29 +612,32 @@ _H5_SEARCH_CACHE = "__SEARCH_CACHE__"
     "on the same vertical reference. Default: EGM2008 (no transform).",
 )
 def main(
-    input_file,
+    input_file: Path,
     *,
-    laser,
-    outdir,
-    zmin,
-    zmax,
-    xmin,
-    xmax,
-    classes_str,
-    h5_arg,
-    h5_only,
-    dem,
-    vdatum,
+    laser: str | None,
+    outdir: str | None,
+    zmin: float | None,
+    zmax: float | None,
+    xmin: float | None,
+    xmax: float | None,
+    classes_str: str | None,
+    h5_arg: str | None,
+    h5_only: bool,
+    dem: tuple[str, ...],
+    vdatum: str | None,
 ) -> None:
     """Plot classified ICESat-2 photon curtains.
 
     INPUT_FILE is the path to the .nc granule file, or an ATL03 .h5 file
     (automatically enables --h5-only).
     """
-    # --h5 is tri-state: True means "search the cache", a string is an
+    # --h5 is tri-state: the sentinel means "search the cache", a string is an
     # explicit path, None means the option was absent.
-    h5_arg = True if h5_arg == _H5_SEARCH_CACHE else h5_arg
-    dem = list(dem) if dem else None
+    search_h5 = h5_arg == _H5_SEARCH_CACHE
+    h5_file = None if search_h5 else h5_arg
+    # A str, not a click.Path, so that -o "" still means the input file's folder;
+    # click.Path would make it ".".
+    out_dir = Path(outdir) if outdir else None
 
     # Resolve vertical datum --------------------------------------------------
     target_vert = None
@@ -678,12 +694,12 @@ def main(
         # Resolve the h5 file to use
         if input_path.suffix.lower() == ".h5":
             h5_path = input_path
-        elif h5_arg is True:
+        elif search_h5:
             h5_path = _find_h5(input_path, h5_search_dirs)
             if h5_path is None:
                 sys.exit("--h5-only: no matching .h5 found in cache.")
-        elif h5_arg:
-            h5_path = absolute_path(h5_arg)
+        elif h5_file:
+            h5_path = absolute_path(h5_file)
             if not h5_path.exists():
                 sys.exit(f".h5 file not found: {h5_path}")
         else:
@@ -691,8 +707,8 @@ def main(
             if h5_path is None:
                 sys.exit("--h5-only: no matching .h5 found in cache.")
 
-        outdir = Path(outdir) if outdir else h5_path.parent
-        outdir.mkdir(parents=True, exist_ok=True)
+        out_dir = out_dir if out_dir is not None else h5_path.parent
+        out_dir.mkdir(parents=True, exist_ok=True)
         h5_stem = h5_path.stem
 
         logger.info("H5-only: %s", h5_path.name)
@@ -719,7 +735,7 @@ def main(
                 target_vert=target_vert,
                 cache_dir=cache_dir,
             )
-            outpath = outdir / f"{h5_stem}_{beam}.png"
+            outpath = out_dir / f"{h5_stem}_{beam}.png"
             plot_beam(
                 df_plot,
                 beam,
@@ -734,20 +750,20 @@ def main(
 
     # -------------------------------------------------------------- nc + optional h5
     nc_path = input_path
-    outdir = Path(outdir) if outdir else nc_path.parent
-    outdir.mkdir(parents=True, exist_ok=True)
+    out_dir = out_dir if out_dir is not None else nc_path.parent
+    out_dir.mkdir(parents=True, exist_ok=True)
 
     logger.info("Loading %s ...", nc_path.name)
     df = load_nc(nc_path)
     nc_stem = nc_path.stem
 
     # Resolve .h5 path for beam splitting and noise background
-    if h5_arg is True:
+    if search_h5:
         h5_path = _find_h5(nc_path, h5_search_dirs)
         if h5_path is None:
             logger.warning("--h5 given but no matching .h5 found in cache.")
-    elif h5_arg:
-        h5_path = absolute_path(h5_arg)
+    elif h5_file:
+        h5_path = absolute_path(h5_file)
         if not h5_path.exists():
             sys.exit(f".h5 file not found: {h5_path}")
     else:
@@ -810,7 +826,7 @@ def main(
                 target_vert=target_vert,
                 cache_dir=cache_dir,
             )
-            outpath = outdir / f"{nc_stem}_{beam}.png"
+            outpath = out_dir / f"{nc_stem}_{beam}.png"
             plot_beam(
                 df_plot,
                 beam,
@@ -848,7 +864,7 @@ def main(
                 target_vert=target_vert,
                 cache_dir=cache_dir,
             )
-            outpath = outdir / f"{nc_stem}_{beam}.png"
+            outpath = out_dir / f"{nc_stem}_{beam}.png"
             plot_beam(
                 df_beam,
                 beam,
