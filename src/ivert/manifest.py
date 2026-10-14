@@ -12,6 +12,7 @@ import datetime
 import logging
 import os
 import tempfile
+from collections.abc import Collection, Container, Mapping
 from pathlib import Path
 
 import click
@@ -50,7 +51,7 @@ _OPTIONS_COMMENT = """\
 """
 
 
-def manifest_path(output_dir, dem_name=None):
+def manifest_path(output_dir: str | Path, dem_name: str | None = None) -> Path:
     """Return where a run's manifest is written.
 
     A single-DEM run gets '<dem>_ivert_manifest.ini', so separate single-DEM runs that
@@ -63,12 +64,16 @@ def manifest_path(output_dir, dem_name=None):
     return Path(output_dir) / f"{base}_{MANIFEST_FILENAME}"
 
 
-def tracked_params(command):
+def tracked_params(command: click.Command) -> dict[str, click.Parameter]:
     """Return {name: click.Parameter} for the 'command' parameters manifests record."""
-    return {p.name: p for p in command.params if p.name not in UNTRACKED_PARAMS}
+    return {
+        p.name: p
+        for p in command.params
+        if p.name is not None and p.name not in UNTRACKED_PARAMS
+    }
 
 
-def format_value(value):
+def format_value(value: object) -> str:
     """Turn an option value into its manifest text."""
     if value is None:
         return ""
@@ -79,7 +84,7 @@ def format_value(value):
     return str(value)
 
 
-def _format_entry(key, text):
+def _format_entry(key: str, text: str) -> str:
     """Format one 'key = value' entry, indenting a multi-line value's later lines."""
     lines = text.split("\n")
     entry = f"{key} = {lines[0]}".rstrip()
@@ -88,7 +93,12 @@ def _format_entry(key, text):
     return entry
 
 
-def write_manifest(path, version, options, run_info) -> None:
+def write_manifest(
+    path: str | Path,
+    version: str,
+    options: Mapping[str, object],
+    run_info: Mapping[str, object],
+) -> None:
     """Write a manifest to 'path', replacing any existing file.
 
     Args:
@@ -144,12 +154,12 @@ class _CaseSensitiveParser(configparser.ConfigParser):
         return optionstr
 
 
-def _new_parser():
+def _new_parser() -> _CaseSensitiveParser:
     # interpolation=None: values such as file paths may contain '%'.
     return _CaseSensitiveParser(interpolation=None)
 
 
-def read_manifest(path):
+def read_manifest(path: str | Path) -> tuple[str, dict[str, str]]:
     """Read a manifest.
 
     Returns:
@@ -181,7 +191,7 @@ def read_manifest(path):
     return parser.get("ivert", "version"), dict(parser.items("options"))
 
 
-def read_manifest_options(path):
+def read_manifest_options(path: str | Path) -> dict[str, str] | None:
     """Return a manifest's [options] as {name: raw text}, or None if unreadable."""
     try:
         return read_manifest(path)[1]
@@ -189,7 +199,7 @@ def read_manifest_options(path):
         return None
 
 
-def _version_mismatch_message(manifest_version, current_version):
+def _version_mismatch_message(manifest_version: str, current_version: str) -> str:
     """Pick the warning for a manifest whose options don't match this IVERT's."""
     incompatible = (
         f"This manifest (IVERT {manifest_version}) is incompatible with the current "
@@ -217,23 +227,23 @@ def _version_mismatch_message(manifest_version, current_version):
     return incompatible
 
 
-def _describe_default(value) -> str:
+def _describe_default(value: object) -> str:
     """For a warning, describe the default a manifest's missing option runs with."""
     text = ", ".join(format_value(value).split("\n"))
     return f"its default, '{text}'" if text else "its default (not set)"
 
 
 def reconcile_options(
-    path,
-    manifest_version,
-    manifest_options,
-    tracked_names,
-    current_version,
+    path: str | Path,
+    manifest_version: str,
+    manifest_options: Mapping[str, str],
+    tracked_names: Collection[str],
+    current_version: str,
     *,
-    interactive,
-    current_values=None,
-    command_line=(),
-):
+    interactive: bool,
+    current_values: Mapping[str, object] | None = None,
+    command_line: Container[str] = (),
+) -> dict[str, str]:
     """Check a manifest's options against the current CLI and settle any differences.
 
     An option the current CLI has but the manifest lacks (usually one added since the
@@ -304,12 +314,18 @@ def reconcile_options(
     return {k: v for k, v in manifest_options.items() if k not in extra}
 
 
-def parse_option(ctx, param, raw, path):
+def parse_option(
+    ctx: click.Context,
+    param: click.Parameter,
+    raw: str,
+    path: str | Path,
+) -> object:
     """Convert a manifest value into what 'param' would receive from the command line.
 
     The parameter's own click type does the conversion, so ranges and choices are
     checked exactly as they are for command-line values.
     """
+    value: str | tuple[str, ...]
     if param.multiple:
         value = tuple(line.strip() for line in raw.splitlines() if line.strip())
     elif raw.strip() == "":
