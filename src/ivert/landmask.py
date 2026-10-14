@@ -19,6 +19,7 @@ import math
 import os
 import re
 import tempfile
+from collections.abc import Iterable, Sequence
 from pathlib import Path
 
 import fetchez
@@ -28,6 +29,7 @@ import shapely
 import shapely.geometry
 
 import ivert.utils.logging_config
+from ivert.utils.bbox import BBox, BBoxWithDates
 
 logger = logging.getLogger(__name__)
 
@@ -56,13 +58,13 @@ _AREA_TOLERANCE = 1e-9
 _FILL_CELL_DEG = 1.0
 
 
-def _box(bbox):
+def _box(bbox: BBox) -> shapely.Geometry:
     """Return a shapely box from an (xmin, xmax, ymin, ymax) rectangle."""
     xmin, xmax, ymin, ymax = bbox
     return shapely.box(xmin, ymin, xmax, ymax)
 
 
-def store_filename(store_dir: str | Path, bbox) -> Path:
+def store_filename(store_dir: str | Path, bbox: BBox) -> Path:
     """Return the stored landmask file for an (xmin, xmax, ymin, ymax) rectangle."""
     xmin, xmax, ymin, ymax = (float(v) for v in bbox)
     return Path(store_dir) / f"landmask_{xmin}_{xmax}_{ymin}_{ymax}.geojson"
@@ -90,7 +92,7 @@ def _cached_osm_landmasks(cache_dir: str | Path) -> dict[Path, tuple]:
     return found
 
 
-def _read_polygons(path: str, bbox) -> list:
+def _read_polygons(path: str | Path, bbox: BBox) -> list:
     """Return the landmask polygons reaching into an (xmin, xmax, ymin, ymax) box."""
     xmin, xmax, ymin, ymax = bbox
     _, _, wkb, _ = pyogrio.raw.read(
@@ -104,7 +106,7 @@ def _read_polygons(path: str, bbox) -> list:
     return list(shapely.make_valid(shapely.from_wkb(wkb)))
 
 
-def land_from_files(paths, bbox):
+def land_from_files(paths: Iterable[str | Path], bbox: BBox) -> shapely.Geometry:
     """Return the land of several landmask files, merged and clipped to bbox."""
     polygons = []
     for path in paths:
@@ -114,7 +116,7 @@ def land_from_files(paths, bbox):
     return shapely.union_all(polygons).intersection(_box(bbox))
 
 
-def write_land(path: str | Path, land) -> None:
+def write_land(path: str | Path, land: shapely.Geometry) -> None:
     """Write land polygons to a GeoJSON file, atomically.
 
     Validations of neighbouring DEMs may run at the same time and fill the same
@@ -142,7 +144,7 @@ def write_land(path: str | Path, land) -> None:
         raise
 
 
-def clip_stored_landmask(path: str | Path, bbox, store_dir: str | Path) -> Path:
+def clip_stored_landmask(path: str | Path, bbox: BBox, store_dir: str | Path) -> Path:
     """Write the part of a stored landmask inside an (xmin, xmax, ymin, ymax) box.
 
     The result is a stored landmask of its own, named for bbox, in store_dir.
@@ -153,7 +155,7 @@ def clip_stored_landmask(path: str | Path, bbox, store_dir: str | Path) -> Path:
     return out
 
 
-def _fill_from_cache(bbox, store_dir: str | Path, cache_dir: str | Path) -> bool:
+def _fill_from_cache(bbox: BBox, store_dir: str | Path, cache_dir: str | Path) -> bool:
     """Store the landmask of bbox from cached OSM landmasks, if they cover all of it."""
     need = _box(bbox)
     cached = {
@@ -171,7 +173,7 @@ def _fill_from_cache(bbox, store_dir: str | Path, cache_dir: str | Path) -> bool
     return True
 
 
-def _fetch_osm_landmask(bbox, cache_dir: str | Path) -> None:
+def _fetch_osm_landmask(bbox: BBox, cache_dir: str | Path) -> None:
     """Fetch the OSM landmask of bbox into the cache, the way globato does."""
     xmin, xmax, ymin, ymax = bbox
     with ivert.utils.logging_config.keep_root_logging():
@@ -185,7 +187,7 @@ def _fetch_osm_landmask(bbox, cache_dir: str | Path) -> None:
 
 
 def ensure_landmasks(
-    tiles,
+    tiles: Iterable[BBox | BBoxWithDates],
     store_dir: str | Path,
     cache_dir: str | Path,
     *,
@@ -212,7 +214,7 @@ def ensure_landmasks(
     stored = set(stored_landmasks(store_dir).values())
     added = []
     for tile in tiles:
-        bbox = tuple(float(v) for v in tile[:4])
+        bbox: BBox = (float(tile[0]), float(tile[1]), float(tile[2]), float(tile[3]))
         if bbox in stored:
             continue
         if not _fill_from_cache(bbox, store_dir, cache_dir):
@@ -242,7 +244,7 @@ def ensure_landmasks(
     return added
 
 
-def _fill_cells(area) -> list:
+def _fill_cells(area: shapely.Geometry) -> list[BBox]:
     """Whole-degree cells, (xmin, xmax, ymin, ymax), that reach into area."""
     step = _FILL_CELL_DEG
     xmin, ymin, xmax, ymax = area.bounds
@@ -255,7 +257,12 @@ def _fill_cells(area) -> list:
     return cells
 
 
-def load_landmask(bbox, store_dir: str, cache_dir: str, database_tiles=()):
+def load_landmask(
+    bbox: BBox,
+    store_dir: str,
+    cache_dir: str,
+    database_tiles: Sequence[BBox | BBoxWithDates] = (),
+) -> tuple[shapely.Geometry, shapely.Geometry, shapely.Geometry]:
     """Return the landmask over an (xmin, xmax, ymin, ymax) box, from the store.
 
     Parts of bbox the store does not cover are added to it first: the database
@@ -278,7 +285,7 @@ def load_landmask(bbox, store_dir: str, cache_dir: str, database_tiles=()):
     """
     need = _box(bbox)
 
-    def missing_area():
+    def missing_area() -> shapely.Geometry:
         extents = [_box(b) for b in stored_landmasks(store_dir).values()]
         return need.difference(shapely.union_all(extents)) if extents else need
 
