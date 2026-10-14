@@ -2768,6 +2768,8 @@ def _run_validate(
 
     from ivert.utils import dem_source  # noqa: PLC0415 - slow import
 
+    # None lets the DEMs' own metadata give their vertical datum.
+    dem_vdatum = None if vdatum == "NONE_PROVIDED" else vdatum
     if len(expanded) == 1 and Path(dem_source.dem_file_path(expanded[0])).is_file():
         # A multi-variable file (e.g. NetCDF) becomes the subdataset string of the
         # variable to validate. Raises DEMVariableError if there isn't one, and
@@ -2782,34 +2784,6 @@ def _run_validate(
             )
         else:
             single_outdir = outdir
-        kwargs = {
-            "dem_name": dem_name,
-            "output_dir": single_outdir,
-            "classes": class_list,
-            "band_num": band_num,
-            "outliers_sd_threshold": outlier_sd_threshold,
-            "include_photon_level_validation": include_photons,
-            "location_name": region_name,
-            "measure_coverage": measure_coverage,
-            "min_coverage_pct": minimum_coverage_pct,
-            "min_coverage_pct_land": minimum_coverage_pct_land,
-            "min_coverage_pct_bathy": minimum_coverage_pct_bathy,
-            "min_photons_per_cell": min_photons,
-            "min_confidence_level": confidence_level,
-            "min_bathy_confidence": bathy_confidence,
-            "bathy_filter_settings": bathy_filter_settings,
-            "overwrite": overwrite,
-        }
-        if vdatum != "NONE_PROVIDED":
-            kwargs["dem_vertical_datum"] = vdatum
-        if projection is not None:
-            kwargs["dem_projection"] = projection
-        if ndv_float is not None:
-            kwargs["dem_ndv"] = ndv_float
-        if export_error_formats is not None:
-            kwargs["export_error_formats"] = export_error_formats
-        if exclude_zones:
-            kwargs["exclude_zones"] = exclude_zones
         if manifest_options is not None and vd_module.dem_needs_validation(
             dem_name,
             single_outdir,
@@ -2822,7 +2796,29 @@ def _run_validate(
                 expanded,
                 single_outdir,
             )
-        vd_module.validate_dem(**kwargs)
+        vd_module.validate_dem(
+            dem_name,
+            output_dir=single_outdir,
+            dem_vertical_datum=dem_vdatum,
+            dem_projection=projection,
+            dem_ndv=ndv_float,
+            classes=class_list,
+            band_num=band_num,
+            outliers_sd_threshold=outlier_sd_threshold,
+            include_photon_level_validation=include_photons,
+            location_name=region_name,
+            measure_coverage=measure_coverage,
+            min_coverage_pct=minimum_coverage_pct,
+            min_coverage_pct_land=minimum_coverage_pct_land,
+            min_coverage_pct_bathy=minimum_coverage_pct_bathy,
+            min_photons_per_cell=min_photons,
+            min_confidence_level=confidence_level,
+            min_bathy_confidence=bathy_confidence,
+            bathy_filter_settings=bathy_filter_settings,
+            overwrite=overwrite,
+            export_error_formats=export_error_formats,
+            exclude_zones=exclude_zones,
+        )
     else:
         dem_input = expanded[0] if len(expanded) == 1 else expanded
         if not Path(outdir).is_absolute():
@@ -2835,35 +2831,6 @@ def _run_validate(
             multi_outdir = dem_dir / outdir
         else:
             multi_outdir = outdir
-        kwargs = {
-            "dem_list_or_dir": dem_input,
-            "output_dir": multi_outdir,
-            "classes": class_list,
-            "band_num": band_num,
-            "variable": variable,
-            "place_name": region_name,
-            "include_photon_validation": include_photons,
-            "measure_coverage": measure_coverage,
-            "min_coverage_pct": minimum_coverage_pct,
-            "min_coverage_pct_land": minimum_coverage_pct_land,
-            "min_coverage_pct_bathy": minimum_coverage_pct_bathy,
-            "min_photons_per_cell": min_photons,
-            "outliers_sd_threshold": outlier_sd_threshold,
-            "min_confidence_level": confidence_level,
-            "min_bathy_confidence": bathy_confidence,
-            "bathy_filter_settings": bathy_filter_settings,
-            "overwrite": overwrite,
-        }
-        if vdatum != "NONE_PROVIDED":
-            kwargs["input_vdatum"] = vdatum
-        if projection is not None:
-            kwargs["dem_projection"] = projection
-        if ndv_float is not None:
-            kwargs["dem_ndv"] = ndv_float
-        if export_error_formats is not None:
-            kwargs["export_error_formats"] = export_error_formats
-        if exclude_zones:
-            kwargs["exclude_zones"] = exclude_zones
         if manifest_options is not None:
             to_validate, reused = vdc_module.dems_needing_validation(
                 dem_input,
@@ -2881,7 +2848,30 @@ def _run_validate(
                     num_reused=len(reused),
                     num_dems=len(to_validate) + len(reused),
                 )
-        vdc_module.validate_list_of_dems(**kwargs)
+        vdc_module.validate_list_of_dems(
+            dem_input,
+            output_dir=multi_outdir,
+            input_vdatum=dem_vdatum,
+            dem_projection=projection,
+            dem_ndv=ndv_float,
+            classes=class_list,
+            band_num=band_num,
+            variable=variable,
+            place_name=region_name,
+            include_photon_validation=include_photons,
+            measure_coverage=measure_coverage,
+            min_coverage_pct=minimum_coverage_pct,
+            min_coverage_pct_land=minimum_coverage_pct_land,
+            min_coverage_pct_bathy=minimum_coverage_pct_bathy,
+            min_photons_per_cell=min_photons,
+            outliers_sd_threshold=outlier_sd_threshold,
+            min_confidence_level=confidence_level,
+            min_bathy_confidence=bathy_confidence,
+            bathy_filter_settings=bathy_filter_settings,
+            overwrite=overwrite,
+            export_error_formats=export_error_formats,
+            exclude_zones=exclude_zones,
+        )
 
 
 @ivert_cli.command("validate")

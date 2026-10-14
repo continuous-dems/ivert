@@ -54,6 +54,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `ivert validate --bathy-ref-raster` expands a leading `~` to the home directory when the shell leaves it alone, as it does inside quotes (`--bathy-ref-raster "~/ref.tif"`) (#157). The path was taken literally, as a folder named `~` in the current directory, so the run stopped with "Bathymetry reference raster not found". The `bathy_ref_raster` setting in a config file already had `~` expanded.
 - `packaging` and `pyogrio` are now declared as dependencies (#147). IVERT imports both directly, `packaging` to compare the IVERT version recorded in a run manifest and `pyogrio` to read landmask tiles, but they were only installed because other dependencies pull them in, so a change in one of those could have left `ivert validate` failing with `ModuleNotFoundError`.
 - `requests.csv` records the dates of a partial download as whole numbers (#189). Where the database already covered part of a requested area, the dates of the rest were written like `20211101.0`.
+- `validate_dem_collection.validate_list_of_dems()` accepts a single DEM file given as a `Path` (#194). With no `output_dir`, it raised `TypeError: expected string or bytes-like object`; a `str` worked, as does the `ivert validate` command.
 
 ## [0.7.0] - 2026-10-06
 
