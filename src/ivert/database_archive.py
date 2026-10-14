@@ -27,8 +27,9 @@ import logging
 import shutil
 import tempfile
 import zipfile
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Iterator, Mapping, Sequence, Sized
 from pathlib import Path
+from typing import overload
 
 import numpy as np
 import tqdm
@@ -38,7 +39,7 @@ import ivert
 import ivert.icesat2_database_v2
 import ivert.landmask
 import ivert.utils.cuboid_funcs
-from ivert.utils.bbox import BBoxWithDates, with_int_dates
+from ivert.utils.bbox import BBox, BBoxWithDates, with_int_dates
 from ivert.utils.paths import absolute_path
 
 logger = logging.getLogger(__name__)
@@ -80,12 +81,19 @@ class ArchiveError(Exception):
 ###############################################################
 
 
-def _move(src, dst) -> None:
+def _move(src: str | Path, dst: str | Path) -> None:
     """Move a file, replacing any file already at dst."""
     Path(src).replace(dst)
 
 
-def _intersection(a, b):
+@overload
+def _intersection(a: BBox, b: BBox) -> BBox | None: ...
+@overload
+def _intersection(a: BBoxWithDates, b: BBoxWithDates) -> BBoxWithDates | None: ...
+def _intersection(
+    a: BBox | BBoxWithDates,
+    b: BBox | BBoxWithDates,
+) -> tuple[float, ...] | None:
     """Return the overlap of two same-length axis-order boxes, or None if it's empty."""
     out: list[float] = []
     for i in range(0, len(a), 2):
@@ -96,7 +104,7 @@ def _intersection(a, b):
     return tuple(out)
 
 
-def _contains(outer, inner) -> bool:
+def _contains(outer: BBox | BBoxWithDates, inner: BBox | BBoxWithDates) -> bool:
     """Whether an axis-order box lies entirely inside another."""
     return all(
         outer[i] <= inner[i] and inner[i + 1] <= outer[i + 1]
@@ -104,9 +112,12 @@ def _contains(outer, inner) -> bool:
     )
 
 
-def _subtract_all(box, others) -> list:
+def _subtract_all(
+    box: BBoxWithDates,
+    others: Iterable[BBoxWithDates],
+) -> list[BBoxWithDates]:
     """Return what is left of an axis-order (x, y, t) cuboid minus others."""
-    pieces = [tuple(box)]
+    pieces = [box]
     for other in others:
         remaining = []
         for piece in pieces:
@@ -117,24 +128,31 @@ def _subtract_all(box, others) -> list:
                     bbox_order="axis",
                 ),
             )
-        pieces = remaining
+        pieces = [with_int_dates(p) for p in remaining]
     return pieces
 
 
-def _subtract_all_2d(rect, others) -> list:
+def _subtract_all_2d(
+    rect: Sequence[float],
+    others: Iterable[Sequence[float]],
+) -> list[BBox]:
     """Return what is left of an (xmin, xmax, ymin, ymax) rectangle minus others."""
-    pieces = _subtract_all((*rect, 0, 1), [(*o, 0, 1) for o in others])
+    pieces = _subtract_all(_with_unit_time(rect), [_with_unit_time(o) for o in others])
     return [p[:4] for p in pieces]
 
 
-def _query_cuboid(record) -> tuple:
+def _with_unit_time(rect: Sequence[float]) -> BBoxWithDates:
+    """Return a rectangle as a cuboid one unit deep in t, for the 3D box functions."""
+    xmin, xmax, ymin, ymax = rect
+    return (float(xmin), float(xmax), float(ymin), float(ymax), 0, 1)
+
+
+def _query_cuboid(record: Mapping[str, float]) -> BBoxWithDates:
     """Return the (xmin, xmax, ymin, ymax, tmin, tmax) query box of a granule record."""
-    return tuple(float(record[c]) for c in _QUERY_COLS[:4]) + tuple(
-        int(record[c]) for c in _QUERY_COLS[4:]
-    )
+    return with_int_dates([record[c] for c in _QUERY_COLS])
 
 
-def _data_cuboid(data_bbox) -> tuple:
+def _data_cuboid(data_bbox: Sequence[float]) -> BBoxWithDates:
     """Return a granule's data box as a half-open (x, y, t) cuboid around its photons.
 
     The stored data box runs from the first photon to the last, both included, so
@@ -152,7 +170,7 @@ def _data_cuboid(data_bbox) -> tuple:
     )
 
 
-def _touches_any(cuboid, others) -> bool:
+def _touches_any(cuboid: BBoxWithDates, others: Iterable[BBoxWithDates]) -> bool:
     return any(
         ivert.utils.cuboid_funcs.cuboids_intersect(cuboid, o, bbox_order="axis")
         for o in others
@@ -180,7 +198,7 @@ _COPY_CHUNK = 4 * 1024 * 1024
 
 
 @contextlib.contextmanager
-def _progress_bar(**kwargs: object):
+def _progress_bar(**kwargs: object) -> Iterator[tqdm.tqdm]:
     """Yield a tqdm progress bar, drawn only at 'info' verbosity or above."""
     # 'disable=None' tells tqdm to draw the bar only when attached to a terminal,
     # and stay silent when output is redirected to a file or a pipe. Log records
@@ -195,9 +213,9 @@ def _progress_bar(**kwargs: object):
         yield bar
 
 
-def _progress(iterable, **kwargs: object):
+def _progress[T](iterable: Iterable[T], **kwargs: object) -> Iterator[T]:
     """Iterate over iterable, advancing a progress bar as each item is finished."""
-    if hasattr(iterable, "__len__"):
+    if isinstance(iterable, Sized):
         kwargs.setdefault("total", len(iterable))
     kwargs.setdefault("unit", "file")
     with _progress_bar(**kwargs) as bar:
@@ -206,7 +224,7 @@ def _progress(iterable, **kwargs: object):
             bar.update()
 
 
-def _byte_bar(total, desc):
+def _byte_bar(total: int, desc: str) -> contextlib.AbstractContextManager[tqdm.tqdm]:
     """Return a progress bar counting bytes."""
     return _progress_bar(
         total=total,
@@ -217,7 +235,12 @@ def _byte_bar(total, desc):
     )
 
 
-def _write_member(zf, src, arcname, bar) -> None:
+def _write_member(
+    zf: zipfile.ZipFile,
+    src: Path,
+    arcname: str,
+    bar: tqdm.tqdm,
+) -> None:
     """Add a file to an open zip archive, advancing bar by the bytes it reads."""
     info = zipfile.ZipInfo.from_file(src, arcname)
     info.compress_type = zf.compression
@@ -227,7 +250,7 @@ def _write_member(zf, src, arcname, bar) -> None:
             bar.update(len(chunk))
 
 
-def _extract_all(zf, dest) -> None:
+def _extract_all(zf: zipfile.ZipFile, dest: Path) -> None:
     """Unpack every file of an open zip archive into dest, with a progress bar.
 
     Raises:
@@ -257,7 +280,7 @@ def _extract_all(zf, dest) -> None:
 ###############################################################
 
 
-def _jsonable(value):
+def _jsonable(value: object) -> object:
     """Convert a record value to a plain JSON type."""
     if isinstance(value, np.integer):
         return int(value)
@@ -266,17 +289,17 @@ def _jsonable(value):
     return value
 
 
-def _fmt_date(yyyymmdd) -> str:
+def _fmt_date(yyyymmdd: float) -> str:
     s = str(int(yyyymmdd))
     return f"{s[:4]}-{s[4:6]}-{s[6:]}"
 
 
-def _fmt_rect(rect) -> str:
+def _fmt_rect(rect: Sequence[float]) -> str:
     xmin, xmax, ymin, ymax = rect
     return f"W {xmin:g} to E {xmax:g}, S {ymin:g} to N {ymax:g}"
 
 
-def _extent(rects):
+def _extent(rects: Iterable[Sequence[float]]) -> BBox:
     rects = list(rects)
     return (
         min(r[0] for r in rects),
@@ -408,9 +431,9 @@ class DumpResult:
 
 def dump(
     output_zip: str | Path,
-    region_rects=None,
-    date_range=None,
-    db=None,
+    region_rects: Sequence[Sequence[float]] | None = None,
+    date_range: tuple[int, int] | None = None,
+    db: ivert.icesat2_database_v2.IS2Database | None = None,
 ) -> DumpResult:
     """Write a database, or part of it, to a zip archive.
 
@@ -437,12 +460,12 @@ def dump(
         raise ArchiveError(msg)
 
     t_lo, t_hi = date_range if date_range is not None else (0, 99991231)
-    rects = (
-        [tuple(float(v) for v in r) for r in region_rects]
+    rects: list[BBox] | None = (
+        [(float(r[0]), float(r[1]), float(r[2]), float(r[3])) for r in region_rects]
         if region_rects is not None
         else None
     )
-    region = (
+    region: list[BBoxWithDates] = (
         [(*r, int(t_lo), int(t_hi)) for r in rects]
         if rects is not None
         else [(-180.0, 180.0, -90.0, 90.0, int(t_lo), int(t_hi))]
@@ -490,14 +513,15 @@ def dump(
         landmasks = []
         stored = ivert.landmask.stored_landmasks(db.landmask_dir)
         for path, bbox in _progress(stored.items(), desc="Staging landmasks"):
+            landmask_pieces: list[tuple[Path, BBox]]
             if rects is None or any(_contains(r, bbox) for r in rects):
-                pieces = [(path, bbox)]
+                landmask_pieces = [(path, bbox)]
             else:
-                pieces = []
+                landmask_pieces = []
                 for r in rects:
                     part = _intersection(bbox, r)
                     if part:
-                        pieces.append(
+                        landmask_pieces.append(
                             (
                                 ivert.landmask.clip_stored_landmask(
                                     path,
@@ -507,10 +531,10 @@ def dump(
                                 part,
                             ),
                         )
-            for src, part in pieces:
+            for src, piece_bbox in landmask_pieces:
                 name = Path(src).name
                 members.append((src, f"{LANDMASKS_ARCDIR}/{name}"))
-                landmasks.append({"filename": name, "bbox": list(part)})
+                landmasks.append({"filename": name, "bbox": list(piece_bbox)})
 
         manifest = _build_manifest(granule_records, landmasks, rects, date_range)
         summary = summarize(manifest)
@@ -536,7 +560,12 @@ def dump(
     return DumpResult(path=output_zip, manifest=manifest, summary=summary)
 
 
-def _build_manifest(granule_records, landmasks, rects, date_range) -> dict:
+def _build_manifest(
+    granule_records: list[dict],
+    landmasks: list[dict],
+    rects: list[BBox] | None,
+    date_range: tuple[int, int] | None,
+) -> dict:
     granules = [
         {
             "filename": r["filename"],
@@ -600,7 +629,10 @@ class RestoreResult:
     n_index_records: int = 0
 
 
-def plan_restore(archive: str | Path, db=None) -> RestorePlan:
+def plan_restore(
+    archive: str | Path,
+    db: ivert.icesat2_database_v2.IS2Database | None = None,
+) -> RestorePlan:
     """Read an archive and check it against the database, without changing anything.
 
     Raises:
@@ -644,7 +676,11 @@ def plan_restore(archive: str | Path, db=None) -> RestorePlan:
     )
 
 
-def restore(plan: RestorePlan, mode: str, db=None) -> RestoreResult:
+def restore(
+    plan: RestorePlan,
+    mode: str,
+    db: ivert.icesat2_database_v2.IS2Database | None = None,
+) -> RestoreResult:
     """Unpack an archive into the database and rebuild its index.
 
     Args:
@@ -688,7 +724,13 @@ def restore(plan: RestorePlan, mode: str, db=None) -> RestoreResult:
     return result
 
 
-def _restore_granules(plan, mode, db, staging, result) -> None:
+def _restore_granules(
+    plan: RestorePlan,
+    mode: str,
+    db: ivert.icesat2_database_v2.IS2Database,
+    staging: Path,
+    result: RestoreResult,
+) -> None:
     src_dir = staging / GRANULES_ARCDIR
     granules_dir = Path(db.granules_dir)
     imported = plan.manifest["granules"]
@@ -758,7 +800,13 @@ def _restore_granules(plan, mode, db, staging, result) -> None:
         result.existing_removed += 1
 
 
-def _restore_landmasks(plan, mode, db, staging, result) -> None:
+def _restore_landmasks(
+    plan: RestorePlan,
+    mode: str,
+    db: ivert.icesat2_database_v2.IS2Database,
+    staging: Path,
+    result: RestoreResult,
+) -> None:
     src_dir = staging / LANDMASKS_ARCDIR
     landmask_dir = Path(db.landmask_dir)
     imported = plan.manifest["landmasks"]
