@@ -22,7 +22,7 @@ _MIN_CELLS_TO_PLOT = 3
 _MIN_CELLS_TO_CROP = 20
 
 
-def is_iterable(obj):
+def is_iterable(obj: object) -> bool:
     """Tell whether an object is a non-string iterable. (list, tuple, etc)."""
     return isinstance(obj, collections.abc.Iterable) and not isinstance(
         obj,
@@ -93,15 +93,15 @@ def get_data_from_h5_or_list(
 
 
 def plot_histograms_and_line(
-    results_h5_or_list_or_df,
-    output_figure_name,
+    results_h5_or_list_or_df: pd.DataFrame | str | Path | list[str | Path],
+    output_figure_name: str | Path,
     *,
-    place_name=None,
-    figsize=(10.0, 4.0),  # Width/height, in inches
-    labels_uppercase=True,
-    dpi=600,
-    hist_cutoff_num_stddevs=2.5,
-    also_add_rmse_to_hist=False,
+    place_name: str | None = None,
+    figsize: tuple[float, float] = (10.0, 4.0),  # Width/height, in inches
+    labels_uppercase: bool = True,
+    dpi: int = 600,
+    hist_cutoff_num_stddevs: float = 2.5,
+    also_add_rmse_to_hist: bool = False,
 ) -> None:
     """Generate a 4-panel figure of error stats.
 
@@ -116,7 +116,7 @@ def plot_histograms_and_line(
     if Path(output_figure_name).suffix.lower() == ".png":
         mpl.use("Agg")
 
-    if type(results_h5_or_list_or_df) is pd.DataFrame:
+    if isinstance(results_h5_or_list_or_df, pd.DataFrame):
         data = results_h5_or_list_or_df
     else:
         data = get_data_from_h5_or_list(results_h5_or_list_or_df)

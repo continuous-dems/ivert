@@ -10,6 +10,7 @@ no command-line interface of its own.
 """
 
 import logging
+from collections.abc import Iterable
 from pathlib import Path
 
 import geopandas
@@ -21,6 +22,7 @@ import shapely.geometry
 
 from ivert.icesat2_database_v2 import IS2Database
 from ivert.photon_classes import class_names as _class_names
+from ivert.utils.bbox import BBox
 
 logger = logging.getLogger(__name__)
 
@@ -120,7 +122,7 @@ def nc_to_geodataframe(
 
     with netCDF4.Dataset(nc_path) as ds:
 
-        def _arr(name):
+        def _arr(name: str) -> np.ndarray:
             v = ds.variables[name][:]
             return v.data if hasattr(v, "data") else np.array(v)
 
@@ -252,13 +254,16 @@ def write_vector(
 # ---------------------------------------------------------------------------
 # Multi-format helpers (used by 'ivert database convert')
 # ---------------------------------------------------------------------------
-def normalize_format_keys(output_format: str, allowed=None) -> list:
+def normalize_format_keys(
+    output_format: str,
+    allowed: Iterable[str] | None = None,
+) -> list[str]:
     """Parse a comma-separated output-format string into a list of valid format keys.
 
     Args:
         output_format: One format key or a comma-separated combination (e.g.
             "gpkg,shp,xyz").
-        allowed (iterable of str, optional): Restrict which format keys are accepted.
+        allowed: Restrict which format keys are accepted.
             Defaults to every key in SUPPORTED_FORMATS.
 
     Returns:
@@ -291,7 +296,10 @@ def normalize_format_keys(output_format: str, allowed=None) -> list:
     return keys
 
 
-def subset_gdf_to_bbox(gdf: geopandas.GeoDataFrame, bbox) -> geopandas.GeoDataFrame:
+def subset_gdf_to_bbox(
+    gdf: geopandas.GeoDataFrame,
+    bbox: BBox,
+) -> geopandas.GeoDataFrame:
     """Return the subset of a photon GeoDataFrame whose points fall within a bbox.
 
     bbox is (xmin, xmax, ymin, ymax) in the GeoDataFrame's own CRS. The maximum
@@ -308,7 +316,7 @@ def subset_gdf_to_bbox(gdf: geopandas.GeoDataFrame, bbox) -> geopandas.GeoDataFr
 
 def subset_gdf_to_geometry(
     gdf: geopandas.GeoDataFrame,
-    geometry,
+    geometry: shapely.Geometry | None,
 ) -> geopandas.GeoDataFrame:
     """Return the subset of a photon GeoDataFrame falling inside a polygon geometry.
 
@@ -365,11 +373,11 @@ def output_path_for_format(out_base: str | Path, fmt_key: str) -> Path:
 def write_vector_multi(
     gdf: geopandas.GeoDataFrame,
     out_base: str | Path,
-    fmt_keys,
+    fmt_keys: Iterable[str],
     *,
     overwrite: bool = False,
     kind: str = KIND_PHOTONS,
-) -> list:
+) -> list[Path]:
     """Write a GeoDataFrame to one or more vector formats.
 
     Returns the list of file paths written (skipped existing files are omitted).
