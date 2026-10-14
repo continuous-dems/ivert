@@ -12,6 +12,7 @@ import math
 import os
 import re
 import typing
+from collections.abc import Iterable
 from pathlib import Path
 
 from ivert import __version__
@@ -49,7 +50,7 @@ _BOOTSTRAP_ONLY_KEYS = frozenset({"user_configfile"})
 _INTERPOLATION_REF_RE = re.compile(r"%\(([^)]+)\)s")
 
 
-def option_references(value) -> set[str]:
+def option_references(value: object) -> set[str]:
     """Return the option names a raw .ini value embeds via "%(other_option)s".
 
     Operates on the raw (un-interpolated) text of a value, so it reports the
@@ -60,7 +61,9 @@ def option_references(value) -> set[str]:
     return {name.strip().lower() for name in _INTERPOLATION_REF_RE.findall(value)}
 
 
-def parse_option_descriptions(configfile: str | Path = ivert_default_configfile):
+def parse_option_descriptions(
+    configfile: str | Path = ivert_default_configfile,
+) -> dict[str, str]:
     """Extract the descriptive comments for each option in a config .ini file.
 
     configparser discards comments, so the human-readable descriptions written
@@ -110,7 +113,7 @@ def parse_option_descriptions(configfile: str | Path = ivert_default_configfile)
     return descriptions
 
 
-def _is_absolute_path(value):
+def _is_absolute_path(value: str) -> bool:
     r"""Return True if 'value' is an absolute filesystem path on any platform.
 
     Recognizes Unix roots ("/..."), Windows drive-letter roots ("C:\..." or
@@ -130,7 +133,7 @@ def _is_absolute_path(value):
 
 def comment_out_options(
     configfile: str | Path,
-    keys,
+    keys: Iterable[str],
     reason: str = "unrecognized setting name.",
 ) -> list[str]:
     """Comment out the given option assignments in an .ini file, in place.
@@ -256,7 +259,7 @@ class Config:
         # read-only (see __setattr__).
         object.__setattr__(self, "_frozen", True)
 
-    def __setattr__(self, name, value) -> None:
+    def __setattr__(self, name: str, value: object) -> None:
         """Refuse to change a Config once it is built.
 
         One Config is passed down to every function that needs it, so a
@@ -281,7 +284,7 @@ class Config:
             AttributeError.
             """
 
-    def _abspath(self, path) -> Path:
+    def _abspath(self, path: str | Path) -> Path:
         """Return the absolute path of a relative path written in the configfile.
 
         Relative paths in a configfile are relative to the configfile's own
@@ -329,7 +332,7 @@ class Config:
         """
         return list(self._path_keys)
 
-    def raw_default(self, key):
+    def raw_default(self, key: str) -> str:
         """Return an option's un-interpolated default, as written in the configfile.
 
         Unlike the parsed attribute, this keeps any "%(other_option)s" embedding
@@ -338,7 +341,7 @@ class Config:
         """
         return self._config.get("DEFAULT", key, raw=True)
 
-    def default_value(self, key) -> str:
+    def default_value(self, key: str) -> str:
         """Return the default of an option as IVERT reads it, before any user config."""
         return self._config.get("DEFAULT", key)
 
@@ -346,7 +349,7 @@ class Config:
         """Every [DEFAULT] option's name, in the order the configfile lists them."""
         return list(self._config["DEFAULT"])
 
-    def is_user_set(self, key) -> bool:
+    def is_user_set(self, key: str) -> bool:
         """Return True if the user config sets the option, False if it's the default."""
         return key in self._user_set_keys
 
@@ -354,7 +357,7 @@ class Config:
         """Every [DEFAULT] option's raw value, in the configfile's order."""
         return {k: self.raw_default(k) for k in self._config["DEFAULT"]}
 
-    def dependent_options(self, keys) -> list[str]:
+    def dependent_options(self, keys: Iterable[str]) -> list[str]:
         """Return the options whose defaults are defined in terms of 'keys'.
 
         Follows "%(other_option)s" references transitively: if 'keys' contains
@@ -384,7 +387,11 @@ class Config:
 
         return [k for k in raw if k in dependents]
 
-    def interpolation_support_options(self, keys, already_defined) -> list[str]:
+    def interpolation_support_options(
+        self,
+        keys: Iterable[str],
+        already_defined: Iterable[str],
+    ) -> list[str]:
         """Extra options needed for 'keys' to be copied verbatim into another file.
 
         A raw value like "%(a)s/%(b)s" only resolves in the file it is written
@@ -600,7 +607,7 @@ class Config:
             for k, v in section.items():
                 self._read_option(k, v)
 
-    def _read_option(self, key, value) -> None:
+    def _read_option(self, key: str, value: str) -> None:
         """Read an individual option.
 
         Will use "ast.literal_eval()"  to parse it,
