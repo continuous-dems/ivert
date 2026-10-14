@@ -134,7 +134,11 @@ def _snap_region_outward(
     return [w_snap, e_snap, s_snap, n_snap]
 
 
-def _grid_covers_region(grid_fn: str, region_bounds: list[float], tol=1e-9) -> bool:
+def _grid_covers_region(
+    grid_fn: str,
+    region_bounds: list[float],
+    tol: float = 1e-9,
+) -> bool:
     """Return True if the raster at 'grid_fn' is readable and spans region_bounds."""
     w, e, s, n = region_bounds
     try:

@@ -21,6 +21,7 @@ Two entry points matter:
 
 import contextlib
 import logging
+from collections.abc import Iterator
 
 # Verbosity names accepted on the command line and in ivert_defaults.ini, mapped to the
 # logging level each one selects.
@@ -118,7 +119,7 @@ def _install_handler(level: int) -> None:
 
 
 @contextlib.contextmanager
-def keep_root_logging():
+def keep_root_logging() -> Iterator[None]:
     """Restore the root logger's handlers and level after the block.
 
     fetchez.get() sets up logging for itself on every call: it replaces the root

@@ -31,6 +31,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The `ivert_database_index` setting is removed (#169); see Fixed. A user config that still sets it has the line commented out, with a warning, and the setting is ignored.
 - The `omit_bboxes` parameter of `IS2Database.query_photons()` and `validate_dem.validate_dem_parallel()` is removed, with the `IS2Database.omit_photons_from_exclusion_bbox()` and `IS2Database.is_iterable()` methods it used (#189). Nothing passed it; `ivert validate -ex/--exclude` excludes areas by a separate route and is unchanged.
 - `bathy_filters.BathyFilterSettings` and `bathy_filters.parse_rules()` no longer take `False` for "no rules" (#191). Nothing in IVERT passed it; use `None`, an empty tuple, or `"none"`. The text `false` in the config or on the command line still turns the filters off.
+- `utils.sizeof_format.sizeof_fmt()` takes only a number of bytes, not a file path (#196). Nothing in IVERT passed a path, and a path that didn't exist raised a confusing `TypeError`.
 
 ### Fixed
 - `ivert database convert --start-date` now includes photons from the start day itself (#187). The database records each granule by the days of its first and last photons, and a granule whose last day was the start date didn't count as overlapping it, so nearly all of that day's data was left out. The end date is unchanged and still excluded.
