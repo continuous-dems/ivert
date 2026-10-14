@@ -27,6 +27,7 @@ import logging
 import shutil
 import tempfile
 import zipfile
+from collections.abc import Iterable, Sequence
 from pathlib import Path
 
 import numpy as np
@@ -37,6 +38,7 @@ import ivert
 import ivert.icesat2_database_v2
 import ivert.landmask
 import ivert.utils.cuboid_funcs
+from ivert.utils.bbox import BBoxWithDates, with_int_dates
 from ivert.utils.paths import absolute_path
 
 logger = logging.getLogger(__name__)
@@ -157,12 +159,16 @@ def _touches_any(cuboid, others) -> bool:
     )
 
 
-def _merged(cuboids) -> list:
+def _merged(cuboids: Iterable[Sequence[float]]) -> list[BBoxWithDates]:
     """Return the unique cuboids, merged where they combine exactly into larger ones."""
     unique = sorted({tuple(c) for c in cuboids})
     if not unique:
         return []
-    return ivert.utils.cuboid_funcs.merge_cuboids(unique, bbox_order="axis")
+    # merge_cuboids() returns floats throughout, so the dates go back to integers.
+    return [
+        with_int_dates(c)
+        for c in ivert.utils.cuboid_funcs.merge_cuboids(unique, bbox_order="axis")
+    ]
 
 
 ###############################################################

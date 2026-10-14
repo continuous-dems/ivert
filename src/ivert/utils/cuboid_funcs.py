@@ -1,11 +1,13 @@
 """Subtract, merge and intersect axis-aligned cuboids (3D boxes)."""
 
+from typing import Final
+
 import numpy as np
 
 # The number of values in a bounding box: (xmin, xmax, ymin, ymax), and with the
 # date range added, (xmin, xmax, ymin, ymax, tmin, tmax).
-BBOX_LEN = 4
-BBOX_WITH_DATES_LEN = 6
+BBOX_LEN: Final = 4
+BBOX_WITH_DATES_LEN: Final = 6
 
 
 def subtract_cuboids(a, b, tol=1e-10, bbox_order="point"):
