@@ -771,7 +771,7 @@ class IS2Database:
     )
 
     @classmethod
-    def _granule_stem(cls, filename: str) -> str:
+    def _granule_stem(cls, filename: str | Path) -> str:
         """Return a granule's filename without directory, extension or query suffix."""
         return cls._QUERY_SUFFIX_RE.sub("", Path(filename).stem)
 
@@ -1252,9 +1252,9 @@ class IS2Database:
     @classmethod
     def clip_granule_file(
         cls,
-        nc_fn: str,
+        nc_fn: str | Path,
         cuboids: Sequence[BBoxWithDates],
-        out_dir: str,
+        out_dir: str | Path,
     ) -> list[dict]:
         """Write a granule file's photons in each cuboid to a file of its own.
 
