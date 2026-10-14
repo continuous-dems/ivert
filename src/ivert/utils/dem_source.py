@@ -13,6 +13,7 @@ another name) is opened through the NetCDF driver when only that one georeferenc
 
 import re
 import warnings
+from collections.abc import Mapping
 from pathlib import Path
 
 import rasterio
@@ -56,7 +57,7 @@ class DEMUnreadableError(DEMSourceError):
     """GDAL can't open the DEM file as a raster (corrupt, truncated, or not one)."""
 
 
-def _open_dem(dem_name):
+def _open_dem(dem_name: str) -> rasterio.io.DatasetReader:
     """Return rasterio.open(dem_name); raise DEMUnreadableError if GDAL can't."""
     try:
         return rasterio.open(dem_name)
@@ -65,7 +66,7 @@ def _open_dem(dem_name):
         raise DEMUnreadableError(msg) from exc
 
 
-def _parse_subdataset(dem_name):
+def _parse_subdataset(dem_name: str) -> tuple[str, str, str] | None:
     """Return (driver, path, variable) of a subdataset string; None for a plain path."""
     m = _SUBDATASET_RE.match(dem_name)
     if m is None:
@@ -73,12 +74,12 @@ def _parse_subdataset(dem_name):
     return m["driver"], m["qpath"] or m["path"], m["var"]
 
 
-def _variable_path(var):
+def _variable_path(var: str) -> str:
     """Return a subdataset's variable without HDF5's leading '/'s ('grid/elev')."""
     return var.strip("/")
 
 
-def dem_file_path(dem_name):
+def dem_file_path(dem_name: str) -> str:
     """Return the file on disk that a DEM path or subdataset string refers to.
 
     A string, not a Path: it is the file part of the DEM name exactly as written, which
@@ -88,7 +89,7 @@ def dem_file_path(dem_name):
     return dem_name if parsed is None else parsed[1]
 
 
-def dem_base_name(dem_name):
+def dem_base_name(dem_name: str) -> str:
     """Return the base name used for a DEM's output files.
 
     For a plain file this is the file name without its extension. For a subdataset the
@@ -102,7 +103,7 @@ def dem_base_name(dem_name):
     return base + "_" + _variable_path(parsed[2]).replace("/", "_")
 
 
-def dem_display_name(dem_name):
+def dem_display_name(dem_name: str) -> str:
     """Return the name to show for a DEM in tables: its file name, plus any variable.
 
     A plain file gives its file name ('dem.tif'). A subdataset gives its file's name and
@@ -116,14 +117,14 @@ def dem_display_name(dem_name):
     return f"{file_name}:{_variable_path(parsed[2])}"
 
 
-def _variable_file_driver(dem_name):
+def _variable_file_driver(dem_name: str) -> str | None:
     """Return the subdataset driver prefix of a plain NetCDF or HDF5 path, or None."""
     if _parse_subdataset(dem_name) is not None:
         return None
     return VARIABLE_FILE_DRIVERS.get(Path(dem_name).suffix.lower())
 
 
-def possible_base_names(dem_name, variable=None):
+def possible_base_names(dem_name: str, variable: str | None = None) -> list[str]:
     """Return every base name this DEM's outputs could have.
 
     A NetCDF or HDF5 file's outputs are named after the file alone when it has one
@@ -151,7 +152,11 @@ def possible_base_names(dem_name, variable=None):
     return bases
 
 
-def _match_variable(name, candidates, file_path):
+def _match_variable(
+    name: str,
+    candidates: Mapping[str, str],
+    file_path: str,
+) -> str | None:
     """Return the subdataset string for variable 'name', or None if the file has none.
 
     'name' matches a variable's full path ('grid/elev'), or else the last part of it
@@ -173,7 +178,7 @@ def _match_variable(name, candidates, file_path):
     return candidates[matches[0]] if matches else None
 
 
-def _opens(subdataset):
+def _opens(subdataset: str) -> bool:
     """Return True if GDAL can open this subdataset string as a raster."""
     try:
         with rasterio.open(subdataset) as ds:
@@ -182,7 +187,7 @@ def _opens(subdataset):
         return False
 
 
-def _georeferenced_source(subdataset):
+def _georeferenced_source(subdataset: str) -> str:
     """Return an HDF5 subdataset string's NetCDF form if only that one is georeferenced.
 
     GDAL's HDF5 driver never reads coordinate variables, so a NetCDF-4 file (which is an
@@ -206,7 +211,7 @@ def _georeferenced_source(subdataset):
     return subdataset
 
 
-def check_georeferenced(dem_name) -> None:
+def check_georeferenced(dem_name: str) -> None:
     """Raise DEMNotGeoreferencedError if GDAL reads no geotransform for this DEM.
 
     Raises DEMUnreadableError if GDAL can't open it at all.
@@ -230,14 +235,14 @@ def check_georeferenced(dem_name) -> None:
 
 
 def _resolve_named_variable(
-    variable,
-    candidates,
-    file_path,
-    driver,
+    variable: str,
+    candidates: Mapping[str, str],
+    file_path: str,
+    driver: str,
     *,
-    single_var,
-    single_variable_file,
-):
+    single_var: str | None,
+    single_variable_file: bool,
+) -> str:
     """Return what to open for a variable the user named, as resolve_dem_source() does.
 
     Args:
@@ -276,7 +281,7 @@ def _resolve_named_variable(
     raise DEMVariableError(msg)
 
 
-def resolve_dem_source(dem_name, variable=None):
+def resolve_dem_source(dem_name: str, variable: str | None = None) -> str:
     """Return the path or subdataset string to open for this DEM.
 
     Args:

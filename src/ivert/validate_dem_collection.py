@@ -390,10 +390,11 @@ def validate_list_of_dems(
     is the DEMs' CRS, as in validate_dem.validate_dem().
     """
     # A single file or directory, or else a list of DEMs.
-    single_input: str | Path | None = None
+    single_input: str | None = None
     dem_names: list[str] = []
     if isinstance(dem_list_or_dir, (str, Path)):
-        single_input = dem_list_or_dir
+        # A str, as a DEM name: dem_source reads a subdataset string's file out of it.
+        single_input = str(dem_list_or_dir)
     else:
         dem_names = list(dem_list_or_dir)
     if output_dir is None:
