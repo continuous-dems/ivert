@@ -9,12 +9,14 @@ import ast
 import datetime
 import logging
 import time
+from collections.abc import Sequence
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 
 import ivert.utils.configfile
+from ivert.utils.bbox import BBoxWithDates
 from ivert.utils.cuboid_funcs import BBOX_WITH_DATES_LEN
 
 logger = logging.getLogger(__name__)
@@ -73,7 +75,7 @@ class ICESat2RequestsCSV:
         json            — full Harmony status dict, str-repr of a Python dict
     """
 
-    def __init__(self, config=None) -> None:
+    def __init__(self, config: ivert.utils.configfile.Config | None = None) -> None:
         """Point at the request CSV named in the configuration; it is read on first use.
 
         Args:
@@ -94,7 +96,7 @@ class ICESat2RequestsCSV:
     def find_matching_request(
         self,
         atl_dataset: str,
-        bbox,
+        bbox: BBoxWithDates,
         *,
         auto_clean_csv: bool = False,
         only_unexpired: bool = True,
@@ -106,7 +108,7 @@ class ICESat2RequestsCSV:
 
         Args:
             atl_dataset: Short name, e.g. "ATL03".
-            bbox (tuple): 6-tuple (xmin, xmax, ymin, ymax, tmin, tmax).
+            bbox: (xmin, xmax, ymin, ymax, tmin, tmax).
             auto_clean_csv: When True, drop expired records from the CSV before
                 searching, which also makes `only_unexpired` redundant. Defaults to
                 False.
@@ -149,8 +151,8 @@ class ICESat2RequestsCSV:
     def add_record(
         self,
         atl_dataset: str,
-        query_bbox,
-        json_dict,
+        query_bbox: BBoxWithDates,
+        json_dict: dict,
         *,
         write_file: bool = True,
         atl_version: int | str = "",
@@ -162,18 +164,12 @@ class ICESat2RequestsCSV:
         if atl_version != "":
             atl_version = normalize_atl_version(atl_version)
 
-        if isinstance(query_bbox, str):
-            query_bbox = ast.literal_eval(query_bbox)
-        query_bbox = tuple(query_bbox)
         if len(query_bbox) != BBOX_WITH_DATES_LEN:
             msg = (
                 "query_bbox must have 6 values (xmin, xmax, ymin, ymax, tmin, tmax), "
                 f"not {len(query_bbox)}."
             )
             raise ValueError(msg)
-
-        if isinstance(json_dict, str):
-            json_dict = self._read_json(json_dict)
 
         new_row = pd.DataFrame(
             [
@@ -197,12 +193,12 @@ class ICESat2RequestsCSV:
     def update_record(
         self,
         atl_dataset: str,
-        query_bbox,
-        json_dict,
+        query_bbox: BBoxWithDates,
+        json_dict: dict,
         *,
         write_file: bool = True,
         fail_quietly: bool = False,
-    ):
+    ) -> pd.DataFrame | None:
         """Replace an existing record's JSON (matched by dataset + bbox + job_id)."""
         matching = self.find_matching_request(
             atl_dataset,
@@ -215,9 +211,6 @@ class ICESat2RequestsCSV:
                 return None
             msg = f"No matching record for '{atl_dataset}' bbox={query_bbox}"
             raise ValueError(msg)
-
-        if isinstance(json_dict, str):
-            json_dict = ast.literal_eval(json_dict)
 
         job_id = json_dict.get("jobID", "")
         matching = matching[matching["job_id"] == job_id]
@@ -281,7 +274,7 @@ class ICESat2RequestsCSV:
         self.csv_file.parent.mkdir(parents=True, exist_ok=True)
         self.open().to_csv(self.csv_file, index=False, header=True)
 
-    def clean_csv(self):
+    def clean_csv(self) -> pd.DataFrame:
         """Remove expired records from the CSV."""
         df = self.open()
         expired = df["expiration_date"].apply(self._is_expired)
@@ -312,7 +305,11 @@ class ICESat2RequestsCSV:
         return self.df
 
     @staticmethod
-    def _bbox_match(b0, b1, tolerance: float = 1e-9) -> bool:
+    def _bbox_match(
+        b0: Sequence[float],
+        b1: Sequence[float],
+        tolerance: float = 1e-9,
+    ) -> bool:
         """Return True if two 6-tuple bboxes are equal within tolerance."""
         return (
             abs(b0[0] - b1[0]) <= tolerance
@@ -336,5 +333,5 @@ class ICESat2RequestsCSV:
             return False
 
     @staticmethod
-    def _read_json(json_str) -> dict:
+    def _read_json(json_str: str) -> dict:
         return ast.literal_eval(json_str)
