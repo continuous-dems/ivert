@@ -23,6 +23,7 @@ import dataclasses
 import json
 import logging
 import math
+from collections.abc import Callable, Iterable, Sequence
 from pathlib import Path
 from typing import Any, Self
 
@@ -44,6 +45,7 @@ import ivert.landmask
 import ivert.transform_points
 import ivert.utils.configfile
 import ivert.utils.logging_config
+from ivert.utils.bbox import BBox, BBoxWithDates
 from ivert.utils.paths import absolute_path
 
 logger = logging.getLogger(__name__)
@@ -67,6 +69,10 @@ _COAST_POINT_SPACING_M = 25.0
 # The widest window, in raster cells, that 'deep' runs a maximum filter over. A
 # finer reference raster is first reduced by block maximum until the window fits.
 _MAX_WINDOW_CELLS = 51
+
+# What the landmask rules read over a box: (land, the area any landmask covers,
+# coastline or None).
+_Landmask = tuple[shapely.Geometry, shapely.Geometry, shapely.Geometry | None]
 
 
 @dataclasses.dataclass(frozen=True)
@@ -140,7 +146,11 @@ class BathyFilterSettings:
             object.__setattr__(self, "ref_raster", str(absolute_path(ref_raster)))
 
     @classmethod
-    def from_config(cls, config=None, **overrides: object) -> Self:
+    def from_config(
+        cls,
+        config: ivert.utils.configfile.Config | None = None,
+        **overrides: object,
+    ) -> Self:
         """Build settings from the IVERT config, with any non-None override on top.
 
         Args:
@@ -236,17 +246,17 @@ class BathyFilterSettings:
         return "offshore" in self.rules or "land" in self.rules
 
 
-def parse_rules(value) -> tuple[str, ...]:
+def parse_rules(value: str | Iterable[str] | None) -> tuple[str, ...]:
     """Turn a rule list from the config or command line into a tuple of rule names.
 
     Accepts a comma-separated string, a list or tuple, or anything meaning "none"
-    (None, False, "", "none", "off"). Names are returned in RULES order.
+    (None, "", "none", "off", "false"). Names are returned in RULES order.
 
     Raises:
         ValueError: if a name is not one of RULES.
 
     """
-    if value is None or value is False:
+    if value is None:
         return ()
     items = value.split(",") if isinstance(value, str) else list(value)
     names = {str(n).strip().lower() for n in items} - {""}
@@ -302,31 +312,31 @@ class BathyFilterReport:
         return cls(**d)
 
     @classmethod
-    def combine(cls, reports) -> Self | None:
+    def combine(cls, reports: Iterable[Self | None]) -> Self | None:
         """Sum several reports that ran with the same settings.
 
         Returns None if there are none. If the settings differ, the counts are still
         summed but the first report's settings are kept, and a warning is logged.
         """
-        reports = [r for r in reports if r is not None]
-        if not reports:
+        found = [r for r in reports if r is not None]
+        if not found:
             return None
-        settings = reports[0].settings
-        if any(r.settings != settings for r in reports[1:]):
+        settings = found[0].settings
+        if any(r.settings != settings for r in found[1:]):
             logger.warning(
                 "The combined results were validated with different bathymetry filter "
                 "settings; the summary lists only the first DEM's.",
             )
         removed: dict[str, int] = {}
-        for r in reports:
+        for r in found:
             for k, v in r.removed.items():
                 removed[k] = removed.get(k, 0) + v
         return cls(
             settings=settings,
-            n_bathy_photons=sum(r.n_bathy_photons for r in reports),
+            n_bathy_photons=sum(r.n_bathy_photons for r in found),
             removed=removed,
-            removed_total=sum(r.removed_total for r in reports),
-            n_validations=sum(r.n_validations for r in reports),
+            removed_total=sum(r.removed_total for r in found),
+            n_validations=sum(r.n_validations for r in found),
         )
 
     def summary_lines(self) -> list[str]:
@@ -370,7 +380,7 @@ class BathyFilterReport:
         )
 
 
-def write_report_to_h5(h5_file: str | Path, report) -> None:
+def write_report_to_h5(h5_file: str | Path, report: "BathyFilterReport | None") -> None:
     """Store a BathyFilterReport as an attribute of the (only) table in an .h5 file.
 
     Does nothing if report is None. An attribute rather than a second table, so
@@ -386,7 +396,7 @@ def write_report_to_h5(h5_file: str | Path, report) -> None:
         )
 
 
-def read_report_from_h5(h5_file: str | Path):
+def read_report_from_h5(h5_file: str | Path) -> BathyFilterReport | None:
     """Return a results .h5 file's stored BathyFilterReport, or None if it has none."""
     if not h5_file or not Path(h5_file).exists():
         return None
@@ -410,8 +420,8 @@ def apply_bathy_filters(
     cache_dir: str | None = None,
     landmask_store_dir: str | None = None,
     osm_cache_dir: str | None = None,
-    database_tiles=(),
-):
+    database_tiles: Sequence[BBox | BBoxWithDates] = (),
+) -> tuple[pd.DataFrame, BathyFilterReport]:
     """Drop the class-40 photons that fail any of the enabled rules.
 
     Args:
@@ -455,7 +465,7 @@ def apply_bathy_filters(
         cache_dir,
     )
 
-    def get_landmask(bounds):
+    def get_landmask(bounds: BBox) -> _Landmask:
         if landmask_store_dir is None or osm_cache_dir is None:
             msg = "The landmask rules need landmask_store_dir and osm_cache_dir."
             raise ValueError(msg)
@@ -489,7 +499,15 @@ def apply_bathy_filters(
     return photon_df.loc[~drop], report
 
 
-def _evaluate_rules(lon, lat, ortho_h, settings, *, cache_dir, get_landmask):
+def _evaluate_rules(
+    lon: np.ndarray,
+    lat: np.ndarray,
+    ortho_h: np.ndarray,
+    settings: BathyFilterSettings,
+    *,
+    cache_dir: str | None,
+    get_landmask: Callable[[BBox], _Landmask],
+) -> dict[str, np.ndarray]:
     """Flag, per enabled rule, the photons that fail it.
 
     get_landmask(bounds) returns (land, covered area, coastline) over a
@@ -538,10 +556,13 @@ def _evaluate_rules(lon, lat, ortho_h, settings, *, cache_dir, get_landmask):
     flags = {}
     with np.errstate(invalid="ignore"):
         if "deep" in rules:
+            if ref_shallowest is None:
+                msg = "The deep rule needs the reference bathymetry, which wasn't read."
+                raise RuntimeError(msg)
             flags["deep"] = ref_shallowest < -settings.max_depth_m
 
         if "offshore" in rules:
-            if on_land is None:
+            if on_land is None or covered is None:
                 # settings.needs_landmask is true whenever this rule is on.
                 msg = "The offshore rule needs the landmask, which wasn't read."
                 raise RuntimeError(msg)
@@ -554,6 +575,12 @@ def _evaluate_rules(lon, lat, ortho_h, settings, *, cache_dir, get_landmask):
                 covered & ~on_land & (depth_below_surface < settings.near_surface_m)
             )
             if settings.offshore_min_ref_depth_m is not None:
+                if ref is None:
+                    msg = (
+                        "The offshore rule's minimum reference depth needs the "
+                        "reference bathymetry, which wasn't read."
+                    )
+                    raise RuntimeError(msg)
                 candidate &= ref < -settings.offshore_min_ref_depth_m
             offshore = no.copy()
             if candidate.any():
@@ -562,16 +589,29 @@ def _evaluate_rules(lon, lat, ortho_h, settings, *, cache_dir, get_landmask):
             flags["offshore"] = offshore
 
         if "reference" in rules:
+            if ref is None:
+                msg = (
+                    "The reference rule needs the reference bathymetry, which wasn't "
+                    "read."
+                )
+                raise RuntimeError(msg)
             flags["reference"] = (ortho_h - ref) > settings.ref_tolerance_m
 
         if "land" in rules:
+            if on_land is None:
+                msg = "The land rule needs the landmask, which wasn't read."
+                raise RuntimeError(msg)
             flags["land"] = on_land & (ortho_h < -settings.land_max_below_sl_m)
 
     # NaN comparisons are already False; make every mask a plain bool array.
     return {rule: np.asarray(flags[rule], dtype=bool) for rule in rules}
 
 
-def _to_lonlat(x, y, photon_src_epsg):
+def _to_lonlat(
+    x: np.ndarray,
+    y: np.ndarray,
+    photon_src_epsg: str,
+) -> tuple[np.ndarray, np.ndarray]:
     """Photon x/y as WGS84 longitude/latitude."""
     horz = str(photon_src_epsg).split("+", maxsplit=1)[0]
     crs = pyproj.CRS.from_user_input(horz)
@@ -581,7 +621,13 @@ def _to_lonlat(x, y, photon_src_epsg):
     return transformer.transform(x, y)
 
 
-def _to_egm2008(lon, lat, z, photon_src_epsg, cache_dir):
+def _to_egm2008(
+    lon: np.ndarray,
+    lat: np.ndarray,
+    z: np.ndarray,
+    photon_src_epsg: str,
+    cache_dir: str | None,
+) -> np.ndarray:
     """Photon heights as EGM2008 orthometric heights."""
     src = str(photon_src_epsg)
     vert = src.rsplit("+", maxsplit=1)[-1] if "+" in src else "4979"
@@ -602,7 +648,7 @@ def _to_egm2008(lon, lat, z, photon_src_epsg, cache_dir):
     )
 
 
-def _buffered_bounds(lon, lat, buffer_m):
+def _buffered_bounds(lon: np.ndarray, lat: np.ndarray, buffer_m: float) -> BBox:
     """(west, south, east, north) of the points, buffered by buffer_m metres."""
     south, north = float(np.min(lat)), float(np.max(lat))
     coslat = max(math.cos(math.radians(max(abs(south), abs(north)))), 0.01)
@@ -616,7 +662,7 @@ def _buffered_bounds(lon, lat, buffer_m):
     )
 
 
-def preload_reference_fetcher(settings) -> None:
+def preload_reference_fetcher(settings: BathyFilterSettings) -> None:
     """Load what fetching the ETOPO reference needs, if these settings will fetch it.
 
     fetchez loads its whole module registry, every data source and plugin, the first
@@ -631,7 +677,11 @@ def preload_reference_fetcher(settings) -> None:
     HookRegistry.load_all()
 
 
-def _load_reference(ref_raster, bounds, cache_dir):
+def _load_reference(
+    ref_raster: str | None,
+    bounds: BBox,
+    cache_dir: str | None,
+) -> tuple[np.ndarray, rasterio.transform.Affine]:
     """Read the reference bathymetry over bounds as (float64 array, transform).
 
     Nodata becomes NaN. Uses ETOPO 2022 15" surface tiles, fetched into cache_dir,
@@ -691,7 +741,12 @@ def _load_reference(ref_raster, bounds, cache_dir):
     return array[0], transform
 
 
-def _shallowest_within(array, transform, radius_m, lat0):
+def _shallowest_within(
+    array: np.ndarray,
+    transform: rasterio.transform.Affine,
+    radius_m: float,
+    lat0: float,
+) -> tuple[np.ndarray, rasterio.transform.Affine]:
     """For each cell, the highest (shallowest) value within radius_m metres.
 
     Returns (array, transform). A raster fine enough that the window would span more
@@ -727,7 +782,12 @@ def _shallowest_within(array, transform, radius_m, lat0):
     return out, transform
 
 
-def _sample(array, transform, lon, lat):
+def _sample(
+    array: np.ndarray,
+    transform: rasterio.transform.Affine,
+    lon: np.ndarray,
+    lat: np.ndarray,
+) -> np.ndarray:
     """Values of array at the points; NaN outside it."""
     rows, cols = rasterio.transform.rowcol(transform, lon, lat)
     rows, cols = np.asarray(rows), np.asarray(cols)
@@ -739,7 +799,11 @@ def _sample(array, transform, lon, lat):
     return out
 
 
-def _distance_to_coast_m(coast, lon, lat):
+def _distance_to_coast_m(
+    coast: shapely.Geometry | None,
+    lon: np.ndarray,
+    lat: np.ndarray,
+) -> np.ndarray:
     """Distance in metres from each point to the nearest coastline (inf if none)."""
     if coast is None or coast.is_empty:
         return np.full(len(lon), np.inf)
