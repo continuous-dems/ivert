@@ -1,16 +1,27 @@
 """Subtract, merge and intersect axis-aligned cuboids (3D boxes)."""
 
+from collections.abc import Iterable, Sequence
 from typing import Final
 
 import numpy as np
+import numpy.typing as npt
 
 # The number of values in a bounding box: (xmin, xmax, ymin, ymax), and with the
 # date range added, (xmin, xmax, ymin, ymax, tmin, tmax).
 BBOX_LEN: Final = 4
 BBOX_WITH_DATES_LEN: Final = 6
 
+# A cuboid: six coordinates, in 'point' or 'axis' order (see subtract_cuboids). The
+# third axis can be anything; IVERT uses it for dates.
+Cuboid = tuple[float, float, float, float, float, float]
 
-def subtract_cuboids(a, b, tol=1e-10, bbox_order="point"):
+
+def subtract_cuboids(
+    a: Sequence[float],
+    b: Sequence[float],
+    tol: float = 1e-10,
+    bbox_order: str = "point",
+) -> list[Cuboid]:
     """Subtract cuboid `b` from cuboid `a`.
 
     Returns the list of non-overlapping cuboids that exactly fill the remaining
@@ -76,11 +87,13 @@ def subtract_cuboids(a, b, tol=1e-10, bbox_order="point"):
     iy2 = min(ay2, by2)
     iz2 = min(az2, bz2)
 
-    # If no overlap, return A itself
+    # If no overlap, return A itself, in the order it was given.
     if ix1 >= (ix2 + tol) or iy1 >= (iy2 + tol) or iz1 >= (iz2 + tol):
-        return [a]
+        if bbox_order in ("axis", "xxyyzz"):
+            return [(ax1, ax2, ay1, ay2, az1, az2)]
+        return [(ax1, ay1, az1, ax2, ay2, az2)]
 
-    result = []
+    result: list[Cuboid] = []
 
     # --- Split around intersection (up to 6 parts) ---
     # Left
@@ -103,7 +116,7 @@ def subtract_cuboids(a, b, tol=1e-10, bbox_order="point"):
         result.append((ix1, iy1, iz2, ix2, iy2, az2))
 
     # Filter degenerate (zero-volume) pieces
-    clean = []
+    clean: list[Cuboid] = []
     for x1, y1, z1, x2, y2, z2 in result:
         if (x2 - x1 > tol) and (y2 - y1 > tol) and (z2 - z1 > tol):
             clean.append((x1, y1, z1, x2, y2, z2))
@@ -116,7 +129,7 @@ def subtract_cuboids(a, b, tol=1e-10, bbox_order="point"):
     return clean
 
 
-def _normalize_merge_preference(prefer) -> str | None:
+def _normalize_merge_preference(prefer: str | None) -> str | None:
     """Return None, "row" or "column" for a merge_cuboids ``prefer`` value."""
     if prefer is None:
         return None
@@ -129,7 +142,12 @@ def _normalize_merge_preference(prefer) -> str | None:
     raise ValueError(msg)
 
 
-def merge_cuboids(cuboids, tol=1e-10, bbox_order="point", prefer=None):
+def merge_cuboids(
+    cuboids: Iterable[Sequence[float]],
+    tol: float = 1e-10,
+    bbox_order: str = "point",
+    prefer: str | None = None,
+) -> list[Cuboid]:
     """Merge overlapping or face-adjacent axis-aligned cuboids into a minimal set.
 
     The merge is greedy, and pairs are tried in list order, so a set of cells that
@@ -166,7 +184,7 @@ def merge_cuboids(cuboids, tol=1e-10, bbox_order="point", prefer=None):
             Simplified list of merged cuboids.
 
     """
-    cuboids = [tuple(map(float, c)) for c in cuboids]
+    boxes = [_float_cuboid(c) for c in cuboids]
     prefer = _normalize_merge_preference(prefer)
 
     bbox_order = bbox_order.lower().strip()
@@ -178,7 +196,7 @@ def merge_cuboids(cuboids, tol=1e-10, bbox_order="point", prefer=None):
 
     if bbox_order == "axis":
         # Switch all the cuboids from axis order to point order for processing
-        cuboids = [(x1, y1, z1, x2, y2, z2) for (x1, x2, y1, y2, z1, z2) in cuboids]
+        boxes = [(x1, y1, z1, x2, y2, z2) for (x1, x2, y1, y2, z1, z2) in boxes]
     elif bbox_order != "point":
         msg = (
             f"Invalid bbox_order: {bbox_order}. Must be 'point', 'axis', 'xyzxyz', or "
@@ -186,7 +204,7 @@ def merge_cuboids(cuboids, tol=1e-10, bbox_order="point", prefer=None):
         )
         raise ValueError(msg)
 
-    def can_merge(a, b, along=None):
+    def can_merge(a: Cuboid, b: Cuboid, along: str | None = None) -> Cuboid | None:
         """Return merged cuboid if a and b are mergeable, else None.
 
         With ``along`` set to "x", "y" or "z", only a merge along that axis counts.
@@ -262,13 +280,13 @@ def merge_cuboids(cuboids, tol=1e-10, bbox_order="point", prefer=None):
 
         return None
 
-    def greedy_merge(cuboids, along=None):
+    def greedy_merge(cuboids: list[Cuboid], along: str | None = None) -> list[Cuboid]:
         """Merge pairs in list order until nothing more merges (see can_merge)."""
         cuboids = cuboids[:]
         merged = True
         while merged:
             merged = False
-            new_cuboids = []
+            new_cuboids: list[Cuboid] = []
             skip = set()
 
             for i in range(len(cuboids)):
@@ -294,20 +312,20 @@ def merge_cuboids(cuboids, tol=1e-10, bbox_order="point", prefer=None):
         return cuboids
 
     if prefer is None:
-        cuboids = greedy_merge(cuboids)
+        boxes = greedy_merge(boxes)
     else:
         # Form the strips of the wanted orientation first, then let the full
         # merge join whatever strips still line up.
-        by_row = greedy_merge(greedy_merge(cuboids, along="x"))
-        by_column = greedy_merge(greedy_merge(cuboids, along="y"))
+        by_row = greedy_merge(greedy_merge(boxes, along="x"))
+        by_column = greedy_merge(greedy_merge(boxes, along="y"))
         if len(by_row) == len(by_column):
-            cuboids = by_row if prefer == "row" else by_column
+            boxes = by_row if prefer == "row" else by_column
         else:
-            cuboids = min(by_row, by_column, key=len)
+            boxes = min(by_row, by_column, key=len)
 
     # Deduplicate & clean zero-volume
-    result = []
-    for c in cuboids:
+    result: list[Cuboid] = []
+    for c in boxes:
         x1, y1, z1, x2, y2, z2 = c
         if (x2 - x1 > tol) and (y2 - y1 > tol) and (z2 - z1 > tol) and c not in result:
             result.append(c)
@@ -319,7 +337,18 @@ def merge_cuboids(cuboids, tol=1e-10, bbox_order="point", prefer=None):
     return result
 
 
-def cuboids_intersect(c1, c2, tol=1e-10, bbox_order="point"):
+def _float_cuboid(c: Sequence[float]) -> Cuboid:
+    """Return six coordinates as a tuple of floats."""
+    c1, c2, c3, c4, c5, c6 = c
+    return (float(c1), float(c2), float(c3), float(c4), float(c5), float(c6))
+
+
+def cuboids_intersect(
+    c1: Sequence[float],
+    c2: Sequence[float],
+    tol: float = 1e-10,
+    bbox_order: str = "point",
+) -> bool:
     """Return True if two 3D cuboids intersect by a positive volume (not just touch).
 
     Args:
@@ -365,16 +394,16 @@ def cuboids_intersect(c1, c2, tol=1e-10, bbox_order="point"):
 
 def cuboids_intersect_vectorized(
     *,
-    xmin,
-    xmax,
-    ymin,
-    ymax,
-    zmin,
-    zmax,
-    query,
-    tol=1e-10,
-    bbox_order="axis",
-):
+    xmin: npt.ArrayLike,
+    xmax: npt.ArrayLike,
+    ymin: npt.ArrayLike,
+    ymax: npt.ArrayLike,
+    zmin: npt.ArrayLike,
+    zmax: npt.ArrayLike,
+    query: Sequence[float],
+    tol: float = 1e-10,
+    bbox_order: str = "axis",
+) -> np.ndarray:
     """Vectorized form of cuboids_intersect: test many cuboids against one query.
 
     Args:

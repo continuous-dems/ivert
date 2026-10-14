@@ -2798,10 +2798,10 @@ class IS2Database:
         )
 
         # Now do a cuboid subtraction of the query bboxes by all the e_bboxes:
-        query_bboxes = list(query_bboxes)
+        remaining: list[ivert.utils.cuboid_funcs.Cuboid] = list(query_bboxes)
         for e_bbox in e_bboxes:
             new_bboxes = []
-            for q_bbox in query_bboxes:
+            for q_bbox in remaining:
                 new_bboxes.extend(
                     ivert.utils.cuboid_funcs.subtract_cuboids(
                         q_bbox,
@@ -2810,14 +2810,14 @@ class IS2Database:
                     ),
                 )
 
-            query_bboxes = new_bboxes
+            remaining = new_bboxes
 
         # Do a quick merger on all the remaining bboxes to make sure they're simplified.
         # merge_cuboids() returns floats throughout, so the dates go back to integers.
         return [
             with_int_dates(b)
             for b in ivert.utils.cuboid_funcs.merge_cuboids(
-                query_bboxes,
+                remaining,
                 bbox_order="axis",
             )
         ]
