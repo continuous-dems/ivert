@@ -29,7 +29,7 @@ import tempfile
 import zipfile
 from collections.abc import Iterable, Iterator, Mapping, Sequence, Sized
 from pathlib import Path
-from typing import overload
+from typing import TYPE_CHECKING, overload
 
 import numpy as np
 import tqdm
@@ -41,6 +41,9 @@ import ivert.landmask
 import ivert.utils.cuboid_funcs
 from ivert.utils.bbox import BBox, BBoxWithDates, with_int_dates
 from ivert.utils.paths import absolute_path
+
+if TYPE_CHECKING:
+    import pandas as pd
 
 logger = logging.getLogger(__name__)
 
@@ -477,80 +480,16 @@ def dump(
         tempfile.mkdtemp(prefix=".ivert_dump_", dir=absolute_path(output_zip).parent),
     )
     try:
-        members = []  # (source path, name in the archive)
-        granule_records = []
-        for _, row in _progress(
-            gdf.iterrows(),
-            total=len(gdf),
-            desc="Staging granules",
-        ):
-            src = Path(db.granules_dir) / row["filename"]
-            if not src.exists():
-                logger.warning("Skipping missing granule file %s.", row["filename"])
-                continue
-            cuboid = _query_cuboid(row)
-            if any(_contains(r, cuboid) for r in region):
-                members.append((src, f"{GRANULES_ARCDIR}/{row['filename']}"))
-                granule_records.append({k: _jsonable(v) for k, v in row.items()})
-                continue
-            pieces = [p for p in (_intersection(cuboid, r) for r in region) if p]
-            if not pieces:
-                continue
-            for record in db.clip_granule_file(src, pieces, staging):
-                members.append(
-                    (
-                        staging / record["filename"],
-                        f"{GRANULES_ARCDIR}/{record['filename']}",
-                    ),
-                )
-                granule_records.append({k: _jsonable(v) for k, v in record.items()})
-
+        members, granule_records = _stage_granules(db, gdf, region, staging)
         if not granule_records:
             msg = "No photons in the database fall in the requested region and dates."
             raise ArchiveError(msg)
-
-        landmask_staging = staging / "landmasks"
-        landmasks = []
-        stored = ivert.landmask.stored_landmasks(db.landmask_dir)
-        for path, bbox in _progress(stored.items(), desc="Staging landmasks"):
-            landmask_pieces: list[tuple[Path, BBox]]
-            if rects is None or any(_contains(r, bbox) for r in rects):
-                landmask_pieces = [(path, bbox)]
-            else:
-                landmask_pieces = []
-                for r in rects:
-                    part = _intersection(bbox, r)
-                    if part:
-                        landmask_pieces.append(
-                            (
-                                ivert.landmask.clip_stored_landmask(
-                                    path,
-                                    part,
-                                    landmask_staging,
-                                ),
-                                part,
-                            ),
-                        )
-            for src, piece_bbox in landmask_pieces:
-                name = Path(src).name
-                members.append((src, f"{LANDMASKS_ARCDIR}/{name}"))
-                landmasks.append({"filename": name, "bbox": list(piece_bbox)})
+        landmask_members, landmasks = _stage_landmasks(db, rects, staging / "landmasks")
+        members += landmask_members
 
         manifest = _build_manifest(granule_records, landmasks, rects, date_range)
         summary = summarize(manifest)
-
-        with zipfile.ZipFile(
-            tmp_zip,
-            "w",
-            compression=zipfile.ZIP_DEFLATED,
-            allowZip64=True,
-        ) as zf:
-            zf.writestr(MANIFEST_NAME, json.dumps(manifest, indent=1))
-            zf.writestr(SUMMARY_NAME, summary + "\n")
-            total = sum(Path(src).stat().st_size for src, _ in members)
-            with _byte_bar(total, "Compressing") as bar:
-                for src, arcname in members:
-                    _write_member(zf, src, arcname, bar)
+        _write_archive(tmp_zip, manifest, summary, members)
         _move(tmp_zip, output_zip)
     finally:
         shutil.rmtree(staging, ignore_errors=True)
@@ -558,6 +497,101 @@ def dump(
             tmp_zip.unlink()
 
     return DumpResult(path=output_zip, manifest=manifest, summary=summary)
+
+
+def _stage_granules(
+    db: ivert.icesat2_database_v2.IS2Database,
+    gdf: "pd.DataFrame",
+    region: list[BBoxWithDates],
+    staging: Path,
+) -> tuple[list[tuple[Path, str]], list[dict]]:
+    """Pick out the granule files to archive, clipping those that cross the region.
+
+    A file wholly inside one of the region's cuboids is archived as it is; one
+    reaching outside them is clipped into staging. Files the index lists but that
+    are missing are skipped with a warning.
+
+    Returns ((source path, name in the archive) of each file, their index records).
+    """
+    members = []
+    granule_records = []
+    for _, row in _progress(gdf.iterrows(), total=len(gdf), desc="Staging granules"):
+        src = Path(db.granules_dir) / row["filename"]
+        if not src.exists():
+            logger.warning("Skipping missing granule file %s.", row["filename"])
+            continue
+        cuboid = _query_cuboid(row)
+        if any(_contains(r, cuboid) for r in region):
+            members.append((src, f"{GRANULES_ARCDIR}/{row['filename']}"))
+            granule_records.append({k: _jsonable(v) for k, v in row.items()})
+            continue
+        pieces = [p for p in (_intersection(cuboid, r) for r in region) if p]
+        if not pieces:
+            continue
+        for record in db.clip_granule_file(src, pieces, staging):
+            members.append(
+                (
+                    staging / record["filename"],
+                    f"{GRANULES_ARCDIR}/{record['filename']}",
+                ),
+            )
+            granule_records.append({k: _jsonable(v) for k, v in record.items()})
+    return members, granule_records
+
+
+def _stage_landmasks(
+    db: ivert.icesat2_database_v2.IS2Database,
+    rects: list[BBox] | None,
+    staging: Path,
+) -> tuple[list[tuple[Path, str]], list[dict]]:
+    """Pick out the stored landmasks to archive, clipping those that cross the rects.
+
+    With no rects every landmask is archived whole. Otherwise a landmask inside one
+    of them is archived whole, and one crossing them is clipped into staging, one
+    piece per rect it meets.
+
+    Returns ((source path, name in the archive) of each file, their manifest
+    entries).
+    """
+    members = []
+    landmasks = []
+    stored = ivert.landmask.stored_landmasks(db.landmask_dir)
+    for path, bbox in _progress(stored.items(), desc="Staging landmasks"):
+        pieces: list[tuple[Path, BBox]]
+        if rects is None or any(_contains(r, bbox) for r in rects):
+            pieces = [(path, bbox)]
+        else:
+            pieces = [
+                (ivert.landmask.clip_stored_landmask(path, part, staging), part)
+                for part in (_intersection(bbox, r) for r in rects)
+                if part
+            ]
+        for src, piece_bbox in pieces:
+            name = Path(src).name
+            members.append((src, f"{LANDMASKS_ARCDIR}/{name}"))
+            landmasks.append({"filename": name, "bbox": list(piece_bbox)})
+    return members, landmasks
+
+
+def _write_archive(
+    zip_path: Path,
+    manifest: dict,
+    summary: str,
+    members: list[tuple[Path, str]],
+) -> None:
+    """Write the manifest, the summary and each (source path, archive name) to a zip."""
+    with zipfile.ZipFile(
+        zip_path,
+        "w",
+        compression=zipfile.ZIP_DEFLATED,
+        allowZip64=True,
+    ) as zf:
+        zf.writestr(MANIFEST_NAME, json.dumps(manifest, indent=1))
+        zf.writestr(SUMMARY_NAME, summary + "\n")
+        total = sum(Path(src).stat().st_size for src, _ in members)
+        with _byte_bar(total, "Compressing") as bar:
+            for src, arcname in members:
+                _write_member(zf, src, arcname, bar)
 
 
 def _build_manifest(
@@ -734,70 +768,107 @@ def _restore_granules(
     src_dir = staging / GRANULES_ARCDIR
     granules_dir = Path(db.granules_dir)
     imported = plan.manifest["granules"]
-    present = {path.name for path in granules_dir.iterdir()}
-
     if mode == "keep":
-        existing = _merged(db.unique_bboxes(data_or_query="query") or [])
-        for g in _progress(imported, desc="Importing granules"):
-            src = src_dir / g["filename"]
-            if g["filename"] in present:
-                result.granules_skipped += 1
-                continue
-            cuboid = tuple(g["query_bbox"])
-            # A file whose photons all lie outside the existing area duplicates
-            # nothing, so it goes in whole rather than cut into pieces.
-            if not _touches_any(_data_cuboid(g["data_bbox"]), existing):
-                pieces = [cuboid]
-            else:
-                pieces = _subtract_all(cuboid, existing)
-            if pieces == [cuboid]:
-                _move(src, granules_dir / g["filename"])
-                result.granules_added += 1
-            elif pieces:
-                db.clip_granule_file(src, pieces, db.granules_dir)
-                result.granules_clipped += 1
-            else:
-                result.granules_skipped += 1
+        _keep_granules(imported, db, src_dir, result)
         return
 
     # 'replace' first cuts the imported area out of the existing files, into
     # staging, so that nothing existing is removed before its remainder is written.
-    to_remove = []
     remainder_dir = staging / ".existing_remainders"
+    to_remove = []
     if mode == "replace":
-        imported_names = {g["filename"] for g in imported}
-        imported_cuboids = _merged(tuple(g["query_bbox"]) for g in imported)
-        gdf = db.open_gdf()
-        for _, row in _progress(
-            gdf.iterrows() if gdf is not None else (),
-            total=0 if gdf is None else len(gdf),
-            desc="Cutting existing granules",
-        ):
-            if row["filename"] in imported_names:
-                continue  # replaced outright by the imported file of the same name
-            cuboid = _query_cuboid(row)
-            # Only files with photons in the imported area need cutting.
-            data_bbox = [row[c] for c in _DATA_COLS]
-            if not _touches_any(_data_cuboid(data_bbox), imported_cuboids):
-                continue
-            src = granules_dir / row["filename"]
-            pieces = _subtract_all(cuboid, imported_cuboids)
-            if pieces:
-                db.clip_granule_file(src, pieces, remainder_dir)
-                result.existing_clipped += 1
-            to_remove.append(src)
+        to_remove = _cut_existing_granules(imported, db, remainder_dir, result)
 
     # 'all' and 'replace' take every imported file as it is.
     for g in imported:
         _move(src_dir / g["filename"], granules_dir / g["filename"])
         result.granules_added += 1
+    _swap_in_remainders(remainder_dir, granules_dir, to_remove)
+    result.existing_removed += len(to_remove)
 
+
+def _keep_granules(
+    imported: list[dict],
+    db: ivert.icesat2_database_v2.IS2Database,
+    src_dir: Path,
+    result: RestoreResult,
+) -> None:
+    """Import the parts of the granule files that lie outside the existing data."""
+    granules_dir = Path(db.granules_dir)
+    present = {path.name for path in granules_dir.iterdir()}
+    existing = _merged(db.unique_bboxes(data_or_query="query") or [])
+    for g in _progress(imported, desc="Importing granules"):
+        src = src_dir / g["filename"]
+        if g["filename"] in present:
+            result.granules_skipped += 1
+            continue
+        cuboid = tuple(g["query_bbox"])
+        # A file whose photons all lie outside the existing area duplicates
+        # nothing, so it goes in whole rather than cut into pieces.
+        if not _touches_any(_data_cuboid(g["data_bbox"]), existing):
+            pieces = [cuboid]
+        else:
+            pieces = _subtract_all(cuboid, existing)
+        if pieces == [cuboid]:
+            _move(src, granules_dir / g["filename"])
+            result.granules_added += 1
+        elif pieces:
+            db.clip_granule_file(src, pieces, db.granules_dir)
+            result.granules_clipped += 1
+        else:
+            result.granules_skipped += 1
+
+
+def _cut_existing_granules(
+    imported: list[dict],
+    db: ivert.icesat2_database_v2.IS2Database,
+    remainder_dir: Path,
+    result: RestoreResult,
+) -> list[Path]:
+    """Write what the existing granule files hold outside the imported area.
+
+    The remainders go to remainder_dir. A file the archive also holds is replaced
+    outright, so it is left alone here.
+
+    Returns the existing files to remove once the remainders are in.
+    """
+    granules_dir = Path(db.granules_dir)
+    imported_names = {g["filename"] for g in imported}
+    imported_cuboids = _merged(tuple(g["query_bbox"]) for g in imported)
+    to_remove = []
+    gdf = db.open_gdf()
+    for _, row in _progress(
+        gdf.iterrows() if gdf is not None else (),
+        total=0 if gdf is None else len(gdf),
+        desc="Cutting existing granules",
+    ):
+        if row["filename"] in imported_names:
+            continue  # replaced outright by the imported file of the same name
+        cuboid = _query_cuboid(row)
+        # Only files with photons in the imported area need cutting.
+        data_bbox = [row[c] for c in _DATA_COLS]
+        if not _touches_any(_data_cuboid(data_bbox), imported_cuboids):
+            continue
+        src = granules_dir / row["filename"]
+        pieces = _subtract_all(cuboid, imported_cuboids)
+        if pieces:
+            db.clip_granule_file(src, pieces, remainder_dir)
+            result.existing_clipped += 1
+        to_remove.append(src)
+    return to_remove
+
+
+def _swap_in_remainders(
+    remainder_dir: Path,
+    dest_dir: Path,
+    to_remove: Iterable[str | Path],
+) -> None:
+    """Move the remainders cut from existing files in, then remove those files."""
     if remainder_dir.is_dir():
         for path in remainder_dir.iterdir():
-            _move(path, granules_dir / path.name)
-    for path in to_remove:
-        path.unlink()
-        result.existing_removed += 1
+            _move(path, dest_dir / path.name)
+    for old in to_remove:
+        Path(old).unlink()
 
 
 def _restore_landmasks(
@@ -811,47 +882,68 @@ def _restore_landmasks(
     landmask_dir = Path(db.landmask_dir)
     imported = plan.manifest["landmasks"]
     existing = ivert.landmask.stored_landmasks(db.landmask_dir)
-    existing_names = {Path(p).name for p in existing}
-
     if mode == "keep":
-        rects = list(existing.values())
-        for lm in _progress(imported, desc="Importing landmasks"):
-            src = src_dir / lm["filename"]
-            if lm["filename"] in existing_names:
-                continue
-            rect = tuple(lm["bbox"])
-            pieces = _subtract_all_2d(rect, rects)
-            if pieces == [rect]:
-                _move(src, landmask_dir / lm["filename"])
-            else:
-                for piece in pieces:
-                    ivert.landmask.clip_stored_landmask(src, piece, db.landmask_dir)
-            if pieces:
-                result.landmasks_added += 1
+        _keep_landmasks(imported, existing, db, src_dir, result)
         return
 
-    to_remove = []
     remainder_dir = staging / ".landmask_remainders"
+    to_remove = []
     if mode == "replace":
-        imported_names = {lm["filename"] for lm in imported}
-        imported_rects = [tuple(lm["bbox"]) for lm in imported]
-        for path, rect in _progress(
-            existing.items(),
-            desc="Cutting existing landmasks",
-        ):
-            if Path(path).name in imported_names:
-                continue
-            if not any(_intersection(rect, r) for r in imported_rects):
-                continue
-            for piece in _subtract_all_2d(rect, imported_rects):
-                ivert.landmask.clip_stored_landmask(path, piece, remainder_dir)
-            to_remove.append(path)
+        to_remove = _cut_existing_landmasks(imported, existing, remainder_dir)
 
     for lm in imported:
         _move(src_dir / lm["filename"], landmask_dir / lm["filename"])
         result.landmasks_added += 1
-    if remainder_dir.is_dir():
-        for path in remainder_dir.iterdir():
-            _move(path, landmask_dir / path.name)
-    for path in to_remove:
-        Path(path).unlink()
+    _swap_in_remainders(remainder_dir, landmask_dir, to_remove)
+
+
+def _keep_landmasks(
+    imported: list[dict],
+    existing: dict[Path, tuple],
+    db: ivert.icesat2_database_v2.IS2Database,
+    src_dir: Path,
+    result: RestoreResult,
+) -> None:
+    """Import the parts of the landmasks that lie outside the stored ones."""
+    landmask_dir = Path(db.landmask_dir)
+    existing_names = {Path(p).name for p in existing}
+    rects = list(existing.values())
+    for lm in _progress(imported, desc="Importing landmasks"):
+        src = src_dir / lm["filename"]
+        if lm["filename"] in existing_names:
+            continue
+        rect = tuple(lm["bbox"])
+        pieces = _subtract_all_2d(rect, rects)
+        if pieces == [rect]:
+            _move(src, landmask_dir / lm["filename"])
+        else:
+            for piece in pieces:
+                ivert.landmask.clip_stored_landmask(src, piece, db.landmask_dir)
+        if pieces:
+            result.landmasks_added += 1
+
+
+def _cut_existing_landmasks(
+    imported: list[dict],
+    existing: dict[Path, tuple],
+    remainder_dir: Path,
+) -> list[Path]:
+    """Write what the stored landmasks cover outside the imported ones.
+
+    The remainders go to remainder_dir. A landmask the archive also holds is
+    replaced outright, so it is left alone here.
+
+    Returns the stored landmasks to remove once the remainders are in.
+    """
+    imported_names = {lm["filename"] for lm in imported}
+    imported_rects = [tuple(lm["bbox"]) for lm in imported]
+    to_remove = []
+    for path, rect in _progress(existing.items(), desc="Cutting existing landmasks"):
+        if Path(path).name in imported_names:
+            continue
+        if not any(_intersection(rect, r) for r in imported_rects):
+            continue
+        for piece in _subtract_all_2d(rect, imported_rects):
+            ivert.landmask.clip_stored_landmask(path, piece, remainder_dir)
+        to_remove.append(path)
+    return to_remove
