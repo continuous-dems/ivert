@@ -83,6 +83,23 @@ _KB = 1000
 # to the last bit.
 _PERCENTILES = np.array([0.10, 0.90]) * 100.0
 
+# The (xmin, xmax, ymin, ymax) bounds of each overlapping grid cell, one array each.
+_CellBounds = tuple[npt.NDArray, npt.NDArray, npt.NDArray, npt.NDArray]
+# What _fetch_photons() returns: (dem_ds, dem_array, photon_df, dem_epsg_str,
+# photon_src_epsg).
+_PhotonFetch = tuple[rasterio.io.DatasetReader, npt.NDArray, pd.DataFrame, str, str]
+# What _compute_photon_overlap() returns: (photon_df, height_field, dem_overlap_i,
+# dem_overlap_j, dem_overlap_elevs, n, coverage_coords).
+_PhotonOverlap = tuple[
+    pd.DataFrame,
+    pd.Series,
+    npt.NDArray,
+    npt.NDArray,
+    npt.NDArray,
+    int,
+    _CellBounds | None,
+]
+
 
 def _pandas_mean(values: npt.NDArray) -> np.floating:
     """Return values.mean() exactly as pandas' Series.mean() computes it (no NaNs).
@@ -1398,7 +1415,7 @@ def _check_existing_outputs(
     return None
 
 
-def _split_projection(dem_projection):
+def _split_projection(dem_projection: str | int) -> tuple[pyproj.CRS, str | None]:
     """Split -p/--projection into (horizontal CRS, vertical reference or None).
 
     It may be a horizontal CRS ('EPSG:26910'), a compound CRS in one code
@@ -1416,12 +1433,12 @@ def _split_projection(dem_projection):
 
 
 def _resolve_dem_crs(
-    dem_name,
-    file_horz_crs,
-    file_vert_crs,
-    dem_projection=None,
-    dem_vertical_datum=None,
-):
+    dem_name: str,
+    file_horz_crs: pyproj.CRS | None,
+    file_vert_crs: pyproj.CRS | None,
+    dem_projection: str | int | None = None,
+    dem_vertical_datum: str | int | None = None,
+) -> tuple[pyproj.CRS, pyproj.CRS | str]:
     """Return the DEM's (horizontal CRS, vertical reference), user settings applied.
 
     Horizontal: -p/--projection, else the file's. Vertical: -V/--vdatum, else the
@@ -1500,7 +1517,10 @@ def _resolve_dem_crs(
     return horz, vert
 
 
-def _output_crs(dem_ds, dem_projection):
+def _output_crs(
+    dem_ds: rasterio.io.DatasetReader,
+    dem_projection: str | int | None,
+) -> rasterio.crs.CRS | None:
     """Return the CRS to write into exported error files: the user's, else the DEM's."""
     if dem_projection is None:
         return dem_ds.crs
@@ -1508,17 +1528,17 @@ def _output_crs(dem_ds, dem_projection):
 
 
 def _fetch_photons(
-    dem_name,
-    band_num,
-    dem_vertical_datum,
-    icesat2_photon_database_obj,
+    dem_name: str,
+    band_num: int,
+    dem_vertical_datum: str | int | None,
+    icesat2_photon_database_obj: ivert.icesat2_database_v2.IS2Database | None,
     *,
-    dates,
-    classes,
+    dates: list[int] | tuple[int, int] | None,
+    classes: list[int] | tuple[int, ...],
     min_confidence_level: int = 1,
     min_bathy_confidence: float = 0.75,
-    dem_projection=None,
-):
+    dem_projection: str | int | None = None,
+) -> _PhotonFetch | None:
     """Open the DEM and query overlapping ICESat-2 photons.
 
     'dem_projection' and 'dem_vertical_datum' are the user's CRS and vertical datum for
@@ -1575,7 +1595,10 @@ def _fetch_photons(
     return dem_ds, dem_array, photon_df, dem_epsg_str, photon_src_epsg
 
 
-def _resolve_exclude_geometry(exclude_zones, dem_epsg_str):
+def _resolve_exclude_geometry(
+    exclude_zones: list,
+    dem_epsg_str: str,
+) -> shapely.Geometry | None:
     """Resolve exclude-zone specs into one shapely geometry in the DEM's horizontal CRS.
 
     Each item in exclude_zones is either a 4-value (minx, miny, maxx, maxy) bounding box
@@ -1604,7 +1627,12 @@ def _resolve_exclude_geometry(exclude_zones, dem_epsg_str):
     return shapely.unary_union(geoms)
 
 
-def _band_nodata(dem_ds, band_num, user_ndv=None, default_ndv=None):
+def _band_nodata(
+    dem_ds: rasterio.io.DatasetReader,
+    band_num: int,
+    user_ndv: float | None = None,
+    default_ndv: float | None = None,
+) -> float | None:
     """Return the nodata value to mask band 'band_num' with.
 
     In order: the user's value, the band's own nodata value in the file, the config
@@ -1616,7 +1644,11 @@ def _band_nodata(dem_ds, band_num, user_ndv=None, default_ndv=None):
     return default_ndv if band_ndv is None else band_ndv
 
 
-def _unpack_elevations(stored_values, dem_ds, band_num):
+def _unpack_elevations(
+    stored_values: npt.NDArray,
+    dem_ds: rasterio.io.DatasetReader,
+    band_num: int,
+) -> npt.NDArray:
     """Apply the band's scale and offset to stored DEM values, if it has any.
 
     Packed integer DEMs (common in NetCDF, via scale_factor/add_offset) store
@@ -1638,20 +1670,20 @@ def _unpack_elevations(stored_values, dem_ds, band_num):
 
 
 def _compute_photon_overlap(
-    dem_ds,
-    dem_array,
-    photon_df,
+    dem_ds: rasterio.io.DatasetReader,
+    dem_array: npt.NDArray,
+    photon_df: pd.DataFrame,
     *,
-    classes,
-    dem_epsg_str,
-    measure_coverage,
-    photon_src_epsg="EPSG:4326+4979",
-    cache_dir=None,
-    user_ndv=None,
-    exclude_zones=None,
-    default_ndv=None,
-    band_num=1,
-):
+    classes: list[int] | tuple[int, ...],
+    dem_epsg_str: str,
+    measure_coverage: bool,
+    photon_src_epsg: str = "EPSG:4326+4979",
+    cache_dir: str | None = None,
+    user_ndv: float | None = None,
+    exclude_zones: list | None = None,
+    default_ndv: float | None = None,
+    band_num: int = 1,
+) -> _PhotonOverlap | None:
     """Transform photon coordinates into DEM space and compute cell-level overlap.
 
     'dem_array' holds band 'band_num' as stored in the file. Its nodata value is that
@@ -1794,12 +1826,12 @@ def _compute_photon_overlap(
 
 
 def _run_photon_level_validation(
-    photon_df,
-    dem_overlap_i,
-    dem_overlap_j,
-    dem_overlap_elevs,
-    results_dataframe_file,
-):
+    photon_df: pd.DataFrame,
+    dem_overlap_i: npt.NDArray,
+    dem_overlap_j: npt.NDArray,
+    dem_overlap_elevs: npt.NDArray,
+    results_dataframe_file: str | Path,
+) -> Path:
     """Compute photon-level DEM minus ICESat-2 differences and write an HDF5 file.
 
     'photon_df' has already been subset to the requested photon classes by
@@ -1869,7 +1901,7 @@ def _run_parallel_cell_validation(
     max_photons_per_cell: int | None,
     min_photons_per_cell: int,
     measure_coverage: bool,
-    coverage_coords: tuple[npt.NDArray, npt.NDArray, npt.NDArray, npt.NDArray] | None,
+    coverage_coords: _CellBounds | None,
     numprocs: int,
     empty_val: float,
 ) -> list[pd.DataFrame]:
@@ -2528,7 +2560,12 @@ def validate_dem_parallel(
     )
 
 
-def _filter_bathy_photons(fetch_result, settings, icesat2_photon_database_obj, config):
+def _filter_bathy_photons(
+    fetch_result: _PhotonFetch,
+    settings: ivert.bathy_filters.BathyFilterSettings | None,
+    icesat2_photon_database_obj: ivert.icesat2_database_v2.IS2Database,
+    config: ivert.utils.configfile.Config,
+) -> tuple[_PhotonFetch | None, ivert.bathy_filters.BathyFilterReport]:
     """Run the bathymetry filters on the photons _fetch_photons returned.
 
     Returns (fetch_result, report). fetch_result becomes None if no photons are left.
@@ -2553,11 +2590,11 @@ def _filter_bathy_photons(fetch_result, settings, icesat2_photon_database_obj, c
 
 
 def _apply_coverage_filter(
-    results_df,
-    min_coverage_pct=None,
-    min_coverage_pct_land=None,
-    min_coverage_pct_bathy=None,
-):
+    results_df: pd.DataFrame,
+    min_coverage_pct: float | None = None,
+    min_coverage_pct_land: float | None = None,
+    min_coverage_pct_bathy: float | None = None,
+) -> pd.DataFrame:
     """Drop the cells whose ICESat-2 coverage is below the threshold for their type.
 
     A bathymetry cell is one with any bathymetry photons (numphotons_bathy > 0), as in
