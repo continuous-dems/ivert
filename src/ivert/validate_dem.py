@@ -674,7 +674,10 @@ def reset_results_indexes_after_merge(
     return sub_results_df.set_index(["i", "j"], drop=True)
 
 
-def _resolve_config(config, icesat2_photon_database_obj=None):
+def _resolve_config(
+    config: ivert.utils.configfile.Config | None,
+    icesat2_photon_database_obj: ivert.icesat2_database_v2.IS2Database | None = None,
+) -> ivert.utils.configfile.Config:
     """Return the Config given, else the photon database's, else a fresh one."""
     if config is not None:
         return config
@@ -719,7 +722,7 @@ def validate_dem(
     export_error_formats: str | list | None = None,
     exclude_zones: list | None = None,
     config: ivert.utils.configfile.Config | None = None,
-):
+) -> list:
     """Validate a DEM and produce output results.
 
     Most of this work is done in validate_dem_parallel. This function is a wrapper that
@@ -1165,19 +1168,19 @@ def validate_dem(
     raise RuntimeError(msg)
 
 
-def _default_output_dir(dem_name, output_dir):
+def _default_output_dir(dem_name: str, output_dir: str | Path | None) -> Path:
     """Return output_dir as a Path, or the DEM's own folder if it is empty or None."""
     if not output_dir:
         return absolute_path(dem_source.dem_file_path(dem_name)).parent
     return Path(output_dir)
 
 
-def _results_dataframe_filename(dem_name, output_dir):
+def _results_dataframe_filename(dem_name: str, output_dir: str | Path) -> Path:
     """Return the '<dem>_results.h5' path in output_dir for a DEM's results."""
     return Path(output_dir) / (dem_source.dem_base_name(dem_name) + "_results.h5")
 
 
-def _empty_results_filename(results_dataframe_file):
+def _empty_results_filename(results_dataframe_file: str | Path) -> Path:
     """Return the '<dem>_results_EMPTY.txt' marker path for a results dataframe file."""
     results_dataframe_file = Path(results_dataframe_file)
     return results_dataframe_file.with_name(
@@ -1186,13 +1189,13 @@ def _empty_results_filename(results_dataframe_file):
 
 
 def dem_needs_validation(
-    dem_name,
-    output_dir,
+    dem_name: str,
+    output_dir: str | Path,
     *,
-    include_photons=False,
-    overwrite=False,
-    variable=None,
-):
+    include_photons: bool = False,
+    overwrite: bool = False,
+    variable: str | None = None,
+) -> bool:
     """Return True if validating this DEM into output_dir would do any validation work.
 
     Mirrors the checks in _check_existing_outputs(): a DEM is done when its results
@@ -1220,13 +1223,13 @@ def dem_needs_validation(
 
 
 def _setup_output_paths(
-    dem_name,
-    output_dir,
+    dem_name: str,
+    output_dir: str | Path | None,
     *,
-    mark_empty_results,
-    write_summary_stats,
-    plot_results,
-):
+    mark_empty_results: bool,
+    write_summary_stats: bool,
+    plot_results: bool,
+) -> tuple[Path, Path, Path | None, Path | None, Path | None]:
     """Create output directories and derive all output filenames.
 
     Returns (output_dir, results_dataframe_file, empty_results_filename,
@@ -1266,19 +1269,19 @@ def _setup_output_paths(
 
 
 def _check_existing_outputs(
-    dem_name,
+    dem_name: str,
     *,
-    results_dataframe_file,
-    empty_results_filename,
-    summary_stats_filename,
-    plot_filename,
-    location_name,
-    overwrite,
-    shared_ret_values,
-    include_photon_level_validation=False,
-    export_error_formats=None,
-    dem_projection=None,
-):
+    results_dataframe_file: str | Path,
+    empty_results_filename: str | Path | None,
+    summary_stats_filename: str | Path | None,
+    plot_filename: str | Path | None,
+    location_name: str | None,
+    overwrite: bool,
+    shared_ret_values: MutableMapping,
+    include_photon_level_validation: bool = False,
+    export_error_formats: str | list | None = None,
+    dem_projection: str | int | None = None,
+) -> list[Path] | None:
     """Handle overwrite deletion or early return when outputs already exist.
 
     Returns a files_to_export list if work is already done (caller should return it),
@@ -2337,7 +2340,7 @@ def validate_dem_parallel(
     exclude_zones: list | None = None,
     log_level: int | None = None,
     config: ivert.utils.configfile.Config | None = None,
-):
+) -> list[Path]:
     """Validate a single DEM.
 
     Parameters are described above in the vdalite_dem() docstring.
