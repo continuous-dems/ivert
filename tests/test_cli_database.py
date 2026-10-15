@@ -240,6 +240,18 @@ def test_restore_needs_on_overlap_when_it_cannot_ask(archive):
 
 
 @pytest.mark.usefixtures("standin")
+def test_restore_asks_what_to_do_where_they_overlap(archive, monkeypatch):
+    """At a terminal, the user picks a mode from a numbered list."""
+    monkeypatch.setattr(cli, "_stdin_is_interactive", lambda: True)
+
+    result = _run("restore", str(archive), stdin="2\n")
+
+    assert result.exit_code == 0, result.output
+    assert "  2) keep: Keep the existing data" in result.output
+    assert "Restored other.zip (keep): 0 granule files added" in result.output
+
+
+@pytest.mark.usefixtures("standin")
 def test_restore_lists_only_the_first_overlaps(archive, monkeypatch):
     """A long list of overlaps is cut short, with a count of the rest."""
     monkeypatch.setattr(cli, "_MAX_OVERLAPS_LISTED", 0)
