@@ -9,8 +9,10 @@ import pyproj
 import pytest
 import rasterio
 import rasterio.transform
+import shapely
 from rasterio.shutil import copy as copy_raster
 
+from ivert import validate_dem
 from ivert.cli import _region_from_file
 from ivert.utils import dem_geom
 from ivert.utils.dem_source import DEMVariableError
@@ -123,3 +125,139 @@ def test_download_region_from_an_ungeoreferenced_dem_is_an_error(tmp_path):
 
     with pytest.raises(ValueError, match="no georeferencing"):
         _region_from_file(str(path), projection_horz=pyproj.CRS("EPSG:4326"))
+
+
+# ---------------------------------------------------------------------------
+# A CRS from the user, split into its horizontal and vertical parts
+# ---------------------------------------------------------------------------
+@pytest.mark.parametrize(
+    ("crs", "horz", "vert"),
+    [
+        ("EPSG:4326+3855", "EPSG:4326", "EPSG:3855"),  # compound
+        ("EPSG:4979", "EPSG:4979", "EPSG:4979"),  # 3D: its own vertical reference
+        ("EPSG:5703", None, "EPSG:5703"),  # vertical only
+        ("EPSG:26910", "EPSG:26910", None),  # horizontal only
+        ("OGC:CRS84", "EPSG:4326", None),  # given as its EPSG equivalent
+        (None, None, None),
+        ("", None, None),
+    ],
+)
+def test_user_input_crs_splits_into_horizontal_and_vertical(crs, horz, vert):
+    """Each kind of CRS comes apart into the (horizontal, vertical) pair it holds."""
+    got_horz, got_vert = dem_geom.get_dem_reference_frame_from_user_input(crs)
+
+    assert (None if got_horz is None else got_horz.to_string()) == horz
+    assert (None if got_vert is None else got_vert.to_string()) == vert
+
+
+def test_user_input_crs_returns_the_part_asked_for():
+    """'h' and 'v' (or any word starting with them) pick one part."""
+    crs = "EPSG:4326+3855"
+
+    assert dem_geom.get_dem_reference_frame_from_user_input(crs, "horz") == (
+        pyproj.CRS("EPSG:4326")
+    )
+    assert dem_geom.get_dem_reference_frame_from_user_input(crs, "v") == (
+        pyproj.CRS("EPSG:3855")
+    )
+    with pytest.raises(ValueError, match="Must begin with 'h', 'v', or 'b'"):
+        dem_geom.get_dem_reference_frame_from_user_input(crs, "x")
+
+
+# ---------------------------------------------------------------------------
+# get_wgs84_bounding_box
+# ---------------------------------------------------------------------------
+def test_wgs84_bounding_box_of_a_projected_bbox():
+    """An (xmin, xmax, ymin, ymax) bbox in UTM comes back in degrees, same order."""
+    bbox = dem_geom.get_wgs84_bounding_box(
+        (500000, 510000, 4000000, 4010000),
+        "EPSG:26910",
+    )
+
+    assert bbox == pytest.approx((-123.0, -122.8887, 36.1447, 36.2349), abs=1e-4)
+
+
+def test_wgs84_bounding_box_of_a_polygon_already_in_wgs84():
+    """No transform is needed, so the polygon's own bounds come back."""
+    polygon = shapely.geometry.box(-105.0, 39.9, -104.5, 40.3)
+
+    assert dem_geom.get_wgs84_bounding_box(polygon, "EPSG:4326") == pytest.approx(
+        (-105.0, -104.5, 39.9, 40.3),
+    )
+
+
+def test_wgs84_bounding_box_of_a_coordinate_list():
+    """An even-length list longer than 4 values is taken as polygon vertices."""
+    ring = [(-105.0, 39.9), (-104.5, 39.9), (-104.5, 40.3), (-105.0, 40.3)]
+
+    assert dem_geom.get_wgs84_bounding_box(ring + ring[:2], "EPSG:4326") == (
+        pytest.approx((-105.0, -104.5, 39.9, 40.3))
+    )
+
+
+def test_wgs84_bounding_box_of_a_dem_file(tmp_path):
+    """A DEM file's CRS comes from the file when none is given."""
+    path = _write_tif(tmp_path / "dem.tif")
+
+    assert dem_geom.get_wgs84_bounding_box(path) == pytest.approx(
+        (-105.0, -104.5, 39.9, 40.3),
+    )
+
+
+def test_wgs84_bounding_box_of_a_missing_file_is_an_error(tmp_path):
+    """A string that isn't an existing file can't be anything else."""
+    with pytest.raises(FileNotFoundError):
+        dem_geom.get_wgs84_bounding_box(str(tmp_path / "missing.tif"))
+
+
+def test_wgs84_bounding_box_of_a_bbox_needs_a_crs():
+    """A bare bbox carries no CRS of its own."""
+    with pytest.raises(ValueError, match="could not be resolved"):
+        dem_geom.get_wgs84_bounding_box((-105.0, -104.5, 39.9, 40.3))
+
+
+@pytest.mark.parametrize("value", [42, (1.0, 2.0, 3.0), (1.0, 2.0, 3.0, 4.0, 5.0)])
+def test_wgs84_bounding_box_rejects_what_it_cannot_read(value):
+    """Not a file, polygon, 4-value bbox or even-length coordinate list."""
+    with pytest.raises(TypeError):
+        dem_geom.get_wgs84_bounding_box(value, "EPSG:4326")
+
+
+# ---------------------------------------------------------------------------
+# The vertical datum the user gave, from -V/--vdatum or -p/--projection
+# ---------------------------------------------------------------------------
+def test_no_user_vertical_datum():
+    """With neither option, the file's vertical datum will be used."""
+    assert validate_dem._user_vertical_reference("dem.tif", None, None) == (None, "")
+
+
+def test_user_vertical_datum_from_the_projection():
+    """The vertical part of a compound -p/--projection is used when -V isn't given."""
+    assert validate_dem._user_vertical_reference("dem.tif", "EPSG:3855", None) == (
+        "EPSG:3855",
+        "-p/--projection",
+    )
+
+
+def test_vdatum_overrides_the_projection_with_a_warning(caplog):
+    """-V/--vdatum wins, and the user is told what it replaced."""
+    with caplog.at_level(logging.WARNING):
+        got = validate_dem._user_vertical_reference("dem.tif", "EPSG:5703", "EPSG:3855")
+
+    assert got == ("EPSG:3855", "-V/--vdatum")
+    assert "in place of the vertical datum in -p/--projection" in caplog.text
+
+
+def test_vdatum_matching_the_projection_gives_no_warning(caplog):
+    """Saying the same thing twice isn't worth a warning."""
+    with caplog.at_level(logging.WARNING):
+        got = validate_dem._user_vertical_reference("dem.tif", "EPSG:3855", "EPSG:3855")
+
+    assert got == ("EPSG:3855", "-V/--vdatum")
+    assert caplog.text == ""
+
+
+def test_unrecognised_vdatum_is_an_error():
+    """A -V/--vdatum that names no vertical datum stops the run."""
+    with pytest.raises(ValueError, match="Unrecognised vertical datum"):
+        validate_dem._user_vertical_reference("dem.tif", None, "not-a-datum")
