@@ -1873,6 +1873,13 @@ def _run_parallel_cell_validation(
         min_photons_per_cell,
         num_subdivisions=15,
     )
+    # The cells' bounding boxes, sent with each chunk only when measuring coverage.
+    coverage_arrays: tuple[npt.NDArray, ...] = ()
+    if measure_coverage:
+        if coverage_coords is None:
+            msg = "measure_coverage needs the cells' bounding boxes in coverage_coords."
+            raise ValueError(msg)
+        coverage_arrays = coverage_coords
 
     if max_photons_per_cell is not None:
         logger.info(
@@ -1931,9 +1938,6 @@ def _run_parallel_cell_validation(
         if not (height_field.shape == photon_df.dem_x.shape == photon_df.dem_y.shape):
             msg = "The photon heights, dem_x and dem_y are not all the same length."
             raise RuntimeError(msg)
-        dem_overlap_xmin, dem_overlap_xmax, dem_overlap_ymin, dem_overlap_ymax = (
-            coverage_coords
-        )
         x_array_name = f"x_{proc_id}"
         memory_objs.append(
             _shared_copy(x_array_name, photon_df.dem_x.to_numpy()[ph_order]),
@@ -1945,24 +1949,17 @@ def _run_parallel_cell_validation(
             _shared_copy(y_array_name, photon_df.dem_y.to_numpy()[ph_order]),
         )
         y_dtype = photon_df.dem_y.dtype
-    else:
-        dem_overlap_xmin = dem_overlap_xmax = dem_overlap_ymin = dem_overlap_ymax = None
 
     def _chunk(start, end):
         """Return the work message for cells start:end."""
-        cells: tuple = (
+        return (
             dem_overlap_i[start:end],
             dem_overlap_j[start:end],
             dem_overlap_elevs[start:end],
+            *(coords[start:end] for coords in coverage_arrays),
+            ph_starts[start:end],
+            ph_ends[start:end],
         )
-        if measure_coverage:
-            cells += (
-                dem_overlap_xmin[start:end],
-                dem_overlap_xmax[start:end],
-                dem_overlap_ymin[start:end],
-                dem_overlap_ymax[start:end],
-            )
-        return (*cells, ph_starts[start:end], ph_ends[start:end])
 
     running_procs: list[mp.process.BaseProcess | None] = [None] * cpu_count
     open_pipes_parent: list[mp.connection.Connection | None] = [None] * cpu_count
@@ -1986,6 +1983,11 @@ def _run_parallel_cell_validation(
         max(-(-n // (cpu_count * _CHUNKS_PER_WORKER)), _MIN_CHUNK_CELLS),
         _MAX_CHUNK_CELLS,
     )
+
+    # One worker slot's process and pipes; a finished slot's are None.
+    proc: mp.process.BaseProcess | None
+    pipe: mp.connection.Connection | None
+    pipe_child: mp.connection.Connection | None
 
     # 'disable=None' tells tqdm to draw the bar only when attached to a terminal, and
     # stay silent when the output is redirected to a file or a pipe.
