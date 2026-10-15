@@ -110,3 +110,79 @@ def test_measuring_coverage_without_cell_bounding_boxes_is_refused():
 
     with pytest.raises(FileNotFoundError):
         shared_memory.SharedMemory(name=f"heights_{os.getpid()}")
+
+
+def _photons(n):
+    """A photon table with n photons, one per grid cell down a single column."""
+    return pd.DataFrame(
+        {
+            "i": np.arange(n, dtype=np.int64),
+            "j": np.zeros(n, dtype=np.int64),
+            "class_code": np.ones(n, dtype=np.int8),
+            "h": np.ones(n, dtype=np.float32),
+        },
+    )
+
+
+def _validate_cells(photon_df, *, measure_coverage=False):
+    n = len(photon_df)
+    coords = np.zeros(n)
+    validate_dem._run_parallel_cell_validation(
+        photon_df,
+        photon_df["h"],
+        dem_overlap_i=photon_df["i"].to_numpy(),
+        dem_overlap_j=photon_df["j"].to_numpy(),
+        dem_overlap_elevs=np.zeros(n, dtype=np.float32),
+        n=n,
+        max_photons_per_cell=None,
+        min_photons_per_cell=1,
+        measure_coverage=measure_coverage,
+        coverage_coords=(coords, coords, coords, coords) if measure_coverage else None,
+        numprocs=1,
+        empty_val=-99999.0,
+    )
+
+
+def _assert_no_shared_memory_left(*prefixes: str):
+    for prefix in prefixes:
+        with pytest.raises(FileNotFoundError):
+            shared_memory.SharedMemory(name=f"{prefix}_{os.getpid()}")
+
+
+def test_photons_without_coordinates_leave_no_shared_memory():
+    """Measuring coverage needs dem_x and dem_y, checked before anything is allocated.
+
+    They were looked up after the heights and codes went into shared memory, which
+    the error then left behind.
+    """
+    with pytest.raises(AttributeError, match="dem_x"):
+        _validate_cells(_photons(3), measure_coverage=True)
+
+    _assert_no_shared_memory_left("heights", "codes")
+
+
+def test_a_failed_allocation_releases_the_ones_before_it(monkeypatch):
+    """A name left over from a crashed run fails partway through the allocations."""
+    real_shared_copy = validate_dem._shared_copy
+
+    def fail_on_codes(name, values):
+        if name.startswith("codes_"):
+            raise FileExistsError(name)
+        return real_shared_copy(name, values)
+
+    monkeypatch.setattr(validate_dem, "_shared_copy", fail_on_codes)
+
+    with pytest.raises(FileExistsError):
+        _validate_cells(_photons(3))
+
+    _assert_no_shared_memory_left("heights")
+
+
+def test_a_failed_copy_releases_its_shared_memory():
+    """The block is created before the copy, so a failed copy must release it."""
+    values = SimpleNamespace(nbytes=8, tobytes=lambda: b"four")
+
+    with pytest.raises(ValueError, match="memoryview"):
+        validate_dem._shared_copy(f"copy_{os.getpid()}", values)
+
+    _assert_no_shared_memory_left("copy")

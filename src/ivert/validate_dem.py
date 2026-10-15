@@ -1881,12 +1881,20 @@ def _run_photon_level_validation(
 
 
 def _shared_copy(name: str, values: np.ndarray) -> shared_memory.SharedMemory:
-    """Copy an array into a new block of shared memory with the given name."""
+    """Copy an array into a new block of shared memory with the given name.
+
+    If the copy fails, the block is released before the error is raised.
+    """
     smo = shared_memory.SharedMemory(size=values.nbytes, name=name, create=True)
     if smo.buf is None:
+        clean_procs_and_pipes([], [], [], [smo])
         msg = f"Shared memory block {name} has no buffer."
         raise RuntimeError(msg)
-    smo.buf[:] = values.tobytes()
+    try:
+        smo.buf[:] = values.tobytes()
+    except BaseException:
+        clean_procs_and_pipes([], [], [], [smo])
+        raise
     return smo
 
 
@@ -1954,6 +1962,11 @@ def _run_parallel_cell_validation(
     ):
         msg = "The photon heights, i, j and class codes are not all the same length."
         raise RuntimeError(msg)
+    if measure_coverage and not (
+        height_field.shape == photon_df.dem_x.shape == photon_df.dem_y.shape
+    ):
+        msg = "The photon heights, dem_x and dem_y are not all the same length."
+        raise RuntimeError(msg)
 
     # Sort the photons by grid cell with a stable sort, which keeps their order within
     # each cell, so a worker reads a cell's photons as one slice rather than searching
@@ -1968,31 +1981,38 @@ def _run_parallel_cell_validation(
     ph_starts = np.searchsorted(ph_keys, cell_keys, side="left")
     ph_ends = np.searchsorted(ph_keys, cell_keys, side="right")
 
-    height_smo = _shared_copy(height_array_name, height_field.to_numpy()[ph_order])
     height_dtype = height_field.dtype
-
-    code_smo = _shared_copy(code_array_name, photon_df.class_code.to_numpy()[ph_order])
     code_dtype = photon_df.class_code.dtype
-    memory_objs = [height_smo, code_smo]
-
     x_array_name: str | None = None
     y_array_name: str | None = None
     x_dtype = y_dtype = None
     if measure_coverage:
-        if not (height_field.shape == photon_df.dem_x.shape == photon_df.dem_y.shape):
-            msg = "The photon heights, dem_x and dem_y are not all the same length."
-            raise RuntimeError(msg)
         x_array_name = f"x_{proc_id}"
-        memory_objs.append(
-            _shared_copy(x_array_name, photon_df.dem_x.to_numpy()[ph_order]),
-        )
         x_dtype = photon_df.dem_x.dtype
-
         y_array_name = f"y_{proc_id}"
-        memory_objs.append(
-            _shared_copy(y_array_name, photon_df.dem_y.to_numpy()[ph_order]),
-        )
         y_dtype = photon_df.dem_y.dtype
+
+    # The try/finally below releases these once the workers start. Until then, a
+    # failure here (a name left over from a crashed run, say, or running out of
+    # memory) releases whatever was already allocated.
+    memory_objs: list[shared_memory.SharedMemory] = []
+    try:
+        memory_objs.append(
+            _shared_copy(height_array_name, height_field.to_numpy()[ph_order]),
+        )
+        memory_objs.append(
+            _shared_copy(code_array_name, photon_df.class_code.to_numpy()[ph_order]),
+        )
+        if x_array_name is not None and y_array_name is not None:
+            memory_objs.append(
+                _shared_copy(x_array_name, photon_df.dem_x.to_numpy()[ph_order]),
+            )
+            memory_objs.append(
+                _shared_copy(y_array_name, photon_df.dem_y.to_numpy()[ph_order]),
+            )
+    except BaseException:
+        clean_procs_and_pipes([], [], [], memory_objs)
+        raise
 
     def _chunk(start: int, end: int) -> tuple[npt.NDArray, ...]:
         """Return the work message for cells start:end."""
