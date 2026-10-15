@@ -790,7 +790,8 @@ def _sample(
 ) -> np.ndarray:
     """Values of array at the points; NaN outside it."""
     rows, cols = rasterio.transform.rowcol(transform, lon, lat)
-    rows, cols = np.asarray(rows), np.asarray(cols)
+    # Whole numbers already, but rasterio 1.4.1 returns them as floats for arrays.
+    rows, cols = np.asarray(rows).astype(np.intp), np.asarray(cols).astype(np.intp)
     inside = (
         (rows >= 0) & (rows < array.shape[0]) & (cols >= 0) & (cols < array.shape[1])
     )
