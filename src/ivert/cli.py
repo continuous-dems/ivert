@@ -38,6 +38,8 @@ if typing.TYPE_CHECKING:
     from shapely.geometry.base import BaseGeometry
 
     from ivert.bathy_filters import BathyFilterSettings
+    from ivert.database_archive import RestoreResult
+    from ivert.icesat2_database_v2 import DownloadSummary, IS2Database
 
 # The heavier modules (IVERT's own and libraries such as pandas, geopandas and
 # globato) are imported inside the commands that use them, so that `ivert --help`
@@ -1235,99 +1237,27 @@ def database_download(
 
     """
     from ivert import icesat2_database_v2 as is2db_mod  # noqa: PLC0415 - slow import
-    from ivert.utils import dem_geom, dem_source  # noqa: PLC0415 - slow import
 
     projection_horz = None
     if projection is not None:
         projection_horz, _ = _check_projection_option(projection)
 
-    # --- Parse bbox or files ---
-    # Flatten slash-separated tokens into a flat list.
-    values = []
-    for token in bbox_or_files:
-        values.extend(token.split("/"))
+    wgs84_bbox, geometry = _download_region(
+        bbox_or_files,
+        projection_horz=projection_horz,
+        variable=variable,
+        wsen=wsen,
+    )
 
-    wgs84_bbox = None  # (xmin, xmax, ymin, ymax)
-    # A WGS84 (Multi)Polygon of the area to download, when files defined it.
-    geometry = None
-
-    if len(values) == _CLI_BBOX_VALUES:
-        try:
-            nums = [float(v) for v in values]
-            if wsen:
-                # W/S/E/N → reorder to xmin, xmax, ymin, ymax
-                xmin, ymin, xmax, ymax = nums
-            else:
-                xmin, xmax, ymin, ymax = nums
-            if projection_horz is None or projection_horz.to_epsg() == _WGS84_EPSG:
-                wgs84_bbox = (xmin, xmax, ymin, ymax)
-            else:
-                wgs84_bbox = dem_geom.get_wgs84_bounding_box(
-                    (xmin, xmax, ymin, ymax),
-                    dem_horz_reference_frame=projection_horz,
-                )
-        except ValueError:
-            pass  # not numeric — fall through to file path handling
-
-    if wgs84_bbox is None:
-        # Treat tokens as file paths (glob-expand them).
-        expanded = []
-        for token in bbox_or_files:
-            # A user-supplied pattern, possibly absolute, which Path.glob rejects.
-            matches = glob.glob(token)  # noqa: PTH207
-            expanded.extend(matches or [token])
-
-        missing = [
-            f for f in expanded if not Path(dem_source.dem_file_path(f)).exists()
-        ]
-        if missing:
-            raise click.ClickException(
-                "Files not found (and input is not a valid 4-value bbox): "
-                + ", ".join(missing),
-            )
-
-        wgs84_bbox, geometry = _dissolve_region_files(
-            expanded,
-            variable=variable,
-            projection_horz=projection_horz,
-        )
-
-    # --- Parse dates and classes ---
     db = is2db_mod.IS2Database()
-
-    try:
-        tmin = db.convert_date_to_yyyymmdd(date_start)
-        tmax = db.convert_date_to_yyyymmdd(date_end)
-    except Exception as exc:
-        msg = f"Could not parse date: {exc}"
-        raise click.ClickException(msg) from exc
-
-    if tmin >= tmax:
-        msg = f"--date-start ({tmin}) must be before --date-end ({tmax})."
-        raise click.ClickException(msg)
-
-    # Check ATL24 date cutoff.
-    atl24_cutoff = int(db.config.atl24_date_cutoff)
-    if tmax > atl24_cutoff:
-        c = str(atl24_cutoff)
-        cutoff_str = f"{c[:4]}-{c[4:6]}-{c[6:]}"
-        t = str(tmax)
-        tmax_str = f"{t[:4]}-{t[4:6]}-{t[6:]}"
-        click.echo(
-            "WARNING: As of this version of IVERT, ATL24 bathymetry data is not "
-            f"available after {cutoff_str}. Data downloaded after that date will lack "
-            "bathymetry classifications (photon classes 40/41).\n"
-            f"Your current request ends at {tmax_str}.\n"
-            "You may update this cutoff date via 'ivert options "
-            "atl24_date_cutoff=YYYYMMDD' to suppress these warnings if a newer ATL24 "
-            "version has been released.",
-            err=True,
-        )
-        if not force and not click.confirm(
-            "\nContinue with the download anyway?",
-            default=False,
-        ):
-            raise click.Abort
+    tmin, tmax = _parse_date_range(
+        db,
+        date_start,
+        date_end,
+        start_option="--date-start",
+        end_option="--date-end",
+    )
+    _confirm_past_atl24_cutoff(db, tmax, force=force)
 
     class_list = tuple(int(c) for c in classes.split("/"))
 
@@ -1359,23 +1289,143 @@ def database_download(
         geometry=geometry,
     )
 
-    # A part that failed left a hole in the region the user asked for, so the
-    # command has not done what it was told even when other parts succeeded.
-    # Anything already downloaded is saved and is not re-fetched on a re-run.
-    if summary.parts_failed:
-        if summary.parts_failed == summary.parts_attempted:
-            msg = (
-                "The download failed. No ICESat-2 data was retrieved. See the errors "
-                "above; re-running the same command will retry."
-            )
-            raise click.ClickException(msg)
+    _raise_for_failed_parts(summary)
+
+
+def _download_region(
+    bbox_or_files: tuple[str, ...],
+    *,
+    projection_horz: "pyproj.CRS | None",
+    variable: str | None,
+    wsen: bool,
+) -> "tuple[BBox, BaseGeometry | None]":
+    """Return the WGS84 bbox, and the area if files gave one, of a download's region.
+
+    The region is a 4-value bounding box (slash-separated or not), or files whose
+    footprints together make the area.
+
+    Raises:
+        click.ClickException: if it's neither 4 numbers nor existing files.
+
+    """
+    values = [v for token in bbox_or_files for v in token.split("/")]
+    bbox = _bbox_from_values(values, projection_horz or "EPSG:4326", wsen=wsen)
+    if bbox is not None:
+        return bbox, None
+
+    # Treat tokens as file paths (glob-expand them).
+    from ivert.utils import dem_source  # noqa: PLC0415 - slow import
+
+    expanded = []
+    for token in bbox_or_files:
+        # A user-supplied pattern, possibly absolute, which Path.glob rejects.
+        expanded.extend(glob.glob(token) or [token])  # noqa: PTH207
+    missing = [f for f in expanded if not Path(dem_source.dem_file_path(f)).exists()]
+    if missing:
+        raise click.ClickException(
+            "Files not found (and input is not a valid 4-value bbox): "
+            + ", ".join(missing),
+        )
+    return _dissolve_region_files(
+        expanded,
+        variable=variable,
+        projection_horz=projection_horz,
+    )
+
+
+def _parse_date_range(
+    db: "IS2Database",
+    date_start: str | None,
+    date_end: str | None,
+    *,
+    start_option: str = "--start-date",
+    end_option: str = "--end-date",
+) -> tuple[int, int]:
+    """Return two date options as YYYYMMDD (tmin, tmax); a date not given is open.
+
+    The option names are the command's own, for the error messages.
+
+    Raises:
+        click.ClickException: if a date can't be read, or tmin isn't before tmax.
+
+    """
+    try:
+        tmin = (
+            _EXPORT_DATE_MIN
+            if date_start is None
+            else db.convert_date_to_yyyymmdd(date_start)
+        )
+        tmax = (
+            _EXPORT_DATE_MAX
+            if date_end is None
+            else db.convert_date_to_yyyymmdd(date_end)
+        )
+    except Exception as exc:
+        msg = f"Could not parse date: {exc}"
+        raise click.ClickException(msg) from exc
+    if tmin >= tmax:
+        msg = f"{start_option} ({tmin}) must be before {end_option} ({tmax})."
+        raise click.ClickException(msg)
+    return tmin, tmax
+
+
+def _confirm_past_atl24_cutoff(db: "IS2Database", tmax: int, *, force: bool) -> None:
+    """Warn when a download runs past the ATL24 cutoff, and ask unless forced.
+
+    Raises:
+        click.Abort: if the user declines.
+
+    """
+    atl24_cutoff = int(db.config.atl24_date_cutoff)
+    if tmax <= atl24_cutoff:
+        return
+    c = str(atl24_cutoff)
+    cutoff_str = f"{c[:4]}-{c[4:6]}-{c[6:]}"
+    t = str(tmax)
+    tmax_str = f"{t[:4]}-{t[4:6]}-{t[6:]}"
+    click.echo(
+        "WARNING: As of this version of IVERT, ATL24 bathymetry data is not "
+        f"available after {cutoff_str}. Data downloaded after that date will lack "
+        "bathymetry classifications (photon classes 40/41).\n"
+        f"Your current request ends at {tmax_str}.\n"
+        "You may update this cutoff date via 'ivert options "
+        "atl24_date_cutoff=YYYYMMDD' to suppress these warnings if a newer ATL24 "
+        "version has been released.",
+        err=True,
+    )
+    if not force and not click.confirm(
+        "\nContinue with the download anyway?",
+        default=False,
+    ):
+        raise click.Abort
+
+
+def _raise_for_failed_parts(summary: "DownloadSummary") -> None:
+    """Fail the command if any part of the download failed.
+
+    A part that failed left a hole in the region the user asked for, so the
+    command has not done what it was told even when other parts succeeded.
+    Anything already downloaded is saved and is not re-fetched on a re-run.
+
+    Raises:
+        click.ClickException: saying how much of the download failed.
+
+    """
+    if not summary.parts_failed:
+        return
+    if summary.parts_failed == summary.parts_attempted:
         msg = (
-            f"{summary.parts_failed} of {summary.parts_attempted} parts of the "
-            f"requested region failed to download. The {summary.granules_added} "
-            "granule(s) that did download are saved; re-running the same command "
-            "will retry only the parts that are still missing."
+            "The download failed. No ICESat-2 data was retrieved. See the errors "
+            "above; re-running the same command will retry."
         )
         raise click.ClickException(msg)
+    msg = (
+        f"{summary.parts_failed} of {summary.parts_attempted} parts of the "
+        f"requested region failed to download. The {summary.granules_added} "
+        "granule(s) that did download are saved; re-running the same command "
+        "will retry only the parts that are still missing."
+    )
+    raise click.ClickException(msg)
 
 
 # Formats offered by 'ivert database convert' (a subset of export_vector's
@@ -1534,7 +1584,7 @@ def _dissolve_region_files(
 
 def _bbox_from_values(
     values: list[str],
-    projection: str,
+    projection: "str | pyproj.CRS",
     *,
     wsen: bool,
 ) -> tuple | None:
@@ -1557,7 +1607,7 @@ def _bbox_from_values(
         # W/E/S/N → xmin, xmax, ymin, ymax
         xmin, xmax, ymin, ymax = nums
 
-    if projection.upper() in ("EPSG:4326", "4326"):
+    if str(projection).upper() in ("EPSG:4326", "4326"):
         return (xmin, xmax, ymin, ymax)
 
     from ivert.utils import dem_geom  # noqa: PLC0415 - slow import
@@ -1906,17 +1956,7 @@ def database_convert(
     date_filtering = date_start is not None or date_end is not None
     tmin, tmax = _EXPORT_DATE_MIN, _EXPORT_DATE_MAX
     if date_filtering:
-        try:
-            if date_start is not None:
-                tmin = db.convert_date_to_yyyymmdd(date_start)
-            if date_end is not None:
-                tmax = db.convert_date_to_yyyymmdd(date_end)
-        except Exception as exc:
-            msg = f"Could not parse date: {exc}"
-            raise click.ClickException(msg) from exc
-        if tmin >= tmax:
-            msg = f"--start-date ({tmin}) must be before --end-date ({tmax})."
-            raise click.ClickException(msg)
+        tmin, tmax = _parse_date_range(db, date_start, date_end)
 
     # --- A single .nc file is read straight off disk, with no database lookup. ---
     # Only the "index" and "granule" kinds have a path.
@@ -2196,53 +2236,11 @@ def database_dump(
 
     date_range = None
     if date_start is not None or date_end is not None:
-        try:
-            tmin = (
-                db.convert_date_to_yyyymmdd(date_start)
-                if date_start is not None
-                else _EXPORT_DATE_MIN
-            )
-            tmax = (
-                db.convert_date_to_yyyymmdd(date_end)
-                if date_end is not None
-                else _EXPORT_DATE_MAX
-            )
-        except Exception as exc:
-            msg = f"Could not parse date: {exc}"
-            raise click.ClickException(msg) from exc
-        if tmin >= tmax:
-            msg = f"--start-date ({tmin}) must be before --end-date ({tmax})."
-            raise click.ClickException(msg)
-        date_range = (tmin, tmax)
+        date_range = _parse_date_range(db, date_start, date_end)
 
-    default_name = (
-        f"ivert_database_{datetime.datetime.now(datetime.UTC).strftime('%Y%m%d')}.zip"
-    )
-    if output is None:
-        archive_path = Path.cwd() / default_name
-    else:
-        archive_path = output
-        if archive_path.is_dir():
-            archive_path /= default_name
-        elif not archive_path.suffix:
-            archive_path = archive_path.with_name(archive_path.name + ".zip")
-    archive_path = absolute_path(archive_path)
-    if archive_path.exists() and not overwrite:
-        msg = f"{archive_path} already exists. Use -ow/--overwrite to replace it."
-        raise click.ClickException(msg)
-
-    # Warn before a very large dump, from the index's photon counts.
-    gdf = db.open_gdf()
-    if gdf is not None and len(gdf) > 0 and not force:
-        n_photons = int(gdf["numphotons"].sum())
-        if n_photons >= _EXPORT_WARN_PHOTON_THRESHOLD and rects is None:
-            click.echo(
-                f"WARNING: The database holds ~{n_photons:,} photons in "
-                f"{len(gdf):,} granule files; the archive may be very large.",
-                err=True,
-            )
-            if not click.confirm("\nContinue with the dump anyway?", default=False):
-                raise click.Abort
+    archive_path = _dump_archive_path(output, overwrite=overwrite)
+    if rects is None and not force:
+        _confirm_large_dump(db)
 
     try:
         result = database_archive.dump(archive_path, rects, date_range, db=db)
@@ -2252,6 +2250,56 @@ def database_dump(
     logger.info("%s", result.summary)
     size_mb = Path(result.path).stat().st_size / 1e6
     click.echo(f"Wrote {result.path} ({size_mb:,.1f} MB).")
+
+
+def _dump_archive_path(output: Path | None, *, overwrite: bool) -> Path:
+    """Return the archive 'ivert database dump -o' names, made absolute.
+
+    No -o, or a directory, means ivert_database_<YYYYMMDD>.zip there, and '.zip'
+    is added to a name without a suffix.
+
+    Raises:
+        click.ClickException: if the archive exists and overwrite isn't set.
+
+    """
+    default_name = (
+        f"ivert_database_{datetime.datetime.now(datetime.UTC).strftime('%Y%m%d')}.zip"
+    )
+    if output is None:
+        archive_path = Path.cwd() / default_name
+    elif output.is_dir():
+        archive_path = output / default_name
+    elif not output.suffix:
+        archive_path = output.with_name(output.name + ".zip")
+    else:
+        archive_path = output
+    archive_path = absolute_path(archive_path)
+    if archive_path.exists() and not overwrite:
+        msg = f"{archive_path} already exists. Use -ow/--overwrite to replace it."
+        raise click.ClickException(msg)
+    return archive_path
+
+
+def _confirm_large_dump(db: "IS2Database") -> None:
+    """Warn before dumping a very large database whole, from its photon counts.
+
+    Raises:
+        click.Abort: if the user declines.
+
+    """
+    gdf = db.open_gdf()
+    if gdf is None or len(gdf) == 0:
+        return
+    n_photons = int(gdf["numphotons"].sum())
+    if n_photons < _EXPORT_WARN_PHOTON_THRESHOLD:
+        return
+    click.echo(
+        f"WARNING: The database holds ~{n_photons:,} photons in "
+        f"{len(gdf):,} granule files; the archive may be very large.",
+        err=True,
+    )
+    if not click.confirm("\nContinue with the dump anyway?", default=False):
+        raise click.Abort
 
 
 _OVERLAP_CHOICES = {
@@ -2311,17 +2359,7 @@ def database_restore(archive: Path, *, on_overlap: str | None, dry_run: bool) ->
 
     mode = on_overlap
     if plan.overlaps:
-        click.echo(
-            f"\n{len(plan.overlaps):,} of the archive's query boxes overlap data "
-            "already in the database:",
-        )
-        for c in plan.overlaps[:_MAX_OVERLAPS_LISTED]:
-            click.echo(
-                f"  W {c[0]:g} to E {c[1]:g}, S {c[2]:g} to N {c[3]:g}, "
-                f"dates {c[4]} to {c[5]}",
-            )
-        if len(plan.overlaps) > _MAX_OVERLAPS_LISTED:
-            click.echo(f"  ... and {len(plan.overlaps) - _MAX_OVERLAPS_LISTED:,} more")
+        _echo_overlaps(plan.overlaps)
     elif not dry_run:
         mode = "all"
 
@@ -2330,22 +2368,7 @@ def database_restore(archive: Path, *, on_overlap: str | None, dry_run: bool) ->
         return
 
     if mode is None:
-        if not sys.stdin.isatty():
-            msg = (
-                "The archive overlaps data already in the database. Rerun with "
-                "-oo/--on-overlap all|keep|replace|cancel to say what to do."
-            )
-            raise click.UsageError(msg)
-        click.echo("\nWhat should be done where they overlap?")
-        for number, (name, text) in _OVERLAP_CHOICES.items():
-            click.echo(f"  {number}) {name}: {text}")
-        choice = click.prompt(
-            "Choose",
-            type=click.IntRange(1, len(_OVERLAP_CHOICES)),
-            default=4,
-        )
-        mode = _OVERLAP_CHOICES[choice][0]
-
+        mode = _ask_overlap_mode()
     if mode == "cancel":
         click.echo("Nothing was imported.")
         return
@@ -2354,6 +2377,50 @@ def database_restore(archive: Path, *, on_overlap: str | None, dry_run: bool) ->
         result = database_archive.restore(plan, mode)
     except database_archive.ArchiveError as exc:
         raise click.ClickException(str(exc)) from exc
+    click.echo(_restore_report(archive, mode, result))
+
+
+def _echo_overlaps(overlaps: list) -> None:
+    """List where an archive overlaps the database, the first few in full."""
+    click.echo(
+        f"\n{len(overlaps):,} of the archive's query boxes overlap data "
+        "already in the database:",
+    )
+    for c in overlaps[:_MAX_OVERLAPS_LISTED]:
+        click.echo(
+            f"  W {c[0]:g} to E {c[1]:g}, S {c[2]:g} to N {c[3]:g}, "
+            f"dates {c[4]} to {c[5]}",
+        )
+    if len(overlaps) > _MAX_OVERLAPS_LISTED:
+        click.echo(f"  ... and {len(overlaps) - _MAX_OVERLAPS_LISTED:,} more")
+
+
+def _ask_overlap_mode() -> str:
+    """Ask the user what 'ivert database restore' should do where data overlaps.
+
+    Raises:
+        click.UsageError: if there is no terminal to ask on.
+
+    """
+    if not _stdin_is_interactive():
+        msg = (
+            "The archive overlaps data already in the database. Rerun with "
+            "-oo/--on-overlap all|keep|replace|cancel to say what to do."
+        )
+        raise click.UsageError(msg)
+    click.echo("\nWhat should be done where they overlap?")
+    for number, (name, text) in _OVERLAP_CHOICES.items():
+        click.echo(f"  {number}) {name}: {text}")
+    choice = click.prompt(
+        "Choose",
+        type=click.IntRange(1, len(_OVERLAP_CHOICES)),
+        default=4,
+    )
+    return _OVERLAP_CHOICES[choice][0]
+
+
+def _restore_report(archive: Path, mode: str, result: "RestoreResult") -> str:
+    """Return the line saying what 'ivert database restore' did."""
     parts = [f"{result.granules_added:,} granule files added"]
     if result.granules_clipped:
         parts.append(f"{result.granules_clipped:,} clipped to what the database lacked")
@@ -2365,9 +2432,9 @@ def database_restore(archive: Path, *, on_overlap: str | None, dry_run: bool) ->
             f"({result.existing_clipped:,} of them kept outside the archive's area)",
         )
     parts.append(f"{result.landmasks_added:,} landmask tiles added")
-    click.echo(
+    return (
         f"Restored {Path(archive).name} ({mode}): {'; '.join(parts)}. "
-        f"The database index now lists {result.n_index_records:,} granule files.",
+        f"The database index now lists {result.n_index_records:,} granule files."
     )
 
 
