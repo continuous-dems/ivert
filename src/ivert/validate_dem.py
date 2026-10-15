@@ -18,12 +18,13 @@ import os
 import signal
 import sys
 import time
-from collections.abc import MutableMapping
+from collections.abc import Iterable, MutableMapping
 from multiprocessing import shared_memory
 from pathlib import Path
 
 import geopandas
 import numpy as np
+import numpy.typing as npt
 import pandas as pd
 import psutil
 import pyproj
@@ -83,7 +84,7 @@ _KB = 1000
 _PERCENTILES = np.array([0.10, 0.90]) * 100.0
 
 
-def _pandas_mean(values):
+def _pandas_mean(values: npt.NDArray) -> np.floating:
     """Return values.mean() exactly as pandas' Series.mean() computes it (no NaNs).
 
     A float array is summed in its own dtype and divided by a count of that dtype;
@@ -95,7 +96,7 @@ def _pandas_mean(values):
     return values.sum(dtype=np.float64) / np.float64(len(values))
 
 
-def _pandas_std(values):
+def _pandas_std(values: npt.NDArray) -> np.floating | float:
     """Return values.std() (ddof=1) exactly as pandas' Series.std() gives it (no NaNs).
 
     The variance is accumulated in float64 and, for a float array, cast back to
@@ -146,7 +147,13 @@ def read_dataframe_file(df_filename: str | Path) -> pd.DataFrame:
     return dataframe
 
 
-def _check_dem_geotransform(dem_name, xstep, ystep, xrot, yrot) -> None:
+def _check_dem_geotransform(
+    dem_name: str,
+    xstep: float,
+    ystep: float,
+    xrot: float,
+    yrot: float,
+) -> None:
     """Raise if a DEM's geotransform is rotated or not north-up.
 
     Every photon's (i, j) cell index and every grid-cell bounding box is computed
@@ -170,7 +177,11 @@ def _check_dem_geotransform(dem_name, xstep, ystep, xrot, yrot) -> None:
         )
 
 
-def _check_cell_validation_params(photon_limit, min_photons, num_subdivisions) -> None:
+def _check_cell_validation_params(
+    photon_limit: int | None,
+    min_photons: int,
+    num_subdivisions: int,
+) -> None:
     """Raise if the per-cell validation parameters cannot produce usable results.
 
     Checked once up front rather than per grid cell: none of these vary over the
@@ -204,11 +215,11 @@ def _check_cell_validation_params(photon_limit, min_photons, num_subdivisions) -
 
 
 def _check_chunk_payload(
-    dem_i_list,
-    dem_j_list,
-    dem_elev_list,
-    bbox_lists,
-    ph_ranges,
+    dem_i_list: npt.NDArray,
+    dem_j_list: npt.NDArray,
+    dem_elev_list: npt.NDArray,
+    bbox_lists: tuple[npt.NDArray | None, ...],
+    ph_ranges: tuple[npt.NDArray | None, ...],
 ) -> None:
     """Raise if the arrays in one work chunk disagree in length.
 
@@ -2584,7 +2595,7 @@ def _apply_coverage_filter(
     return results_df[keep].copy()
 
 
-def _format_stat(value) -> str:
+def _format_stat(value: float | np.floating) -> str:
     """Format a float for the summary stats file with reasonable precision.
 
     Uses 2 decimal places, unless the magnitude is below 0.10 (but non-zero), in
@@ -2619,7 +2630,7 @@ def _format_file_size(num_bytes: int) -> str:
     return f"{size:.2f} {unit}"
 
 
-def log_written_files(filenames) -> None:
+def log_written_files(filenames: Iterable[str | Path | None]) -> None:
     """Log a list of written output files, grouped by folder, with their sizes.
 
     Each folder is named once as 'In <folder>:', followed by one line per file
