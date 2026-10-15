@@ -88,19 +88,7 @@ def get_dem_reference_frame_from_user_input(
     else:
         crs_obj = pyproj.CRS.from_user_input(crs)
 
-    if crs_obj is None:
-        horz, vert = None, None
-    elif crs_obj.is_compound:
-        horz, vert = crs_obj.sub_crs_list
-    elif len(crs_obj.axis_info) == _AXES_3D:
-        horz, vert = crs_obj, crs_obj
-    elif crs_obj.is_vertical:
-        horz, vert = None, crs_obj
-    else:
-        horz, vert = crs_obj, None
-    # A 3D CRS is its own vertical reference, so leave it as it is.
-    if horz is not vert:
-        horz = _epsg_equivalent(horz)
+    horz, vert = _split_horz_vert(crs_obj)
 
     choice_letter = vert_horz_or_both.strip().lower()[0]
     if choice_letter == "b":
@@ -114,6 +102,26 @@ def get_dem_reference_frame_from_user_input(
         "Must begin with 'h', 'v', or 'b'."
     )
     raise ValueError(msg)
+
+
+def _split_horz_vert(
+    crs_obj: pyproj.CRS | None,
+) -> tuple[pyproj.CRS | None, pyproj.CRS | None]:
+    """Split a CRS into its (horizontal, vertical) parts, either of which may be None.
+
+    A 3D CRS is its own vertical reference, so it is returned as both, unchanged.
+    """
+    if crs_obj is None:
+        return None, None
+    if crs_obj.is_compound:
+        horz, vert = crs_obj.sub_crs_list
+    elif len(crs_obj.axis_info) == _AXES_3D:
+        return crs_obj, crs_obj
+    elif crs_obj.is_vertical:
+        return None, crs_obj
+    else:
+        horz, vert = crs_obj, None
+    return _epsg_equivalent(horz), vert
 
 
 @typing.overload
@@ -258,9 +266,55 @@ def get_wgs84_bounding_box(
         TypeError: if the input type is unhandled.
 
     """
-    polygon = None
-    horz_crs: pyproj.CRS | tuple | None = None
+    polygon, horz_crs = _polygon_and_horz_crs(
+        polygon_bbox_or_dem_fname,
+        dem_horz_reference_frame,
+    )
 
+    if horz_crs is None:
+        msg = "dem_horz_reference_frame could not be resolved."
+        raise ValueError(msg)
+
+    if not isinstance(polygon, shapely.geometry.Polygon):
+        msg = f"Expected a shapely Polygon, got {type(polygon).__name__}."
+        raise TypeError(msg)
+    if not isinstance(horz_crs, pyproj.CRS):
+        msg = f"Expected a pyproj.CRS, got {type(horz_crs).__name__}."
+        raise TypeError(msg)
+    if horz_crs.is_compound:
+        msg = f"Expected a horizontal CRS, got the compound CRS {horz_crs.name}."
+        raise RuntimeError(msg)
+
+    wgs84_crs = pyproj.CRS.from_user_input("EPSG:4326")
+
+    if horz_crs.equals(wgs84_crs):
+        b = polygon.bounds  # (xmin, ymin, xmax, ymax)
+        return b[0], b[2], b[1], b[3]  # → (xmin, xmax, ymin, ymax)
+
+    transformer = pyproj.Transformer.from_crs(
+        horz_crs,
+        wgs84_crs,
+        always_xy=True,
+    )
+    polygon_wgs84 = shapely.geometry.Polygon(
+        shell=transformer.itransform(polygon.exterior.coords[:]),
+    )
+
+    b = polygon_wgs84.bounds  # (xmin, ymin, xmax, ymax)
+    return b[0], b[2], b[1], b[3]  # → (xmin, xmax, ymin, ymax)
+
+
+def _polygon_and_horz_crs(
+    polygon_bbox_or_dem_fname: shapely.geometry.Polygon | list | tuple | str,
+    dem_horz_reference_frame: str | pyproj.CRS | None,
+) -> tuple[shapely.geometry.Polygon, pyproj.CRS | tuple | None]:
+    """Return get_wgs84_bounding_box()'s input as a polygon and its horizontal CRS.
+
+    Raises:
+        FileNotFoundError: if a filename is given but does not exist.
+        TypeError: if the input type is unhandled.
+
+    """
     if isinstance(polygon_bbox_or_dem_fname, shapely.geometry.Polygon):
         polygon = shapely.Polygon(polygon_bbox_or_dem_fname.exterior.coords[:])
         horz_crs = get_dem_reference_frame_from_user_input(
@@ -311,37 +365,7 @@ def get_wgs84_bounding_box(
         )
         raise TypeError(msg)
 
-    if horz_crs is None:
-        msg = "dem_horz_reference_frame could not be resolved."
-        raise ValueError(msg)
-
-    if not isinstance(polygon, shapely.geometry.Polygon):
-        msg = f"Expected a shapely Polygon, got {type(polygon).__name__}."
-        raise TypeError(msg)
-    if not isinstance(horz_crs, pyproj.CRS):
-        msg = f"Expected a pyproj.CRS, got {type(horz_crs).__name__}."
-        raise TypeError(msg)
-    if horz_crs.is_compound:
-        msg = f"Expected a horizontal CRS, got the compound CRS {horz_crs.name}."
-        raise RuntimeError(msg)
-
-    wgs84_crs = pyproj.CRS.from_user_input("EPSG:4326")
-
-    if horz_crs.equals(wgs84_crs):
-        b = polygon.bounds  # (xmin, ymin, xmax, ymax)
-        return b[0], b[2], b[1], b[3]  # → (xmin, xmax, ymin, ymax)
-
-    transformer = pyproj.Transformer.from_crs(
-        horz_crs,
-        wgs84_crs,
-        always_xy=True,
-    )
-    polygon_wgs84 = shapely.geometry.Polygon(
-        shell=transformer.itransform(polygon.exterior.coords[:]),
-    )
-
-    b = polygon_wgs84.bounds  # (xmin, ymin, xmax, ymax)
-    return b[0], b[2], b[1], b[3]  # → (xmin, xmax, ymin, ymax)
+    return polygon, horz_crs
 
 
 def _comparable_reference(reference: pyproj.CRS | str | int) -> pyproj.CRS | str:

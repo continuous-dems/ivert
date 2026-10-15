@@ -362,3 +362,49 @@ def test_subsets_the_prefetch_never_reported_are_still_classified(
 def test_without_a_prefetch_the_given_order_is_kept():
     """Without fork there is no prefetch, and subsets go in the order given."""
     assert list(is2db.IS2Database._as_ready(["a", "b"], None)) == ["a", "b"]
+
+
+# ---------------------------------------------------------------------------
+# The worker pool on its own
+# ---------------------------------------------------------------------------
+def _fake_worker(job):
+    """Stands in for _classify_in_worker: one record naming the worker's process."""
+    index, kwargs = job
+    if kwargs["h5_fn"] == "fails":
+        msg = "classification blew up"
+        raise RuntimeError(msg)
+    return index, kwargs["h5_fn"], [{"pid": os.getpid()}], None
+
+
+@forks
+def test_the_pool_hands_every_result_to_take(tmp_path, monkeypatch):
+    """Each job's result reaches the callback, from a process other than this one."""
+    monkeypatch.setattr(is2db, "_start_classify_worker", lambda *_args: None)
+    monkeypatch.setattr(is2db, "_classify_in_worker", _fake_worker)
+    taken = []
+
+    _db(tmp_path)._classify_in_pool(
+        ((i, {"h5_fn": f"granule_{i}"}) for i in range(2, 6)),
+        2,
+        lambda *result: taken.append(result),
+    )
+
+    assert sorted((index, h5_fn) for index, h5_fn, _, _ in taken) == [
+        (i, f"granule_{i}") for i in range(2, 6)
+    ]
+    pids = {metas[0]["pid"] for _, _, metas, _ in taken}
+    assert os.getpid() not in pids
+
+
+@forks
+def test_a_worker_error_is_raised_here(tmp_path, monkeypatch):
+    """An unexpected error in a worker stops the pool and reaches the caller."""
+    monkeypatch.setattr(is2db, "_start_classify_worker", lambda *_args: None)
+    monkeypatch.setattr(is2db, "_classify_in_worker", _fake_worker)
+
+    with pytest.raises(RuntimeError, match="classification blew up"):
+        _db(tmp_path)._classify_in_pool(
+            iter([(2, {"h5_fn": "granule_2"}), (3, {"h5_fn": "fails"})]),
+            2,
+            lambda *_result: None,
+        )

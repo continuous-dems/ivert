@@ -38,18 +38,20 @@ def get_data_from_h5_or_list(
 ) -> pd.DataFrame:
     """Return the data from one HDF5 results file, or from a list of them."""
     if isinstance(h5_name_or_list, (str, Path)):
-        data = pd.read_hdf(h5_name_or_list)
-        if include_filenames:
-            if orig_filenames is None:
-                data["filename"] = Path(h5_name_or_list).name
-            else:
-                if not isinstance(orig_filenames, str):
-                    msg = "orig_filenames must be a string when h5_name_or_list is one."
-                    raise TypeError(msg)
-                data["filename"] = dem_source.dem_display_name(orig_filenames)
+        if orig_filenames is not None and not isinstance(orig_filenames, str):
+            msg = "orig_filenames must be a string when h5_name_or_list is one."
+            raise TypeError(msg)
+        data = _read_results_file(
+            h5_name_or_list,
+            orig_filenames,
+            include_filenames=include_filenames,
+        )
 
     elif is_iterable(h5_name_or_list):
         logger.info("Reading %s h5 results files.", len(h5_name_or_list))
+        if orig_filenames is not None and not is_iterable(orig_filenames):
+            msg = "orig_filenames must be a list when h5_name_or_list is one."
+            raise TypeError(msg)
         data_list = []
 
         # 'disable=None' tells tqdm to draw the bar only when attached to a terminal,
@@ -62,22 +64,13 @@ def get_data_from_h5_or_list(
             ),
         ):
             if Path(h5_file).exists():
-                temp_data = pd.read_hdf(h5_file)
-                if include_filenames:
-                    if orig_filenames is None:
-                        temp_data["filename"] = Path(h5_file).name
-                    else:
-                        if not is_iterable(orig_filenames):
-                            msg = (
-                                "orig_filenames must be a list when h5_name_or_list "
-                                "is one."
-                            )
-                            raise TypeError(msg)
-                        temp_data["filename"] = dem_source.dem_display_name(
-                            orig_filenames[i],
-                        )
-
-                data_list.append(temp_data)
+                data_list.append(
+                    _read_results_file(
+                        h5_file,
+                        None if orig_filenames is None else orig_filenames[i],
+                        include_filenames=include_filenames,
+                    ),
+                )
 
         data = pd.concat(data_list)
     else:
@@ -89,6 +82,26 @@ def get_data_from_h5_or_list(
     if len(data) == 0:
         logger.info("No reliable results contained in list of results h5 files.")
 
+    return data
+
+
+def _read_results_file(
+    h5_file: str | Path,
+    orig_filename: str | None,
+    *,
+    include_filenames: bool,
+) -> pd.DataFrame:
+    """Read one HDF5 results file, adding a 'filename' column if asked to.
+
+    The column holds the display name of 'orig_filename', the DEM the results came
+    from, or the results file's own name when that isn't given.
+    """
+    data = pd.read_hdf(h5_file)
+    if include_filenames:
+        if orig_filename is None:
+            data["filename"] = Path(h5_file).name
+        else:
+            data["filename"] = dem_source.dem_display_name(orig_filename)
     return data
 
 

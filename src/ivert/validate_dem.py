@@ -1442,10 +1442,10 @@ def _resolve_dem_crs(
     """Return the DEM's (horizontal CRS, vertical reference), user settings applied.
 
     Horizontal: -p/--projection, else the file's. Vertical: -V/--vdatum, else the
-        vertical
-    part of -p/--projection, else the file's. Each override that differs from what it
-    replaces is logged as a warning. The vertical reference is a pyproj.CRS, or a
-    transformez reference ID such as 'vdatum:mllw' that pyproj can't represent.
+    vertical part of -p/--projection, else the file's. Each override that differs
+    from what it replaces is logged as a warning. The vertical reference is a
+    pyproj.CRS, or a transformez reference ID such as 'vdatum:mllw' that pyproj can't
+    represent.
 
     Raises:
         ValueError: if the DEM ends up with no horizontal CRS or no vertical datum, or a
@@ -1460,29 +1460,11 @@ def _resolve_dem_crs(
 
     horz = dem_geom.resolve_horizontal_crs(dem_name, file_horz_crs, proj_horz)
 
-    # Vertical.
-    vdatum_ref = None
-    if dem_vertical_datum is not None:
-        vdatum_ref = ivert.vdatum_lookup.resolve_vdatum(dem_vertical_datum)
-        if vdatum_ref is None:
-            msg = f"Unrecognised vertical datum {dem_vertical_datum!r}."
-            raise ValueError(msg)
-        if proj_vert is not None and not dem_geom.same_reference(vdatum_ref, proj_vert):
-            logger.warning(
-                "Using -V/--vdatum %s for %s in place of the vertical datum in "
-                "-p/--projection (%s).",
-                vdatum_ref,
-                dem_label,
-                proj_vert,
-            )
-
-    if vdatum_ref is not None:
-        user_vert, user_flag = vdatum_ref, "-V/--vdatum"
-    elif proj_vert is not None:
-        user_vert, user_flag = proj_vert, "-p/--projection"
-    else:
-        user_vert = None
-
+    user_vert, user_flag = _user_vertical_reference(
+        dem_label,
+        proj_vert,
+        dem_vertical_datum,
+    )
     if user_vert is None:
         if file_vert_crs is None:
             msg = (
@@ -1515,6 +1497,40 @@ def _resolve_dem_crs(
         msg = f"{user_flag} {user_vert} has no vertical datum."
         raise ValueError(msg)
     return horz, vert
+
+
+def _user_vertical_reference(
+    dem_label: str,
+    proj_vert: str | None,
+    dem_vertical_datum: str | int | None,
+) -> tuple[str | None, str]:
+    """Return the vertical reference the user gave, and the option that gave it.
+
+    -V/--vdatum wins over the vertical part of -p/--projection, with a warning when
+    the two differ. Returns (None, "") when the user gave neither.
+
+    Raises:
+        ValueError: if -V/--vdatum isn't a recognised vertical datum.
+
+    """
+    if dem_vertical_datum is None:
+        if proj_vert is None:
+            return None, ""
+        return proj_vert, "-p/--projection"
+
+    vdatum_ref = ivert.vdatum_lookup.resolve_vdatum(dem_vertical_datum)
+    if vdatum_ref is None:
+        msg = f"Unrecognised vertical datum {dem_vertical_datum!r}."
+        raise ValueError(msg)
+    if proj_vert is not None and not dem_geom.same_reference(vdatum_ref, proj_vert):
+        logger.warning(
+            "Using -V/--vdatum %s for %s in place of the vertical datum in "
+            "-p/--projection (%s).",
+            vdatum_ref,
+            dem_label,
+            proj_vert,
+        )
+    return vdatum_ref, "-V/--vdatum"
 
 
 def _output_crs(
@@ -1716,21 +1732,7 @@ def _compute_photon_overlap(
         raise
 
     if exclude_zones:
-        exclude_geom = _resolve_exclude_geometry(exclude_zones, dem_epsg_str)
-        if exclude_geom is not None:
-            excluded_mask = (
-                geopandas.GeoSeries(
-                    geopandas.points_from_xy(photon_df["dem_x"], photon_df["dem_y"]),
-                )
-                .within(exclude_geom)
-                .to_numpy()
-            )
-            if excluded_mask.any():
-                logger.info(
-                    "%s photons excluded by exclusion zone(s).",
-                    f"{np.count_nonzero(excluded_mask):,}",
-                )
-            photon_df = photon_df[~excluded_mask]
+        photon_df = _drop_excluded_photons(photon_df, exclude_zones, dem_epsg_str)
 
     xstart, xstep, xrot, ystart, yrot, ystep = dem_ds.transform.to_gdal()
     _check_dem_geotransform(dem_ds.name, xstep, ystep, xrot, yrot)
@@ -1823,6 +1825,33 @@ def _compute_photon_overlap(
         n,
         coverage_coords,
     )
+
+
+def _drop_excluded_photons(
+    photon_df: pd.DataFrame,
+    exclude_zones: list,
+    dem_epsg_str: str,
+) -> pd.DataFrame:
+    """Return photon_df without the photons inside any of the exclusion zones.
+
+    The zones are compared against the photons' DEM-space 'dem_x' and 'dem_y'.
+    """
+    exclude_geom = _resolve_exclude_geometry(exclude_zones, dem_epsg_str)
+    if exclude_geom is None:
+        return photon_df
+    excluded_mask = (
+        geopandas.GeoSeries(
+            geopandas.points_from_xy(photon_df["dem_x"], photon_df["dem_y"]),
+        )
+        .within(exclude_geom)
+        .to_numpy()
+    )
+    if excluded_mask.any():
+        logger.info(
+            "%s photons excluded by exclusion zone(s).",
+            f"{np.count_nonzero(excluded_mask):,}",
+        )
+    return photon_df[~excluded_mask]
 
 
 def _run_photon_level_validation(
@@ -2272,31 +2301,17 @@ def _write_validation_outputs(
     )
 
     if outliers_sd_threshold is not None:
-        if not isinstance(outliers_sd_threshold, (int, float)):
-            msg = "outliers_sd_threshold must be a number."
-            raise TypeError(msg)
-        diff_mean = results_dataframe["diff_mean"]
-        meanval, stdval = diff_mean.mean(), diff_mean.std()
-        low_cutoff = meanval - (stdval * outliers_sd_threshold)
-        hi_cutoff = meanval + (stdval * outliers_sd_threshold)
-        results_dataframe = results_dataframe[
-            (diff_mean >= low_cutoff) & (diff_mean <= hi_cutoff)
-        ].copy()
-        logger.info(
-            "%s DEM cells after removing outliers.",
-            f"{len(results_dataframe):,}",
-        )
+        results_dataframe = _remove_outliers(results_dataframe, outliers_sd_threshold)
 
     if len(results_dataframe) == 0:
         logger.info("No valid results in results dataframe. No outputs computed.")
-        if empty_results_filename is not None:
-            empty_results_filename.write_text(_EMPTY_RESULTS_TEXT, encoding="utf-8")
-            logger.info(
-                "Created %s to indicate no data was returned here.",
-                empty_results_filename,
-            )
-            files_to_export.append(empty_results_filename)
-            shared_ret_values["empty_results_filename"] = empty_results_filename
+        _write_empty_results_marker(
+            empty_results_filename,
+            _EMPTY_RESULTS_TEXT,
+            "data",
+            shared_ret_values=shared_ret_values,
+            files_to_export=files_to_export,
+        )
         return files_to_export
 
     ext = results_dataframe_file.suffix.lower().strip()
@@ -2356,6 +2371,58 @@ def _write_validation_outputs(
 
     log_written_files(written_files)
     return files_to_export
+
+
+def _remove_outliers(
+    results_dataframe: pd.DataFrame,
+    outliers_sd_threshold: float,
+) -> pd.DataFrame:
+    """Return the cells whose 'diff_mean' is within the threshold's standard deviations.
+
+    Raises:
+        TypeError: if outliers_sd_threshold isn't a number.
+
+    """
+    if not isinstance(outliers_sd_threshold, (int, float)):
+        msg = "outliers_sd_threshold must be a number."
+        raise TypeError(msg)
+    diff_mean = results_dataframe["diff_mean"]
+    meanval, stdval = diff_mean.mean(), diff_mean.std()
+    low_cutoff = meanval - (stdval * outliers_sd_threshold)
+    hi_cutoff = meanval + (stdval * outliers_sd_threshold)
+    results_dataframe = results_dataframe[
+        (diff_mean >= low_cutoff) & (diff_mean <= hi_cutoff)
+    ].copy()
+    logger.info(
+        "%s DEM cells after removing outliers.",
+        f"{len(results_dataframe):,}",
+    )
+    return results_dataframe
+
+
+def _write_empty_results_marker(
+    empty_results_filename: Path | None,
+    text: str,
+    what: str,
+    *,
+    shared_ret_values: MutableMapping,
+    files_to_export: list[Path],
+) -> None:
+    """Write the file marking that a DEM gave no results, when one is wanted.
+
+    'what' finishes the log message "Created <file> to indicate no <what> was returned
+    here."
+    """
+    if empty_results_filename is None:
+        return
+    empty_results_filename.write_text(text, encoding="utf-8")
+    logger.info(
+        "Created %s to indicate no %s was returned here.",
+        empty_results_filename,
+        what,
+    )
+    files_to_export.append(empty_results_filename)
+    shared_ret_values["empty_results_filename"] = empty_results_filename
 
 
 def validate_dem_parallel(
@@ -2446,7 +2513,7 @@ def validate_dem_parallel(
     if early is not None:
         return early
 
-    files_to_export = []
+    files_to_export: list[Path] = []
 
     if icesat2_photon_database_obj is None:
         icesat2_photon_database_obj = ivert.icesat2_database_v2.IS2Database(
@@ -2465,28 +2532,25 @@ def validate_dem_parallel(
         dem_projection=dem_projection,
     )
 
-    bathy_filter_report = None
-    if fetch_result is not None and ivert.bathy_filters.BATHY_FLOOR_CLASS in classes:
-        fetch_result, bathy_filter_report = _filter_bathy_photons(
-            fetch_result,
-            bathy_filter_settings,
-            icesat2_photon_database_obj,
-            config,
-        )
+    fetch_result, bathy_filter_report = _filter_bathy_photons(
+        fetch_result,
+        classes,
+        bathy_filter_settings,
+        icesat2_photon_database_obj,
+        config,
+    )
 
+    no_results_text = (
+        Path(dem_source.dem_file_path(dem_name)).name + " had no ICESat-2 results."
+    )
     if fetch_result is None:
-        if empty_results_filename is not None:
-            empty_results_filename.write_text(
-                Path(dem_source.dem_file_path(dem_name)).name
-                + " had no ICESat-2 results.",
-                encoding="utf-8",
-            )
-            logger.info(
-                "Created %s to indicate no valid ICESat-2 data was returned here.",
-                empty_results_filename,
-            )
-            shared_ret_values["empty_results_filename"] = empty_results_filename
-            files_to_export.append(empty_results_filename)
+        _write_empty_results_marker(
+            empty_results_filename,
+            no_results_text,
+            "valid ICESat-2 data",
+            shared_ret_values=shared_ret_values,
+            files_to_export=files_to_export,
+        )
         return files_to_export
     dem_ds, dem_array, photon_df, dem_epsg_str, photon_src_epsg = fetch_result
 
@@ -2505,18 +2569,13 @@ def validate_dem_parallel(
         band_num=band_num,
     )
     if overlap_result is None:
-        if empty_results_filename is not None:
-            empty_results_filename.write_text(
-                Path(dem_source.dem_file_path(dem_name)).name
-                + " had no ICESat-2 results.",
-                encoding="utf-8",
-            )
-            logger.info(
-                "Created %s to indicate no data was returned here.",
-                empty_results_filename,
-            )
-            shared_ret_values["empty_results_filename"] = empty_results_filename
-            files_to_export.append(empty_results_filename)
+        _write_empty_results_marker(
+            empty_results_filename,
+            no_results_text,
+            "data",
+            shared_ret_values=shared_ret_values,
+            files_to_export=files_to_export,
+        )
         return files_to_export
     (
         photon_df,
@@ -2576,15 +2635,21 @@ def validate_dem_parallel(
 
 
 def _filter_bathy_photons(
-    fetch_result: _PhotonFetch,
+    fetch_result: _PhotonFetch | None,
+    classes: list[int] | tuple[int, ...],
     settings: ivert.bathy_filters.BathyFilterSettings | None,
     icesat2_photon_database_obj: ivert.icesat2_database_v2.IS2Database,
     config: ivert.utils.configfile.Config,
-) -> tuple[_PhotonFetch | None, ivert.bathy_filters.BathyFilterReport]:
+) -> tuple[_PhotonFetch | None, ivert.bathy_filters.BathyFilterReport | None]:
     """Run the bathymetry filters on the photons _fetch_photons returned.
 
     Returns (fetch_result, report). fetch_result becomes None if no photons are left.
+    When there are no photons, or 'classes' doesn't include the bathymetry floor
+    class, nothing is filtered and the report is None.
     """
+    if fetch_result is None or ivert.bathy_filters.BATHY_FLOOR_CLASS not in classes:
+        return fetch_result, None
+
     dem_ds, dem_array, photon_df, dem_epsg_str, photon_src_epsg = fetch_result
     if settings is None:
         settings = ivert.bathy_filters.BathyFilterSettings.from_config(config)
