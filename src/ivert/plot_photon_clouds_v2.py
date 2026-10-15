@@ -340,44 +340,76 @@ def _sample_dem_along_track(
         return None
 
     if target_vert is not None:
-        import ivert.transform_points as tp  # noqa: PLC0415 - slow import
-        from ivert.utils import dem_geom  # noqa: PLC0415 - slow import
-
-        try:
-            _, dem_vert = dem_geom.get_dem_reference_frame_from_file(dem_path)
-        except (
-            OSError,
-            ValueError,
-            rasterio.errors.RasterioError,
-            pyproj.exceptions.ProjError,
-        ):
-            dem_vert = None
-
-        if dem_vert is not None:
-            dem_vert_epsg = dem_vert.to_epsg()
-            if dem_vert_epsg is not None and str(dem_vert_epsg) != target_vert:
-                try:
-                    _, _, z_tx = tp.transform_points(
-                        dense_lons[valid],
-                        dense_lats[valid],
-                        z_dem[valid],
-                        src_epsg=f"EPSG:4326+{dem_vert_epsg}",
-                        dst_epsg=f"EPSG:4326+{target_vert}",
-                        cache_dir=cache_dir,
-                    )
-                    z_out = np.full(len(z_dem), np.nan)
-                    z_out[valid] = z_tx
-                    z_dem = z_out
-                    valid = np.isfinite(z_dem)
-                # As in _apply_vdatum_to_df: failures are open-ended, and the
-                # untransformed profile is still worth plotting.
-                except Exception as e:  # noqa: BLE001
-                    logger.warning("DEM vertical transform failed: %s", e)
+        z_dem = _dem_profile_to_vert(
+            dem_path,
+            dense_lons,
+            dense_lats,
+            z_dem,
+            target_vert=target_vert,
+            cache_dir=cache_dir,
+        )
+        valid = np.isfinite(z_dem)
 
     sort_idx = np.argsort(dense_atm[valid])
     valid_idx = np.where(valid)[0][sort_idx]
     label = Path(dem_path).stem
     return dense_atm[valid_idx] / 1000.0, z_dem[valid_idx], label
+
+
+def _dem_profile_to_vert(
+    dem_path: str,
+    lons: np.ndarray,
+    lats: np.ndarray,
+    z_dem: np.ndarray,
+    *,
+    target_vert: str,
+    cache_dir: str | None = None,
+) -> np.ndarray:
+    """Return a DEM profile's finite elevations transformed to the 'target_vert' EPSG.
+
+    The NaNs stay NaN. The profile comes back unchanged when the DEM's vertical
+    datum can't be read, has no EPSG code, is already 'target_vert', or the
+    transform fails.
+    """
+    import pyproj  # noqa: PLC0415 - slow import
+    import rasterio  # noqa: PLC0415 - slow import
+
+    import ivert.transform_points as tp  # noqa: PLC0415 - slow import
+    from ivert.utils import dem_geom  # noqa: PLC0415 - slow import
+
+    try:
+        _, dem_vert = dem_geom.get_dem_reference_frame_from_file(dem_path)
+    except (
+        OSError,
+        ValueError,
+        rasterio.errors.RasterioError,
+        pyproj.exceptions.ProjError,
+    ):
+        return z_dem
+    if dem_vert is None:
+        return z_dem
+    dem_vert_epsg = dem_vert.to_epsg()
+    if dem_vert_epsg is None or str(dem_vert_epsg) == target_vert:
+        return z_dem
+
+    valid = np.isfinite(z_dem)
+    try:
+        _, _, z_tx = tp.transform_points(
+            lons[valid],
+            lats[valid],
+            z_dem[valid],
+            src_epsg=f"EPSG:4326+{dem_vert_epsg}",
+            dst_epsg=f"EPSG:4326+{target_vert}",
+            cache_dir=cache_dir,
+        )
+    # As in _apply_vdatum_to_df: failures are open-ended, and the untransformed
+    # profile is still worth plotting.
+    except Exception as e:  # noqa: BLE001
+        logger.warning("DEM vertical transform failed: %s", e)
+        return z_dem
+    z_out = np.full(len(z_dem), np.nan)
+    z_out[valid] = z_tx
+    return z_out
 
 
 def _collect_dem_profiles(

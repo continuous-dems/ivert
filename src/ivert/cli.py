@@ -580,33 +580,41 @@ def _confirm_inherited_copy(
     )
 
 
+def _parse_option_assignment(assignment: str, config: Config) -> tuple[str, str]:
+    """Split a key=value argument of 'ivert options set' into (key, value).
+
+    The key is lowercased and must name a setting the user is allowed to change.
+
+    Raises:
+        click.UsageError: if there is no '=', or the key is read-only or unknown.
+
+    """
+    if "=" not in assignment:
+        msg = f"Invalid format '{assignment}'. Use option_name=value."
+        raise click.UsageError(msg)
+    key, _, value = assignment.partition("=")
+    key = key.strip().lower()
+    if key in _OPTIONS_EXCLUDED_KEYS:
+        msg = f"'{key}' is a read-only setting and cannot be changed."
+        raise click.UsageError(msg)
+    if key in _OPTIONS_READONLY_KEYS:
+        msg = (
+            f"'{key}' is a read-only setting and cannot be changed.\n"
+            f"  {_OPTIONS_READONLY_KEYS[key]}"
+        )
+        raise click.UsageError(msg)
+    if key not in config.option_names():
+        msg = (
+            f"Unknown setting '{key}'. Run 'ivert options list' to see valid settings."
+        )
+        raise click.UsageError(msg)
+    return key, value
+
+
 def _options_set_values(assignments: list[str], *, assume_yes: bool = False) -> None:
     """Write one or more key=value pairs to the user config file."""
     config = Config()
-
-    parsed = []
-    for assignment in assignments:
-        if "=" not in assignment:
-            msg = f"Invalid format '{assignment}'. Use option_name=value."
-            raise click.UsageError(msg)
-        key, _, value = assignment.partition("=")
-        key = key.strip().lower()
-        if key in _OPTIONS_EXCLUDED_KEYS:
-            msg = f"'{key}' is a read-only setting and cannot be changed."
-            raise click.UsageError(msg)
-        if key in _OPTIONS_READONLY_KEYS:
-            msg = (
-                f"'{key}' is a read-only setting and cannot be changed.\n"
-                f"  {_OPTIONS_READONLY_KEYS[key]}"
-            )
-            raise click.UsageError(msg)
-        if key not in config.option_names():
-            msg = (
-                f"Unknown setting '{key}'. Run 'ivert options list' to see valid "
-                "settings."
-            )
-            raise click.UsageError(msg)
-        parsed.append((key, value))
+    parsed = [_parse_option_assignment(a, config) for a in assignments]
 
     user_path = config.user_config_path
     if user_path is None:
@@ -1524,6 +1532,42 @@ def _dissolve_region_files(
     return (xmin, xmax, ymin, ymax), geometry
 
 
+def _bbox_from_values(
+    values: list[str],
+    projection: str,
+    *,
+    wsen: bool,
+) -> tuple | None:
+    """Return 4 numeric values as a WGS84 (xmin, xmax, ymin, ymax) bounding box.
+
+    The values are W/E/S/N, or W/S/E/N when 'wsen' is set, in 'projection'.
+    Returns None when they aren't 4 numbers.
+    """
+    if len(values) != _CLI_BBOX_VALUES:
+        return None
+    try:
+        nums = [float(v) for v in values]
+    except ValueError:
+        return None
+
+    if wsen:
+        # W/S/E/N → xmin, ymin, xmax, ymax
+        xmin, ymin, xmax, ymax = nums
+    else:
+        # W/E/S/N → xmin, xmax, ymin, ymax
+        xmin, xmax, ymin, ymax = nums
+
+    if projection.upper() in ("EPSG:4326", "4326"):
+        return (xmin, xmax, ymin, ymax)
+
+    from ivert.utils import dem_geom  # noqa: PLC0415 - slow import
+
+    return dem_geom.get_wgs84_bounding_box(
+        (xmin, xmax, ymin, ymax),
+        dem_horz_reference_frame=projection,
+    )
+
+
 def _resolve_export_target(
     tokens: list[str],
     projection: str,
@@ -1546,31 +1590,9 @@ def _resolve_export_target(
         values.extend(token.split("/"))
 
     # Try a 4-value numeric bounding box first.
-    if len(values) == _CLI_BBOX_VALUES:
-        try:
-            nums = [float(v) for v in values]
-        except ValueError:
-            nums = None
-
-        if nums is not None:
-            if wsen:
-                # W/S/E/N → xmin, ymin, xmax, ymax
-                xmin, ymin, xmax, ymax = nums
-            else:
-                # W/E/S/N → xmin, xmax, ymin, ymax
-                xmin, xmax, ymin, ymax = nums
-
-            if projection.upper() in ("EPSG:4326", "4326"):
-                bbox = (xmin, xmax, ymin, ymax)
-            else:
-                from ivert.utils import dem_geom  # noqa: PLC0415 - slow import
-
-                bbox = dem_geom.get_wgs84_bounding_box(
-                    (xmin, xmax, ymin, ymax),
-                    dem_horz_reference_frame=projection,
-                )
-
-            return _ExportTarget("region", bbox, None, None)
+    bbox = _bbox_from_values(values, projection, wsen=wsen)
+    if bbox is not None:
+        return _ExportTarget("region", bbox, None, None)
 
     # Otherwise the argument must be a single file.
     if len(tokens) != 1:

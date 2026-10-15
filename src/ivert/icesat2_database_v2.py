@@ -18,7 +18,7 @@ import os
 import queue
 import re
 import sys
-from collections.abc import Container, Iterable, Iterator, Mapping, Sequence
+from collections.abc import Callable, Container, Iterable, Iterator, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import TYPE_CHECKING, ClassVar, NamedTuple, overload
@@ -1563,24 +1563,38 @@ class IS2Database:
                 why,
             )
             jobs = ((index, job(index, h5_fn)) for index, h5_fn in numbered)
-            pool = multiprocessing.get_context("fork").Pool(
-                workers,
-                initializer=_start_classify_worker,
-                initargs=(self.config, _CLASSIFY_NICE),
-            )
-            try:
-                for result in pool.imap_unordered(_classify_in_worker, jobs):
-                    take(*result)
-                pool.close()
-            except BaseException:
-                pool.terminate()
-                raise
-            finally:
-                pool.join()
+            self._classify_in_pool(jobs, workers, take)
             return records, failed
         finally:
             if prefetch is not None:
                 prefetch[0].join()
+
+    def _classify_in_pool(
+        self,
+        jobs: Iterable[tuple[int, dict]],
+        workers: int,
+        take: Callable[..., None],
+    ) -> None:
+        """Classify the (index, job) pairs in a pool of forked worker processes.
+
+        Each result is handed to ``take`` as it arrives, in whatever order the
+        workers finish. The pool is terminated if anything goes wrong, including
+        a KeyboardInterrupt.
+        """
+        pool = multiprocessing.get_context("fork").Pool(
+            workers,
+            initializer=_start_classify_worker,
+            initargs=(self.config, _CLASSIFY_NICE),
+        )
+        try:
+            for result in pool.imap_unordered(_classify_in_worker, jobs):
+                take(*result)
+            pool.close()
+        except BaseException:
+            pool.terminate()
+            raise
+        finally:
+            pool.join()
 
     def _process_h5_to_nc(
         self,
