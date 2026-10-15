@@ -48,36 +48,13 @@ def subtract_cuboids(
             covering the entire volume of the difference without overlap.
 
     """
-    bbox_order = bbox_order.lower().strip()
-    if bbox_order in ("point", "xyzxyz"):
-        ax1, ay1, az1, ax2, ay2, az2 = tuple(a)
-        bx1, by1, bz1, bx2, by2, bz2 = tuple(b)
-    elif bbox_order in ("axis", "xxyyzz"):
-        ax1, ax2, ay1, ay2, az1, az2 = tuple(a)
-        bx1, bx2, by1, by2, bz1, bz2 = tuple(b)
-    else:
-        msg = (
-            f"Invalid bbox_order parameter: {bbox_order}. Only 'axis' or 'point' are "
-            "allowed."
-        )
-        raise ValueError(msg)
-
-    # Make sure in each case that the points are in the correct order (that x2 is not
-    # less than x1, etc)
-    if (ax1 > ax2) or (ay1 > ay2) or (az1 > az2):
-        msg = (
-            f"Invalid bounding box: {a}. The first point must be less than or equal "
-            "to the second point in each dimension. Double-check your 'bbox_order' "
-            "parameter to make sure you choose the correct 'point' or 'axis' order."
-        )
-        raise ValueError(msg)
-    if (bx1 > bx2) or (by1 > by2) or (bz1 > bz2):
-        msg = (
-            f"Invalid bounding box: {b}. The first point must be less than or equal "
-            "to the second point in each dimension. Double-check your 'bbox_order' "
-            "parameter to make sure you choose the correct 'point' or 'axis' order."
-        )
-        raise ValueError(msg)
+    axis = _is_axis_order(bbox_order)
+    a_pts = _to_point_order(a, axis=axis)
+    b_pts = _to_point_order(b, axis=axis)
+    _check_point_ordered(a, a_pts)
+    _check_point_ordered(b, b_pts)
+    ax1, ay1, az1, ax2, ay2, az2 = a_pts
+    bx1, by1, bz1, bx2, by2, bz2 = b_pts
 
     # --- Find intersection ---
     ix1 = max(ax1, bx1)
@@ -89,13 +66,80 @@ def subtract_cuboids(
 
     # If no overlap, return A itself, in the order it was given.
     if ix1 >= (ix2 + tol) or iy1 >= (iy2 + tol) or iz1 >= (iz2 + tol):
-        if bbox_order in ("axis", "xxyyzz"):
-            return [(ax1, ax2, ay1, ay2, az1, az2)]
-        return [(ax1, ay1, az1, ax2, ay2, az2)]
+        return [_from_point_order(a_pts, axis=axis)]
 
+    pieces = _pieces_around(a_pts, (ix1, iy1, iz1, ix2, iy2, iz2), tol)
+    # Filter degenerate (zero-volume) pieces
+    return [
+        _from_point_order(p, axis=axis)
+        for p in pieces
+        if (p[3] - p[0] > tol) and (p[4] - p[1] > tol) and (p[5] - p[2] > tol)
+    ]
+
+
+def _is_axis_order(bbox_order: str) -> bool:
+    """Tell whether bbox_order names axis order rather than point order.
+
+    'axis' or 'xxyyzz' is (x1, x2, y1, y2, z1, z2); 'point' or 'xyzxyz' is
+    (x1, y1, z1, x2, y2, z2). Case and surrounding spaces are ignored.
+
+    Raises:
+        ValueError: for any other name.
+
+    """
+    key = bbox_order.lower().strip()
+    if key in ("axis", "xxyyzz"):
+        return True
+    if key in ("point", "xyzxyz"):
+        return False
+    msg = (
+        f"Invalid bbox_order: {bbox_order!r}. Must be 'point', 'axis', 'xyzxyz', or "
+        "'xxyyzz'."
+    )
+    raise ValueError(msg)
+
+
+def _to_point_order(c: Sequence[float], *, axis: bool) -> Cuboid:
+    """Return a cuboid in point order, from axis order if axis is set."""
+    if axis:
+        x1, x2, y1, y2, z1, z2 = c
+    else:
+        x1, y1, z1, x2, y2, z2 = c
+    return (x1, y1, z1, x2, y2, z2)
+
+
+def _from_point_order(c: Cuboid, *, axis: bool) -> Cuboid:
+    """Return a point-order cuboid in axis order if axis is set, else as it is."""
+    x1, y1, z1, x2, y2, z2 = c
+    return (x1, x2, y1, y2, z1, z2) if axis else c
+
+
+def _check_point_ordered(given: Sequence[float], c: Cuboid) -> None:
+    """Check that a point-order cuboid's first point doesn't pass its second.
+
+    Raises:
+        ValueError: naming the cuboid as it was given, if it does.
+
+    """
+    x1, y1, z1, x2, y2, z2 = c
+    if (x1 > x2) or (y1 > y2) or (z1 > z2):
+        msg = (
+            f"Invalid bounding box: {given}. The first point must be less than or "
+            "equal to the second point in each dimension. Double-check your "
+            "'bbox_order' parameter to make sure you choose the correct 'point' or "
+            "'axis' order."
+        )
+        raise ValueError(msg)
+
+
+def _pieces_around(a: Cuboid, i: Cuboid, tol: float) -> list[Cuboid]:
+    """Split point-order cuboid a around i, a cuboid inside it, into up to 6 pieces.
+
+    The pieces fill a minus i without overlapping. Some may have no volume.
+    """
+    ax1, ay1, az1, ax2, ay2, az2 = a
+    ix1, iy1, iz1, ix2, iy2, iz2 = i
     result: list[Cuboid] = []
-
-    # --- Split around intersection (up to 6 parts) ---
     # Left
     if ax1 < ix1 - tol:
         result.append((ax1, ay1, az1, ix1, ay2, az2))
@@ -114,19 +158,7 @@ def subtract_cuboids(
     # Top
     if iz2 < az2 - tol:
         result.append((ix1, iy1, iz2, ix2, iy2, az2))
-
-    # Filter degenerate (zero-volume) pieces
-    clean: list[Cuboid] = []
-    for x1, y1, z1, x2, y2, z2 in result:
-        if (x2 - x1 > tol) and (y2 - y1 > tol) and (z2 - z1 > tol):
-            clean.append((x1, y1, z1, x2, y2, z2))
-
-    # If the bboxes were given in axis-order, re-order them from point order (above)
-    # before returning.
-    if bbox_order in ("axis", "xxyyzz"):
-        clean = [(x1, x2, y1, y2, z1, z2) for (x1, y1, z1, x2, y2, z2) in clean]
-
-    return clean
+    return result
 
 
 def _normalize_merge_preference(prefer: str | None) -> str | None:
@@ -187,22 +219,9 @@ def merge_cuboids(
     boxes = [_float_cuboid(c) for c in cuboids]
     prefer = _normalize_merge_preference(prefer)
 
-    bbox_order = bbox_order.lower().strip()
-
-    if bbox_order == "xyzxyz":
-        bbox_order = "point"
-    elif bbox_order == "xxyyzz":
-        bbox_order = "axis"
-
-    if bbox_order == "axis":
-        # Switch all the cuboids from axis order to point order for processing
-        boxes = [(x1, y1, z1, x2, y2, z2) for (x1, x2, y1, y2, z1, z2) in boxes]
-    elif bbox_order != "point":
-        msg = (
-            f"Invalid bbox_order: {bbox_order}. Must be 'point', 'axis', 'xyzxyz', or "
-            "'xxyyzz'."
-        )
-        raise ValueError(msg)
+    axis = _is_axis_order(bbox_order)
+    # Work in point order.
+    boxes = [_to_point_order(c, axis=axis) for c in boxes]
 
     def can_merge(a: Cuboid, b: Cuboid, along: str | None = None) -> Cuboid | None:
         """Return merged cuboid if a and b are mergeable, else None.
@@ -330,11 +349,7 @@ def merge_cuboids(
         if (x2 - x1 > tol) and (y2 - y1 > tol) and (z2 - z1 > tol) and c not in result:
             result.append(c)
 
-    # Convert back to axis order if needed
-    if bbox_order == "axis":
-        result = [(x1, x2, y1, y2, z1, z2) for (x1, y1, z1, x2, y2, z2) in result]
-
-    return result
+    return [_from_point_order(c, axis=axis) for c in result]
 
 
 def _float_cuboid(c: Sequence[float]) -> Cuboid:
@@ -368,21 +383,9 @@ def cuboids_intersect(
         bool: True if the cuboids intersect by nonzero volume, False otherwise.
 
     """
-    bbox_order = bbox_order.lower().strip()
-    if bbox_order == "xyzxyz":
-        bbox_order = "point"
-    elif bbox_order == "xxyyzz":
-        bbox_order = "axis"
-
-    if bbox_order == "point":
-        x1_min, y1_min, z1_min, x1_max, y1_max, z1_max = tuple(c1)
-        x2_min, y2_min, z2_min, x2_max, y2_max, z2_max = tuple(c2)
-    elif bbox_order == "axis":
-        x1_min, x1_max, y1_min, y1_max, z1_min, z1_max = tuple(c1)
-        x2_min, x2_max, y2_min, y2_max, z2_min, z2_max = tuple(c2)
-    else:
-        msg = f"Invalid bbox_order: {bbox_order}. Must be 'point' or 'axis'."
-        raise ValueError(msg)
+    axis = _is_axis_order(bbox_order)
+    x1_min, y1_min, z1_min, x1_max, y1_max, z1_max = _to_point_order(c1, axis=axis)
+    x2_min, y2_min, z2_min, x2_max, y2_max, z2_max = _to_point_order(c2, axis=axis)
 
     # Overlap along each axis (strict inequalities for positive volume)
     overlap_x = (x1_min < x2_max - tol) and (x1_max > x2_min + tol)
@@ -428,19 +431,8 @@ def cuboids_intersect_vectorized(
             test as cuboids_intersect).
 
     """
-    bbox_order = bbox_order.lower().strip()
-    if bbox_order == "xyzxyz":
-        bbox_order = "point"
-    elif bbox_order == "xxyyzz":
-        bbox_order = "axis"
-
-    if bbox_order == "point":
-        qxmin, qymin, qzmin, qxmax, qymax, qzmax = tuple(query)
-    elif bbox_order == "axis":
-        qxmin, qxmax, qymin, qymax, qzmin, qzmax = tuple(query)
-    else:
-        msg = f"Invalid bbox_order: {bbox_order}. Must be 'point' or 'axis'."
-        raise ValueError(msg)
+    axis = _is_axis_order(bbox_order)
+    qxmin, qymin, qzmin, qxmax, qymax, qzmax = _to_point_order(query, axis=axis)
 
     xmin = np.asarray(xmin)
     xmax = np.asarray(xmax)
