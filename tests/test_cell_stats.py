@@ -7,8 +7,22 @@ the arithmetic would change validation results.
 
 import numpy as np
 import pandas as pd
+import pytest
 
 from ivert import validate_dem
+
+
+@pytest.fixture(autouse=True)
+def _pandas_without_bottleneck():
+    """Compare against pandas' own arithmetic, not bottleneck's.
+
+    With bottleneck installed (conda's pandas brings it along), pandas hands
+    Series.std() to it, and a float32 result can differ in the last bit. The
+    validation itself uses numpy and never goes through bottleneck.
+    """
+    # option_context takes its option and value only as positional pairs.
+    with pd.option_context("compute.use_bottleneck", False):  # noqa: FBT003
+        yield
 
 
 def _cells():
