@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 def write_summary_csv_file(
     total_results_df_or_file: pd.DataFrame | str,
     list_of_empty_dems: list[str] | tuple[str],
-    csv_name: str,
+    csv_name: str | Path,
 ) -> pd.DataFrame:
     """Write a summary csv of all the results in a collection, after they've been run.
 
@@ -91,7 +91,7 @@ def write_summary_csv_file(
     return output_df
 
 
-def _summary_results_base(place_name):
+def _summary_results_base(place_name: str | None) -> str:
     """Return the base name (ending in '_results') of a collection's summary files."""
     # If a place name wasn't provided, just use "summary_results"
     if place_name is None:
@@ -157,7 +157,7 @@ DEM_RASTER_EXTENSIONS = (
 _IVERT_OUTPUT_SUFFIXES = ("_results.h5", "_photons.h5")
 
 
-def _is_dem_raster(fname):
+def _is_dem_raster(fname: str | Path) -> bool:
     """Return True if the file name has one of the DEM_RASTER_EXTENSIONS (any case).
 
     IVERT's own results files ('*_results.h5', '*_photons.h5') don't count.
@@ -168,7 +168,7 @@ def _is_dem_raster(fname):
     return fname.suffix.lower() in DEM_RASTER_EXTENSIONS
 
 
-def _log_failed_dems(failed_dems, num_dems) -> None:
+def _log_failed_dems(failed_dems: list[str], num_dems: int) -> None:
     """Log, as the run's last word, which DEMs were skipped because of errors.
 
     Each skip was already logged when it happened. This repeats it at the end, where
@@ -183,7 +183,11 @@ def _log_failed_dems(failed_dems, num_dems) -> None:
         )
 
 
-def _resolve_dem_list(dem_list_or_dir, fname_filter, fname_omit):
+def _resolve_dem_list(
+    dem_list_or_dir: str | Path | list[str] | tuple[str, ...],
+    fname_filter: str | None,
+    fname_omit: str | None,
+) -> list[str]:
     """Return the list of DEM paths a collection validation will run over.
 
     No file is opened here. Each NetCDF file's variable is picked just before that DEM
@@ -191,10 +195,10 @@ def _resolve_dem_list(dem_list_or_dir, fname_filter, fname_omit):
     """
     path = dem_list_or_dir
     # If we have a one-item list here, get the item in that list.
-    if type(path) in (list, tuple) and len(path) == 1:
+    if isinstance(path, (list, tuple)) and len(path) == 1:
         path = path[0]
 
-    if (type(path) in (list, tuple)) and (len(path) > 1):
+    if isinstance(path, (list, tuple)):
         dem_list = [fn for fn in path if _is_dem_raster(fn)]
         skipped = [fn for fn in path if not _is_dem_raster(fn)]
         if skipped:
@@ -213,6 +217,8 @@ def _resolve_dem_list(dem_list_or_dir, fname_filter, fname_omit):
             if _is_dem_raster(fpath) and fpath.is_file()
         )
     else:
+        # A str, as a DEM name: dem_source reads a subdataset string's file out of it.
+        path = str(path)
         if not Path(dem_source.dem_file_path(path)).exists():
             msg = f"{path} does not exist."
             raise FileNotFoundError(msg)
@@ -231,7 +237,11 @@ def _resolve_dem_list(dem_list_or_dir, fname_filter, fname_omit):
     return dem_list
 
 
-def _dem_output_dir(dem_path, output_dir, dem_list):
+def _dem_output_dir(
+    dem_path: str,
+    output_dir: str | Path | None,
+    dem_list: list[str],
+) -> Path:
     """Return the directory a collection writes one DEM's results into.
 
     The DEM's own directory if 'output_dir' is None, 'output_dir' if it is an existing
@@ -248,7 +258,11 @@ def _dem_output_dir(dem_path, output_dir, dem_list):
 ERROR_MARKER_SUFFIX = "_results_ERROR.txt"
 
 
-def _error_marker_paths(dem, dem_output_dir, variable=None):
+def _error_marker_paths(
+    dem: str,
+    dem_output_dir: str | Path,
+    variable: str | None = None,
+) -> list[Path]:
     """Return every path the error marker of this DEM (as listed) could have."""
     return [
         Path(dem_output_dir) / (base + ERROR_MARKER_SUFFIX)
@@ -256,7 +270,11 @@ def _error_marker_paths(dem, dem_output_dir, variable=None):
     ]
 
 
-def _existing_error_marker(dem, dem_output_dir, variable=None):
+def _existing_error_marker(
+    dem: str,
+    dem_output_dir: str | Path,
+    variable: str | None = None,
+) -> Path | None:
     """Return the path of this DEM's error marker, or None if it has none."""
     for path in _error_marker_paths(dem, dem_output_dir, variable):
         if path.exists():
@@ -264,13 +282,18 @@ def _existing_error_marker(dem, dem_output_dir, variable=None):
     return None
 
 
-def _absolute_dem_name(dem):
+def _absolute_dem_name(dem: str) -> str:
     """Return a DEM path or subdataset string with its file path made absolute."""
     file_path = dem_source.dem_file_path(dem)
     return dem.replace(file_path, str(absolute_path(file_path)), 1)
 
 
-def _write_error_marker(path, dem, message, traceback_text=None) -> None:
+def _write_error_marker(
+    path: str | Path,
+    dem: str,
+    message: str,
+    traceback_text: str | None = None,
+) -> None:
     """Write a DEM's error marker: the DEM, the time, the error and any traceback."""
     failed_at = datetime.datetime.now(datetime.UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
     text = (
@@ -283,7 +306,13 @@ def _write_error_marker(path, dem, message, traceback_text=None) -> None:
     Path(path).write_text(text, encoding="utf-8")
 
 
-def _failed_earlier(dem, dem_output_dir, *, include_photons=False, variable=None):
+def _failed_earlier(
+    dem: str,
+    dem_output_dir: str | Path,
+    *,
+    include_photons: bool = False,
+    variable: str | None = None,
+) -> Path | None:
     """Return this DEM's error marker if it has one and no results, else None."""
     marker = _existing_error_marker(dem, dem_output_dir, variable)
     if marker is not None and validate_dem.dem_needs_validation(
@@ -296,7 +325,13 @@ def _failed_earlier(dem, dem_output_dir, *, include_photons=False, variable=None
     return None
 
 
-def _dem_is_done(dem, dem_output_dir, *, include_photons=False, variable=None):
+def _dem_is_done(
+    dem: str,
+    dem_output_dir: str | Path,
+    *,
+    include_photons: bool = False,
+    variable: str | None = None,
+) -> bool:
     """Return True if a collection run without -ow would leave this DEM alone.
 
     It is done if it has results, was marked empty, or failed in an earlier run.
@@ -313,15 +348,15 @@ def _dem_is_done(dem, dem_output_dir, *, include_photons=False, variable=None):
 
 
 def dems_needing_validation(
-    dem_list_or_dir,
-    output_dir,
+    dem_list_or_dir: str | Path | list[str],
+    output_dir: str | Path,
     *,
-    include_photons=False,
-    overwrite=False,
-    fname_filter=None,
-    fname_omit=None,
-    variable=None,
-):
+    include_photons: bool = False,
+    overwrite: bool = False,
+    fname_filter: str | None = None,
+    fname_omit: str | None = None,
+    variable: str | None = None,
+) -> tuple[list[str], list[str]]:
     """Sort DEMs into those validate_list_of_dems() would validate or would reuse.
 
     'output_dir' must be the absolute output directory, as 'ivert validate' passes it.
@@ -378,7 +413,7 @@ def validate_list_of_dems(
     bathy_filter_settings: ivert.bathy_filters.BathyFilterSettings | None = None,
     export_error_formats: str | list | None = None,
     exclude_zones: list | None = None,
-):
+) -> list | None:
     """Validate a list of DEMs, presumably in one area, and write their output files.
 
     DEMs should encompass a contiguous area so as to use the same set of ICESat-2
@@ -524,7 +559,7 @@ def validate_list_of_dems(
         )
 
     files_to_export = []
-    list_of_results_dfs = []
+    list_of_results_dfs: list[str | Path] = []
     # The DEM behind each entry of list_of_results_dfs, in the same order. DEMs that
     # come back empty or fail are skipped, so this can't be indexed from dem_list.
     list_of_results_dems = []
@@ -549,8 +584,12 @@ def validate_list_of_dems(
 
         # A DEM that failed in an earlier run is left alone until -ow is given.
         if overwrite:
-            for marker in _error_marker_paths(listed_dem, this_output_dir, variable):
-                marker.unlink(missing_ok=True)
+            for stale_marker in _error_marker_paths(
+                listed_dem,
+                this_output_dir,
+                variable,
+            ):
+                stale_marker.unlink(missing_ok=True)
         else:
             marker = _failed_earlier(
                 listed_dem,
