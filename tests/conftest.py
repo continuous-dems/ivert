@@ -4,6 +4,7 @@ The autouse fixture below keeps every test off the developer's real config.
 make_standin_db builds small photon databases from photons given in the test.
 """
 
+import os
 from collections.abc import Callable, Iterable, Iterator
 from pathlib import Path
 from types import SimpleNamespace
@@ -162,6 +163,20 @@ class StandInDatabase:
     def reindex(self) -> object:
         """Build the database index from the granule files; returns its GeoDataFrame."""
         return self.db.create_new_database(populate=True, overwrite=True)
+
+    def use_as_default(self) -> None:
+        """Make this the database IVERT opens by default, as a CLI command does.
+
+        Writes its directories to the test's user config file, which
+        isolate_ivert_state points IVERT at, so IS2Database() opens it.
+        """
+        config = self.db.config
+        Path(os.environ["IVERT_USER_CONFIG"]).write_text(
+            "[DEFAULT]\n"
+            f"ivert_database_directory = {config.ivert_database_directory}\n"
+            f"ivert_landmask_directory = {config.ivert_landmask_directory}\n",
+            encoding="utf-8",
+        )
 
 
 @pytest.fixture
