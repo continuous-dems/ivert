@@ -68,3 +68,15 @@ def test_fname_filter_and_omit_still_apply(tmp_path):
     dems = _resolve_dem_list(str(tmp_path), r"_wgs84", r"\.nc\Z")
 
     assert [p.rsplit("/", 1)[1] for p in dems] == ["x_wgs84.tif"]
+
+
+def test_a_single_dem_given_as_a_path(tmp_path):
+    """A single DEM given as a Path raised TypeError; it comes back as a str."""
+    (dem,) = _touch(tmp_path, "a.tif")
+
+    assert _resolve_dem_list(tmp_path / "a.tif", None, None) == [dem]
+
+
+def test_an_empty_list_gives_no_dems():
+    """An empty list raised TypeError from Path([]); it is just no DEMs."""
+    assert _resolve_dem_list([], None, None) == []
