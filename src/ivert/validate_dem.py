@@ -1222,6 +1222,7 @@ def dem_needs_validation(
 def _setup_output_paths(
     dem_name,
     output_dir,
+    *,
     mark_empty_results,
     write_summary_stats,
     plot_results,
@@ -1271,11 +1272,8 @@ def _check_existing_outputs(
     empty_results_filename,
     summary_stats_filename,
     plot_filename,
-    write_summary_stats,
-    plot_results,
     location_name,
     overwrite,
-    mark_empty_results,
     shared_ret_values,
     include_photon_level_validation=False,
     export_error_formats=None,
@@ -1322,7 +1320,7 @@ def _check_existing_outputs(
         files_to_export.append(results_dataframe_file)
         shared_ret_values["results_dataframe_file"] = results_dataframe_file
 
-        if write_summary_stats:
+        if summary_stats_filename is not None:
             if not summary_stats_filename.exists():
                 if results_dataframe is None:
                     logger.info("Reading %s ...", results_dataframe_file)
@@ -1361,7 +1359,7 @@ def _check_existing_outputs(
             files_to_export.extend(export_files)
             shared_ret_values["error_export_files"] = export_files
 
-        if plot_results:
+        if plot_filename is not None:
             if not plot_filename.exists():
                 if location_name is None:
                     location_name = Path(dem_source.dem_file_path(dem_name)).name
@@ -1387,7 +1385,7 @@ def _check_existing_outputs(
 
         return files_to_export
 
-    if mark_empty_results and empty_results_filename.exists():
+    if empty_results_filename is not None and empty_results_filename.exists():
         logger.info(
             "No valid data produced during previous ICESat-2 analysis of %s",
             Path(dem_source.dem_file_path(dem_name)).name + ". Returning.",
@@ -2372,9 +2370,9 @@ def validate_dem_parallel(
     ) = _setup_output_paths(
         dem_name,
         output_dir,
-        mark_empty_results,
-        write_summary_stats,
-        plot_results,
+        mark_empty_results=mark_empty_results,
+        write_summary_stats=write_summary_stats,
+        plot_results=plot_results,
     )
 
     early = _check_existing_outputs(
@@ -2383,11 +2381,8 @@ def validate_dem_parallel(
         empty_results_filename=empty_results_filename,
         summary_stats_filename=summary_stats_filename,
         plot_filename=plot_filename,
-        write_summary_stats=write_summary_stats,
-        plot_results=plot_results,
         location_name=location_name,
         overwrite=overwrite,
-        mark_empty_results=mark_empty_results,
         shared_ret_values=shared_ret_values,
         include_photon_level_validation=include_photon_level_validation,
         export_error_formats=export_error_formats,
@@ -2425,7 +2420,7 @@ def validate_dem_parallel(
         )
 
     if fetch_result is None:
-        if mark_empty_results:
+        if empty_results_filename is not None:
             empty_results_filename.write_text(
                 Path(dem_source.dem_file_path(dem_name)).name
                 + " had no ICESat-2 results.",
@@ -2455,7 +2450,7 @@ def validate_dem_parallel(
         band_num=band_num,
     )
     if overlap_result is None:
-        if mark_empty_results:
+        if empty_results_filename is not None:
             empty_results_filename.write_text(
                 Path(dem_source.dem_file_path(dem_name)).name
                 + " had no ICESat-2 results.",
