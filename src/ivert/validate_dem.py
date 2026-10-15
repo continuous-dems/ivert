@@ -245,23 +245,23 @@ def _check_chunk_payload(
 
 
 def validate_dem_child_process(
-    height_array_name,
-    height_dtype,
-    code_array_name,
-    code_dtype,
-    array_shape,
+    height_array_name: str,
+    height_dtype: np.dtype,
+    code_array_name: str,
+    code_dtype: np.dtype,
+    array_shape: tuple[int, ...],
     *,
-    connection,
-    photon_limit=None,
-    min_photons=3,
-    measure_coverage=False,
-    x_array_name=None,
-    x_dtype=None,
-    y_array_name=None,
-    y_dtype=None,
-    num_subdivisions=15,
-    empty_val=None,
-    coordinator_pid=None,
+    connection: mp.connection.Connection,
+    photon_limit: int | None = None,
+    min_photons: int = 3,
+    measure_coverage: bool = False,
+    x_array_name: str | None = None,
+    x_dtype: np.dtype | None = None,
+    y_array_name: str | None = None,
+    y_dtype: np.dtype | None = None,
+    num_subdivisions: int = 15,
+    empty_val: float | None = None,
+    coordinator_pid: int | None = None,
 ) -> None:
     """Run DEM validation as a child process, one of several in parallel.
 
@@ -511,7 +511,7 @@ def validate_dem_child_process(
             return
 
 
-def _process_or_none(pid):
+def _process_or_none(pid: int | None) -> psutil.Process | None:
     """Return a psutil.Process for pid, or None if pid is None or already gone."""
     if pid is None:
         return None
@@ -521,7 +521,7 @@ def _process_or_none(pid):
         return None
 
 
-def _is_running(process):
+def _is_running(process: psutil.Process) -> bool:
     """Return True while a psutil.Process is running (not exited, reaped or a zombie).
 
     psutil also checks the process's start time, so a reused PID doesn't count.
@@ -532,7 +532,12 @@ def _is_running(process):
         return False
 
 
-def clean_procs_and_pipes(procs, pipes1, pipes2, memory_objs) -> None:
+def clean_procs_and_pipes(
+    procs: Iterable[mp.process.BaseProcess | None],
+    pipes1: Iterable[mp.connection.Connection | None],
+    pipes2: Iterable[mp.connection.Connection | None],
+    memory_objs: Iterable[shared_memory.SharedMemory],
+) -> None:
     """Join all processes and close all pipes.
 
     Useful for cleaning up after multiprocessing.
@@ -563,22 +568,26 @@ def clean_procs_and_pipes(procs, pipes1, pipes2, memory_objs) -> None:
 
 
 def kick_off_new_child_process(
-    height_array_name,
-    height_dtype,
-    code_array_name,
-    code_dtype,
-    array_shape,
+    height_array_name: str,
+    height_dtype: np.dtype,
+    code_array_name: str,
+    code_dtype: np.dtype,
+    array_shape: tuple[int, ...],
     *,
-    photon_limit=None,
-    min_photons=3,
-    measure_coverage=False,
-    x_array_name=None,
-    x_dtype=None,
-    y_array_name=None,
-    y_dtype=None,
-    num_subdivisions=15,
-    empty_val=None,
-):
+    photon_limit: int | None = None,
+    min_photons: int = 3,
+    measure_coverage: bool = False,
+    x_array_name: str | None = None,
+    x_dtype: np.dtype | None = None,
+    y_array_name: str | None = None,
+    y_dtype: np.dtype | None = None,
+    num_subdivisions: int = 15,
+    empty_val: float | None = None,
+) -> tuple[
+    mp.Process,
+    mp.connection.Connection,
+    mp.connection.Connection,
+]:
     """Start a new subprocess to handle and process data."""
     pipe_parent, pipe_child = mp.Pipe(duplex=True)
     proc = mp.Process(
@@ -1847,20 +1856,20 @@ def _shared_copy(name: str, values: np.ndarray) -> shared_memory.SharedMemory:
 
 
 def _run_parallel_cell_validation(
-    photon_df,
-    height_field,
+    photon_df: pd.DataFrame,
+    height_field: pd.Series,
     *,
-    dem_overlap_i,
-    dem_overlap_j,
-    dem_overlap_elevs,
-    n,
-    max_photons_per_cell,
-    min_photons_per_cell,
-    measure_coverage,
-    coverage_coords,
-    numprocs,
-    empty_val,
-):
+    dem_overlap_i: npt.NDArray,
+    dem_overlap_j: npt.NDArray,
+    dem_overlap_elevs: npt.NDArray,
+    n: int,
+    max_photons_per_cell: int | None,
+    min_photons_per_cell: int,
+    measure_coverage: bool,
+    coverage_coords: tuple[npt.NDArray, npt.NDArray, npt.NDArray, npt.NDArray] | None,
+    numprocs: int,
+    empty_val: float,
+) -> list[pd.DataFrame]:
     """Run the parallel ICESat-2/DEM cell validation using child processes.
 
     Returns a list of per-chunk result DataFrames (possibly empty on error or no data).
@@ -1950,7 +1959,7 @@ def _run_parallel_cell_validation(
         )
         y_dtype = photon_df.dem_y.dtype
 
-    def _chunk(start, end):
+    def _chunk(start: int, end: int) -> tuple[npt.NDArray, ...]:
         """Return the work message for cells start:end."""
         return (
             dem_overlap_i[start:end],
