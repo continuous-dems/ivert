@@ -131,9 +131,6 @@ ignore_missing_imports = true
 [tool.ruff.lint]
 select = ["ALL"]
 ignore = [
-    "ANN001",   # missing-type-function-argument
-    "ANN201",   # missing-return-type-undocumented-public-function
-    "ANN202",   # missing-return-type-private-function
     "C901",     # complex-structure
     # Permanent: CPY001 wants a copyright notice at the top of every file. The MIT
     # LICENSE at the repository root already covers all of them.

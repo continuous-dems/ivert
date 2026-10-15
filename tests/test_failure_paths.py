@@ -75,3 +75,38 @@ def test_a_crash_in_cell_validation_is_raised_not_returned(monkeypatch):
     # The shared memory segments are released on the way out.
     with pytest.raises(FileNotFoundError):
         shared_memory.SharedMemory(name=f"heights_{os.getpid()}")
+
+
+def test_measuring_coverage_without_cell_bounding_boxes_is_refused():
+    """Coverage needs each cell's bounding box; without them, say so up front.
+
+    The check comes before any shared memory is set up, so none is left behind.
+    """
+    n = 3
+    photon_df = pd.DataFrame(
+        {
+            "i": np.arange(n, dtype=np.int64),
+            "j": np.zeros(n, dtype=np.int64),
+            "class_code": np.ones(n, dtype=np.int8),
+            "h": np.ones(n, dtype=np.float32),
+        },
+    )
+
+    with pytest.raises(ValueError, match="coverage_coords"):
+        validate_dem._run_parallel_cell_validation(
+            photon_df,
+            photon_df["h"],
+            dem_overlap_i=photon_df["i"].to_numpy(),
+            dem_overlap_j=photon_df["j"].to_numpy(),
+            dem_overlap_elevs=np.zeros(n, dtype=np.float32),
+            n=n,
+            max_photons_per_cell=None,
+            min_photons_per_cell=1,
+            measure_coverage=True,
+            coverage_coords=None,
+            numprocs=1,
+            empty_val=-99999.0,
+        )
+
+    with pytest.raises(FileNotFoundError):
+        shared_memory.SharedMemory(name=f"heights_{os.getpid()}")

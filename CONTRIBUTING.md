@@ -57,8 +57,9 @@ work instead; if a note really belongs in the code, mark it `# noqa: FIX002`.
 
 [mypy](https://mypy.readthedocs.io/) checks the type annotations in `src/ivert`,
 configured under `[tool.mypy]` in `pyproject.toml` and pinned in its `typecheck`
-dependency group. It checks every function, but doesn't yet require annotations;
-its strictness is being raised one check at a time
+dependency group. It checks every function, and Ruff's `ANN` rules require every
+function outside `tests/` to be annotated; mypy's own strictness is being raised
+one check at a time
 ([#180](https://github.com/continuous-dems/ivert/issues/180)). It needs IVERT's
 dependencies to understand their types, so run it in your development environment:
 

@@ -18,12 +18,13 @@ import os
 import signal
 import sys
 import time
-from collections.abc import MutableMapping
+from collections.abc import Iterable, MutableMapping
 from multiprocessing import shared_memory
 from pathlib import Path
 
 import geopandas
 import numpy as np
+import numpy.typing as npt
 import pandas as pd
 import psutil
 import pyproj
@@ -82,8 +83,25 @@ _KB = 1000
 # to the last bit.
 _PERCENTILES = np.array([0.10, 0.90]) * 100.0
 
+# The (xmin, xmax, ymin, ymax) bounds of each overlapping grid cell, one array each.
+_CellBounds = tuple[npt.NDArray, npt.NDArray, npt.NDArray, npt.NDArray]
+# What _fetch_photons() returns: (dem_ds, dem_array, photon_df, dem_epsg_str,
+# photon_src_epsg).
+_PhotonFetch = tuple[rasterio.io.DatasetReader, npt.NDArray, pd.DataFrame, str, str]
+# What _compute_photon_overlap() returns: (photon_df, height_field, dem_overlap_i,
+# dem_overlap_j, dem_overlap_elevs, n, coverage_coords).
+_PhotonOverlap = tuple[
+    pd.DataFrame,
+    pd.Series,
+    npt.NDArray,
+    npt.NDArray,
+    npt.NDArray,
+    int,
+    _CellBounds | None,
+]
 
-def _pandas_mean(values):
+
+def _pandas_mean(values: npt.NDArray) -> np.floating:
     """Return values.mean() exactly as pandas' Series.mean() computes it (no NaNs).
 
     A float array is summed in its own dtype and divided by a count of that dtype;
@@ -95,7 +113,7 @@ def _pandas_mean(values):
     return values.sum(dtype=np.float64) / np.float64(len(values))
 
 
-def _pandas_std(values):
+def _pandas_std(values: npt.NDArray) -> np.floating | float:
     """Return values.std() (ddof=1) exactly as pandas' Series.std() gives it (no NaNs).
 
     The variance is accumulated in float64 and, for a float array, cast back to
@@ -146,7 +164,13 @@ def read_dataframe_file(df_filename: str | Path) -> pd.DataFrame:
     return dataframe
 
 
-def _check_dem_geotransform(dem_name, xstep, ystep, xrot, yrot) -> None:
+def _check_dem_geotransform(
+    dem_name: str,
+    xstep: float,
+    ystep: float,
+    xrot: float,
+    yrot: float,
+) -> None:
     """Raise if a DEM's geotransform is rotated or not north-up.
 
     Every photon's (i, j) cell index and every grid-cell bounding box is computed
@@ -170,7 +194,11 @@ def _check_dem_geotransform(dem_name, xstep, ystep, xrot, yrot) -> None:
         )
 
 
-def _check_cell_validation_params(photon_limit, min_photons, num_subdivisions) -> None:
+def _check_cell_validation_params(
+    photon_limit: int | None,
+    min_photons: int,
+    num_subdivisions: int,
+) -> None:
     """Raise if the per-cell validation parameters cannot produce usable results.
 
     Checked once up front rather than per grid cell: none of these vary over the
@@ -204,11 +232,11 @@ def _check_cell_validation_params(photon_limit, min_photons, num_subdivisions) -
 
 
 def _check_chunk_payload(
-    dem_i_list,
-    dem_j_list,
-    dem_elev_list,
-    bbox_lists,
-    ph_ranges,
+    dem_i_list: npt.NDArray,
+    dem_j_list: npt.NDArray,
+    dem_elev_list: npt.NDArray,
+    bbox_lists: tuple[npt.NDArray | None, ...],
+    ph_ranges: tuple[npt.NDArray | None, ...],
 ) -> None:
     """Raise if the arrays in one work chunk disagree in length.
 
@@ -234,23 +262,23 @@ def _check_chunk_payload(
 
 
 def validate_dem_child_process(
-    height_array_name,
-    height_dtype,
-    code_array_name,
-    code_dtype,
-    array_shape,
+    height_array_name: str,
+    height_dtype: np.dtype,
+    code_array_name: str,
+    code_dtype: np.dtype,
+    array_shape: tuple[int, ...],
     *,
-    connection,
-    photon_limit=None,
-    min_photons=3,
-    measure_coverage=False,
-    x_array_name=None,
-    x_dtype=None,
-    y_array_name=None,
-    y_dtype=None,
-    num_subdivisions=15,
-    empty_val=None,
-    coordinator_pid=None,
+    connection: mp.connection.Connection,
+    photon_limit: int | None = None,
+    min_photons: int = 3,
+    measure_coverage: bool = False,
+    x_array_name: str | None = None,
+    x_dtype: np.dtype | None = None,
+    y_array_name: str | None = None,
+    y_dtype: np.dtype | None = None,
+    num_subdivisions: int = 15,
+    empty_val: float | None = None,
+    coordinator_pid: int | None = None,
 ) -> None:
     """Run DEM validation as a child process, one of several in parallel.
 
@@ -500,7 +528,7 @@ def validate_dem_child_process(
             return
 
 
-def _process_or_none(pid):
+def _process_or_none(pid: int | None) -> psutil.Process | None:
     """Return a psutil.Process for pid, or None if pid is None or already gone."""
     if pid is None:
         return None
@@ -510,7 +538,7 @@ def _process_or_none(pid):
         return None
 
 
-def _is_running(process):
+def _is_running(process: psutil.Process) -> bool:
     """Return True while a psutil.Process is running (not exited, reaped or a zombie).
 
     psutil also checks the process's start time, so a reused PID doesn't count.
@@ -521,7 +549,12 @@ def _is_running(process):
         return False
 
 
-def clean_procs_and_pipes(procs, pipes1, pipes2, memory_objs) -> None:
+def clean_procs_and_pipes(
+    procs: Iterable[mp.process.BaseProcess | None],
+    pipes1: Iterable[mp.connection.Connection | None],
+    pipes2: Iterable[mp.connection.Connection | None],
+    memory_objs: Iterable[shared_memory.SharedMemory],
+) -> None:
     """Join all processes and close all pipes.
 
     Useful for cleaning up after multiprocessing.
@@ -552,22 +585,26 @@ def clean_procs_and_pipes(procs, pipes1, pipes2, memory_objs) -> None:
 
 
 def kick_off_new_child_process(
-    height_array_name,
-    height_dtype,
-    code_array_name,
-    code_dtype,
-    array_shape,
+    height_array_name: str,
+    height_dtype: np.dtype,
+    code_array_name: str,
+    code_dtype: np.dtype,
+    array_shape: tuple[int, ...],
     *,
-    photon_limit=None,
-    min_photons=3,
-    measure_coverage=False,
-    x_array_name=None,
-    x_dtype=None,
-    y_array_name=None,
-    y_dtype=None,
-    num_subdivisions=15,
-    empty_val=None,
-):
+    photon_limit: int | None = None,
+    min_photons: int = 3,
+    measure_coverage: bool = False,
+    x_array_name: str | None = None,
+    x_dtype: np.dtype | None = None,
+    y_array_name: str | None = None,
+    y_dtype: np.dtype | None = None,
+    num_subdivisions: int = 15,
+    empty_val: float | None = None,
+) -> tuple[
+    mp.Process,
+    mp.connection.Connection,
+    mp.connection.Connection,
+]:
     """Start a new subprocess to handle and process data."""
     pipe_parent, pipe_child = mp.Pipe(duplex=True)
     proc = mp.Process(
@@ -654,7 +691,10 @@ def reset_results_indexes_after_merge(
     return sub_results_df.set_index(["i", "j"], drop=True)
 
 
-def _resolve_config(config, icesat2_photon_database_obj=None):
+def _resolve_config(
+    config: ivert.utils.configfile.Config | None,
+    icesat2_photon_database_obj: ivert.icesat2_database_v2.IS2Database | None = None,
+) -> ivert.utils.configfile.Config:
     """Return the Config given, else the photon database's, else a fresh one."""
     if config is not None:
         return config
@@ -699,7 +739,7 @@ def validate_dem(
     export_error_formats: str | list | None = None,
     exclude_zones: list | None = None,
     config: ivert.utils.configfile.Config | None = None,
-):
+) -> list:
     """Validate a DEM and produce output results.
 
     Most of this work is done in validate_dem_parallel. This function is a wrapper that
@@ -1145,19 +1185,19 @@ def validate_dem(
     raise RuntimeError(msg)
 
 
-def _default_output_dir(dem_name, output_dir):
+def _default_output_dir(dem_name: str, output_dir: str | Path | None) -> Path:
     """Return output_dir as a Path, or the DEM's own folder if it is empty or None."""
     if not output_dir:
         return absolute_path(dem_source.dem_file_path(dem_name)).parent
     return Path(output_dir)
 
 
-def _results_dataframe_filename(dem_name, output_dir):
+def _results_dataframe_filename(dem_name: str, output_dir: str | Path) -> Path:
     """Return the '<dem>_results.h5' path in output_dir for a DEM's results."""
     return Path(output_dir) / (dem_source.dem_base_name(dem_name) + "_results.h5")
 
 
-def _empty_results_filename(results_dataframe_file):
+def _empty_results_filename(results_dataframe_file: str | Path) -> Path:
     """Return the '<dem>_results_EMPTY.txt' marker path for a results dataframe file."""
     results_dataframe_file = Path(results_dataframe_file)
     return results_dataframe_file.with_name(
@@ -1166,13 +1206,13 @@ def _empty_results_filename(results_dataframe_file):
 
 
 def dem_needs_validation(
-    dem_name,
-    output_dir,
+    dem_name: str,
+    output_dir: str | Path,
     *,
-    include_photons=False,
-    overwrite=False,
-    variable=None,
-):
+    include_photons: bool = False,
+    overwrite: bool = False,
+    variable: str | None = None,
+) -> bool:
     """Return True if validating this DEM into output_dir would do any validation work.
 
     Mirrors the checks in _check_existing_outputs(): a DEM is done when its results
@@ -1200,12 +1240,13 @@ def dem_needs_validation(
 
 
 def _setup_output_paths(
-    dem_name,
-    output_dir,
-    mark_empty_results,
-    write_summary_stats,
-    plot_results,
-):
+    dem_name: str,
+    output_dir: str | Path | None,
+    *,
+    mark_empty_results: bool,
+    write_summary_stats: bool,
+    plot_results: bool,
+) -> tuple[Path, Path, Path | None, Path | None, Path | None]:
     """Create output directories and derive all output filenames.
 
     Returns (output_dir, results_dataframe_file, empty_results_filename,
@@ -1245,22 +1286,19 @@ def _setup_output_paths(
 
 
 def _check_existing_outputs(
-    dem_name,
+    dem_name: str,
     *,
-    results_dataframe_file,
-    empty_results_filename,
-    summary_stats_filename,
-    plot_filename,
-    write_summary_stats,
-    plot_results,
-    location_name,
-    overwrite,
-    mark_empty_results,
-    shared_ret_values,
-    include_photon_level_validation=False,
-    export_error_formats=None,
-    dem_projection=None,
-):
+    results_dataframe_file: str | Path,
+    empty_results_filename: str | Path | None,
+    summary_stats_filename: str | Path | None,
+    plot_filename: str | Path | None,
+    location_name: str | None,
+    overwrite: bool,
+    shared_ret_values: MutableMapping,
+    include_photon_level_validation: bool = False,
+    export_error_formats: str | list | None = None,
+    dem_projection: str | int | None = None,
+) -> list[Path] | None:
     """Handle overwrite deletion or early return when outputs already exist.
 
     Returns a files_to_export list if work is already done (caller should return it),
@@ -1302,7 +1340,7 @@ def _check_existing_outputs(
         files_to_export.append(results_dataframe_file)
         shared_ret_values["results_dataframe_file"] = results_dataframe_file
 
-        if write_summary_stats:
+        if summary_stats_filename is not None:
             if not summary_stats_filename.exists():
                 if results_dataframe is None:
                     logger.info("Reading %s ...", results_dataframe_file)
@@ -1341,7 +1379,7 @@ def _check_existing_outputs(
             files_to_export.extend(export_files)
             shared_ret_values["error_export_files"] = export_files
 
-        if plot_results:
+        if plot_filename is not None:
             if not plot_filename.exists():
                 if location_name is None:
                     location_name = Path(dem_source.dem_file_path(dem_name)).name
@@ -1367,7 +1405,7 @@ def _check_existing_outputs(
 
         return files_to_export
 
-    if mark_empty_results and empty_results_filename.exists():
+    if empty_results_filename is not None and empty_results_filename.exists():
         logger.info(
             "No valid data produced during previous ICESat-2 analysis of %s",
             Path(dem_source.dem_file_path(dem_name)).name + ". Returning.",
@@ -1377,7 +1415,7 @@ def _check_existing_outputs(
     return None
 
 
-def _split_projection(dem_projection):
+def _split_projection(dem_projection: str | int) -> tuple[pyproj.CRS, str | None]:
     """Split -p/--projection into (horizontal CRS, vertical reference or None).
 
     It may be a horizontal CRS ('EPSG:26910'), a compound CRS in one code
@@ -1395,12 +1433,12 @@ def _split_projection(dem_projection):
 
 
 def _resolve_dem_crs(
-    dem_name,
-    file_horz_crs,
-    file_vert_crs,
-    dem_projection=None,
-    dem_vertical_datum=None,
-):
+    dem_name: str,
+    file_horz_crs: pyproj.CRS | None,
+    file_vert_crs: pyproj.CRS | None,
+    dem_projection: str | int | None = None,
+    dem_vertical_datum: str | int | None = None,
+) -> tuple[pyproj.CRS, pyproj.CRS | str]:
     """Return the DEM's (horizontal CRS, vertical reference), user settings applied.
 
     Horizontal: -p/--projection, else the file's. Vertical: -V/--vdatum, else the
@@ -1467,16 +1505,22 @@ def _resolve_dem_crs(
             dem_label,
             dem_geom.reference_label(file_vert_crs),
         )
-    vert: pyproj.CRS | tuple | str | None
+    vert: pyproj.CRS | str | None
     try:
         vert = dem_geom.get_dem_reference_frame_from_user_input(user_vert, "vert")
     except pyproj.exceptions.CRSError:
         # A transformez reference ID such as 'vdatum:mllw', which pyproj can't read.
         vert = user_vert
+    if vert is None:
+        msg = f"{user_flag} {user_vert} has no vertical datum."
+        raise ValueError(msg)
     return horz, vert
 
 
-def _output_crs(dem_ds, dem_projection):
+def _output_crs(
+    dem_ds: rasterio.io.DatasetReader,
+    dem_projection: str | int | None,
+) -> rasterio.crs.CRS | None:
     """Return the CRS to write into exported error files: the user's, else the DEM's."""
     if dem_projection is None:
         return dem_ds.crs
@@ -1484,17 +1528,17 @@ def _output_crs(dem_ds, dem_projection):
 
 
 def _fetch_photons(
-    dem_name,
-    band_num,
-    dem_vertical_datum,
-    icesat2_photon_database_obj,
+    dem_name: str,
+    band_num: int,
+    dem_vertical_datum: str | int | None,
+    icesat2_photon_database_obj: ivert.icesat2_database_v2.IS2Database | None,
     *,
-    dates,
-    classes,
+    dates: list[int] | tuple[int, int] | None,
+    classes: list[int] | tuple[int, ...],
     min_confidence_level: int = 1,
     min_bathy_confidence: float = 0.75,
-    dem_projection=None,
-):
+    dem_projection: str | int | None = None,
+) -> _PhotonFetch | None:
     """Open the DEM and query overlapping ICESat-2 photons.
 
     'dem_projection' and 'dem_vertical_datum' are the user's CRS and vertical datum for
@@ -1505,13 +1549,11 @@ def _fetch_photons(
     dem_ds = rasterio.open(dem_name)
     dem_array = dem_ds.read(band_num)
 
-    dem_horz_ref_frame, dem_vert_ref_frame = dem_geom.get_dem_reference_frame_from_file(
-        dem_name,
-    )
+    file_horz_crs, file_vert_crs = dem_geom.get_dem_reference_frame_from_file(dem_name)
     dem_horz_ref_frame, dem_vert_ref_frame = _resolve_dem_crs(
         dem_name,
-        dem_horz_ref_frame,
-        dem_vert_ref_frame,
+        file_horz_crs,
+        file_vert_crs,
         dem_projection,
         dem_vertical_datum,
     )
@@ -1553,7 +1595,10 @@ def _fetch_photons(
     return dem_ds, dem_array, photon_df, dem_epsg_str, photon_src_epsg
 
 
-def _resolve_exclude_geometry(exclude_zones, dem_epsg_str):
+def _resolve_exclude_geometry(
+    exclude_zones: list,
+    dem_epsg_str: str,
+) -> shapely.Geometry | None:
     """Resolve exclude-zone specs into one shapely geometry in the DEM's horizontal CRS.
 
     Each item in exclude_zones is either a 4-value (minx, miny, maxx, maxy) bounding box
@@ -1582,7 +1627,12 @@ def _resolve_exclude_geometry(exclude_zones, dem_epsg_str):
     return shapely.unary_union(geoms)
 
 
-def _band_nodata(dem_ds, band_num, user_ndv=None, default_ndv=None):
+def _band_nodata(
+    dem_ds: rasterio.io.DatasetReader,
+    band_num: int,
+    user_ndv: float | None = None,
+    default_ndv: float | None = None,
+) -> float | None:
     """Return the nodata value to mask band 'band_num' with.
 
     In order: the user's value, the band's own nodata value in the file, the config
@@ -1594,7 +1644,11 @@ def _band_nodata(dem_ds, band_num, user_ndv=None, default_ndv=None):
     return default_ndv if band_ndv is None else band_ndv
 
 
-def _unpack_elevations(stored_values, dem_ds, band_num):
+def _unpack_elevations(
+    stored_values: npt.NDArray,
+    dem_ds: rasterio.io.DatasetReader,
+    band_num: int,
+) -> npt.NDArray:
     """Apply the band's scale and offset to stored DEM values, if it has any.
 
     Packed integer DEMs (common in NetCDF, via scale_factor/add_offset) store
@@ -1616,20 +1670,20 @@ def _unpack_elevations(stored_values, dem_ds, band_num):
 
 
 def _compute_photon_overlap(
-    dem_ds,
-    dem_array,
-    photon_df,
+    dem_ds: rasterio.io.DatasetReader,
+    dem_array: npt.NDArray,
+    photon_df: pd.DataFrame,
     *,
-    classes,
-    dem_epsg_str,
-    measure_coverage,
-    photon_src_epsg="EPSG:4326+4979",
-    cache_dir=None,
-    user_ndv=None,
-    exclude_zones=None,
-    default_ndv=None,
-    band_num=1,
-):
+    classes: list[int] | tuple[int, ...],
+    dem_epsg_str: str,
+    measure_coverage: bool,
+    photon_src_epsg: str = "EPSG:4326+4979",
+    cache_dir: str | None = None,
+    user_ndv: float | None = None,
+    exclude_zones: list | None = None,
+    default_ndv: float | None = None,
+    band_num: int = 1,
+) -> _PhotonOverlap | None:
     """Transform photon coordinates into DEM space and compute cell-level overlap.
 
     'dem_array' holds band 'band_num' as stored in the file. Its nodata value is that
@@ -1712,7 +1766,8 @@ def _compute_photon_overlap(
 
     dem_ndv = _band_nodata(dem_ds, band_num, user_ndv, default_ndv)
 
-    if np.isnan(dem_ndv):
+    # With no nodata value at all, only NaN cells are missing, as with a NaN one.
+    if dem_ndv is None or np.isnan(dem_ndv):
         dem_goodpixel_mask = ~np.isnan(dem_array)
     else:
         dem_goodpixel_mask = dem_array != dem_ndv
@@ -1771,12 +1826,12 @@ def _compute_photon_overlap(
 
 
 def _run_photon_level_validation(
-    photon_df,
-    dem_overlap_i,
-    dem_overlap_j,
-    dem_overlap_elevs,
-    results_dataframe_file,
-):
+    photon_df: pd.DataFrame,
+    dem_overlap_i: npt.NDArray,
+    dem_overlap_j: npt.NDArray,
+    dem_overlap_elevs: npt.NDArray,
+    results_dataframe_file: str | Path,
+) -> Path:
     """Compute photon-level DEM minus ICESat-2 differences and write an HDF5 file.
 
     'photon_df' has already been subset to the requested photon classes by
@@ -1836,20 +1891,20 @@ def _shared_copy(name: str, values: np.ndarray) -> shared_memory.SharedMemory:
 
 
 def _run_parallel_cell_validation(
-    photon_df,
-    height_field,
+    photon_df: pd.DataFrame,
+    height_field: pd.Series,
     *,
-    dem_overlap_i,
-    dem_overlap_j,
-    dem_overlap_elevs,
-    n,
-    max_photons_per_cell,
-    min_photons_per_cell,
-    measure_coverage,
-    coverage_coords,
-    numprocs,
-    empty_val,
-):
+    dem_overlap_i: npt.NDArray,
+    dem_overlap_j: npt.NDArray,
+    dem_overlap_elevs: npt.NDArray,
+    n: int,
+    max_photons_per_cell: int | None,
+    min_photons_per_cell: int,
+    measure_coverage: bool,
+    coverage_coords: _CellBounds | None,
+    numprocs: int,
+    empty_val: float,
+) -> list[pd.DataFrame]:
     """Run the parallel ICESat-2/DEM cell validation using child processes.
 
     Returns a list of per-chunk result DataFrames (possibly empty on error or no data).
@@ -1862,6 +1917,13 @@ def _run_parallel_cell_validation(
         min_photons_per_cell,
         num_subdivisions=15,
     )
+    # The cells' bounding boxes, sent with each chunk only when measuring coverage.
+    coverage_arrays: tuple[npt.NDArray, ...] = ()
+    if measure_coverage:
+        if coverage_coords is None:
+            msg = "measure_coverage needs the cells' bounding boxes in coverage_coords."
+            raise ValueError(msg)
+        coverage_arrays = coverage_coords
 
     if max_photons_per_cell is not None:
         logger.info(
@@ -1920,9 +1982,6 @@ def _run_parallel_cell_validation(
         if not (height_field.shape == photon_df.dem_x.shape == photon_df.dem_y.shape):
             msg = "The photon heights, dem_x and dem_y are not all the same length."
             raise RuntimeError(msg)
-        dem_overlap_xmin, dem_overlap_xmax, dem_overlap_ymin, dem_overlap_ymax = (
-            coverage_coords
-        )
         x_array_name = f"x_{proc_id}"
         memory_objs.append(
             _shared_copy(x_array_name, photon_df.dem_x.to_numpy()[ph_order]),
@@ -1934,24 +1993,17 @@ def _run_parallel_cell_validation(
             _shared_copy(y_array_name, photon_df.dem_y.to_numpy()[ph_order]),
         )
         y_dtype = photon_df.dem_y.dtype
-    else:
-        dem_overlap_xmin = dem_overlap_xmax = dem_overlap_ymin = dem_overlap_ymax = None
 
-    def _chunk(start, end):
+    def _chunk(start: int, end: int) -> tuple[npt.NDArray, ...]:
         """Return the work message for cells start:end."""
-        cells: tuple = (
+        return (
             dem_overlap_i[start:end],
             dem_overlap_j[start:end],
             dem_overlap_elevs[start:end],
+            *(coords[start:end] for coords in coverage_arrays),
+            ph_starts[start:end],
+            ph_ends[start:end],
         )
-        if measure_coverage:
-            cells += (
-                dem_overlap_xmin[start:end],
-                dem_overlap_xmax[start:end],
-                dem_overlap_ymin[start:end],
-                dem_overlap_ymax[start:end],
-            )
-        return (*cells, ph_starts[start:end], ph_ends[start:end])
 
     running_procs: list[mp.process.BaseProcess | None] = [None] * cpu_count
     open_pipes_parent: list[mp.connection.Connection | None] = [None] * cpu_count
@@ -1975,6 +2027,11 @@ def _run_parallel_cell_validation(
         max(-(-n // (cpu_count * _CHUNKS_PER_WORKER)), _MIN_CHUNK_CELLS),
         _MAX_CHUNK_CELLS,
     )
+
+    # One worker slot's process and pipes; a finished slot's are None.
+    proc: mp.process.BaseProcess | None
+    pipe: mp.connection.Connection | None
+    pipe_child: mp.connection.Connection | None
 
     # 'disable=None' tells tqdm to draw the bar only when attached to a terminal, and
     # stay silent when the output is redirected to a file or a pipe.
@@ -2151,31 +2208,29 @@ def _run_parallel_cell_validation(
 
 
 def _write_validation_outputs(
-    results_dataframes_list,
-    dem_ds,
-    dem_name,
+    results_dataframes_list: list[pd.DataFrame],
+    dem_ds: rasterio.io.DatasetReader | None,
+    dem_name: str,
     *,
-    results_dataframe_file,
-    empty_results_filename,
-    summary_stats_filename,
-    plot_filename,
-    write_summary_stats,
-    plot_results,
-    location_name,
-    outliers_sd_threshold,
-    mark_empty_results,
-    shared_ret_values,
-    files_to_export,
-    export_error_formats=None,
-    min_coverage_pct=None,
-    min_coverage_pct_land=None,
-    min_coverage_pct_bathy=None,
-    bathy_filter_report=None,
-    dem_projection=None,
-):
+    results_dataframe_file: Path,
+    empty_results_filename: Path | None,
+    summary_stats_filename: Path | None,
+    plot_filename: Path | None,
+    location_name: str | None,
+    outliers_sd_threshold: float | None,
+    shared_ret_values: MutableMapping,
+    files_to_export: list[Path],
+    export_error_formats: str | Iterable[str] | None = None,
+    min_coverage_pct: float | None = None,
+    min_coverage_pct_land: float | None = None,
+    min_coverage_pct_bathy: float | None = None,
+    bathy_filter_report: ivert.bathy_filters.BathyFilterReport | None = None,
+    dem_projection: str | int | None = None,
+) -> list[Path]:
     """Concatenate results, filter outliers, and write all output files.
 
-    Returns the final files_to_export list.
+    The empty-marker, summary-stats and plot file names are None when that output
+    isn't wanted. Returns the final files_to_export list.
     """
     if len(results_dataframes_list) == 0:
         return files_to_export
@@ -2214,7 +2269,7 @@ def _write_validation_outputs(
 
     if len(results_dataframe) == 0:
         logger.info("No valid results in results dataframe. No outputs computed.")
-        if mark_empty_results:
+        if empty_results_filename is not None:
             empty_results_filename.write_text(_EMPTY_RESULTS_TEXT, encoding="utf-8")
             logger.info(
                 "Created %s to indicate no data was returned here.",
@@ -2242,7 +2297,7 @@ def _write_validation_outputs(
     written_files = [results_dataframe_file]
     shared_ret_values["results_dataframe_file"] = results_dataframe_file
 
-    if write_summary_stats:
+    if summary_stats_filename is not None:
         write_summary_stats_file(
             results_dataframe,
             summary_stats_filename,
@@ -2266,7 +2321,7 @@ def _write_validation_outputs(
         written_files.extend(exported)
         shared_ret_values["error_export_files"] = exported
 
-    if plot_results:
+    if plot_filename is not None:
         if location_name is None:
             location_name = Path(dem_source.dem_file_path(dem_name)).name
         ivert.plot_validation_results.plot_histograms_and_line(
@@ -2317,7 +2372,7 @@ def validate_dem_parallel(
     exclude_zones: list | None = None,
     log_level: int | None = None,
     config: ivert.utils.configfile.Config | None = None,
-):
+) -> list[Path]:
     """Validate a single DEM.
 
     Parameters are described above in the vdalite_dem() docstring.
@@ -2350,9 +2405,9 @@ def validate_dem_parallel(
     ) = _setup_output_paths(
         dem_name,
         output_dir,
-        mark_empty_results,
-        write_summary_stats,
-        plot_results,
+        mark_empty_results=mark_empty_results,
+        write_summary_stats=write_summary_stats,
+        plot_results=plot_results,
     )
 
     early = _check_existing_outputs(
@@ -2361,11 +2416,8 @@ def validate_dem_parallel(
         empty_results_filename=empty_results_filename,
         summary_stats_filename=summary_stats_filename,
         plot_filename=plot_filename,
-        write_summary_stats=write_summary_stats,
-        plot_results=plot_results,
         location_name=location_name,
         overwrite=overwrite,
-        mark_empty_results=mark_empty_results,
         shared_ret_values=shared_ret_values,
         include_photon_level_validation=include_photon_level_validation,
         export_error_formats=export_error_formats,
@@ -2403,7 +2455,7 @@ def validate_dem_parallel(
         )
 
     if fetch_result is None:
-        if mark_empty_results:
+        if empty_results_filename is not None:
             empty_results_filename.write_text(
                 Path(dem_source.dem_file_path(dem_name)).name
                 + " had no ICESat-2 results.",
@@ -2433,7 +2485,7 @@ def validate_dem_parallel(
         band_num=band_num,
     )
     if overlap_result is None:
-        if mark_empty_results:
+        if empty_results_filename is not None:
             empty_results_filename.write_text(
                 Path(dem_source.dem_file_path(dem_name)).name
                 + " had no ICESat-2 results.",
@@ -2490,11 +2542,8 @@ def validate_dem_parallel(
         empty_results_filename=empty_results_filename,
         summary_stats_filename=summary_stats_filename,
         plot_filename=plot_filename,
-        write_summary_stats=write_summary_stats,
-        plot_results=plot_results,
         location_name=location_name,
         outliers_sd_threshold=outliers_sd_threshold,
-        mark_empty_results=mark_empty_results,
         shared_ret_values=shared_ret_values,
         files_to_export=files_to_export,
         export_error_formats=export_error_formats,
@@ -2506,7 +2555,12 @@ def validate_dem_parallel(
     )
 
 
-def _filter_bathy_photons(fetch_result, settings, icesat2_photon_database_obj, config):
+def _filter_bathy_photons(
+    fetch_result: _PhotonFetch,
+    settings: ivert.bathy_filters.BathyFilterSettings | None,
+    icesat2_photon_database_obj: ivert.icesat2_database_v2.IS2Database,
+    config: ivert.utils.configfile.Config,
+) -> tuple[_PhotonFetch | None, ivert.bathy_filters.BathyFilterReport]:
     """Run the bathymetry filters on the photons _fetch_photons returned.
 
     Returns (fetch_result, report). fetch_result becomes None if no photons are left.
@@ -2531,11 +2585,11 @@ def _filter_bathy_photons(fetch_result, settings, icesat2_photon_database_obj, c
 
 
 def _apply_coverage_filter(
-    results_df,
-    min_coverage_pct=None,
-    min_coverage_pct_land=None,
-    min_coverage_pct_bathy=None,
-):
+    results_df: pd.DataFrame,
+    min_coverage_pct: float | None = None,
+    min_coverage_pct_land: float | None = None,
+    min_coverage_pct_bathy: float | None = None,
+) -> pd.DataFrame:
     """Drop the cells whose ICESat-2 coverage is below the threshold for their type.
 
     A bathymetry cell is one with any bathymetry photons (numphotons_bathy > 0), as in
@@ -2584,7 +2638,7 @@ def _apply_coverage_filter(
     return results_df[keep].copy()
 
 
-def _format_stat(value) -> str:
+def _format_stat(value: float | np.floating) -> str:
     """Format a float for the summary stats file with reasonable precision.
 
     Uses 2 decimal places, unless the magnitude is below 0.10 (but non-zero), in
@@ -2619,7 +2673,7 @@ def _format_file_size(num_bytes: int) -> str:
     return f"{size:.2f} {unit}"
 
 
-def log_written_files(filenames) -> None:
+def log_written_files(filenames: Iterable[str | Path | None]) -> None:
     """Log a list of written output files, grouped by folder, with their sizes.
 
     Each folder is named once as 'In <folder>:', followed by one line per file
@@ -2755,11 +2809,11 @@ def write_summary_stats_file(
 
 
 def generate_result_geotiff(
-    results_dataframe,
-    dem_ds,
-    result_tif_filename,
-    empty_val=None,
-    crs=None,
+    results_dataframe: pd.DataFrame,
+    dem_ds: rasterio.io.DatasetReader,
+    result_tif_filename: str | Path,
+    empty_val: float | None = None,
+    crs: rasterio.crs.CRS | None = None,
 ) -> None:
     """Given the results in the dataframe, output geotiffs to visualize these.
 
@@ -2818,7 +2872,10 @@ _ERROR_EXPORT_FIELDS = (
 )
 
 
-def _results_cell_centers(results_dataframe, dem_ds):
+def _results_cell_centers(
+    results_dataframe: pd.DataFrame,
+    dem_ds: rasterio.io.DatasetReader,
+) -> tuple[npt.NDArray, npt.NDArray]:
     """Return (x, y) arrays of DEM-cell-center coordinates for each result row.
 
     Coordinates are in the DEM's own CRS, derived from the (i, j) multi-index and the
@@ -2833,7 +2890,13 @@ def _results_cell_centers(results_dataframe, dem_ds):
     return x, y
 
 
-def _export_errors_vector(results_dataframe, dem_ds, out_fname, fmt, crs=None) -> None:
+def _export_errors_vector(
+    results_dataframe: pd.DataFrame,
+    dem_ds: rasterio.io.DatasetReader,
+    out_fname: str | Path,
+    fmt: str,
+    crs: rasterio.crs.CRS | None = None,
+) -> None:
     """Write a point at each validated cell's center to a GeoPackage or Shapefile."""
     driver_name = {"gpkg": "GPKG", "shp": "ESRI Shapefile"}[fmt]
 
@@ -2871,7 +2934,11 @@ def _export_errors_vector(results_dataframe, dem_ds, out_fname, fmt, crs=None) -
     logger.debug("%s written.", out_fname)
 
 
-def _export_errors_xyz(results_dataframe, dem_ds, out_fname) -> None:
+def _export_errors_xyz(
+    results_dataframe: pd.DataFrame,
+    dem_ds: rasterio.io.DatasetReader,
+    out_fname: str | Path,
+) -> None:
     """Write a whitespace-delimited 'x y error' text file, one cell center per line."""
     x_centers, y_centers = _results_cell_centers(results_dataframe, dem_ds)
     errors = results_dataframe["diff_mean"].to_numpy()
@@ -2883,7 +2950,7 @@ def _export_errors_xyz(results_dataframe, dem_ds, out_fname) -> None:
     logger.debug("%s written.", out_fname)
 
 
-def normalize_export_formats(formats):
+def normalize_export_formats(formats: str | Iterable[str] | None) -> list[str]:
     """Normalize format names into a de-duplicated list of recognized names.
 
     Accepts a comma-separated string or an iterable. Names are lower-cased, and
@@ -2901,7 +2968,7 @@ def normalize_export_formats(formats):
     return seen
 
 
-def _photon_results_filename(results_dataframe_file):
+def _photon_results_filename(results_dataframe_file: str | Path) -> Path:
     """Return the '<dem>_photons.h5' path matching a given results dataframe file.
 
     The photon output belongs next to the rest of a DEM's validation results, so
@@ -2918,7 +2985,10 @@ def _photon_results_filename(results_dataframe_file):
     )
 
 
-def _error_export_filenames(results_dataframe_file, formats):
+def _error_export_filenames(
+    results_dataframe_file: str | Path,
+    formats: str | Iterable[str] | None,
+) -> list[Path]:
     """Return the '<dem>_errors.<ext>' paths a format request would produce."""
     results_dataframe_file = Path(results_dataframe_file)
     base = results_dataframe_file.stem.removesuffix("_results") + "_errors"
@@ -2929,12 +2999,12 @@ def _error_export_filenames(results_dataframe_file, formats):
 
 
 def export_error_results(
-    results_dataframe,
-    dem_ds,
-    results_dataframe_file,
-    formats,
-    dem_crs=None,
-):
+    results_dataframe: pd.DataFrame | None,
+    dem_ds: rasterio.io.DatasetReader,
+    results_dataframe_file: str | Path,
+    formats: str | Iterable[str] | None,
+    dem_crs: rasterio.crs.CRS | None = None,
+) -> list[Path]:
     """Export the per-cell ICESat-2 errors from a results dataframe into GIS formats.
 
     For each requested format a single file is written next to the results dataframe,
