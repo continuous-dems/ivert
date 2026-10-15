@@ -18,7 +18,6 @@ import os
 import signal
 import sys
 import time
-import typing
 from collections.abc import MutableMapping
 from multiprocessing import shared_memory
 from pathlib import Path
@@ -1506,10 +1505,8 @@ def _fetch_photons(
     dem_ds = rasterio.open(dem_name)
     dem_array = dem_ds.read(band_num)
 
-    # With its default of "both", this returns a (horizontal, vertical) pair.
-    dem_horz_ref_frame, dem_vert_ref_frame = typing.cast(
-        "tuple[pyproj.CRS | None, pyproj.CRS | None]",
-        dem_geom.get_dem_reference_frame_from_file(dem_name),
+    dem_horz_ref_frame, dem_vert_ref_frame = dem_geom.get_dem_reference_frame_from_file(
+        dem_name,
     )
     dem_horz_ref_frame, dem_vert_ref_frame = _resolve_dem_crs(
         dem_name,

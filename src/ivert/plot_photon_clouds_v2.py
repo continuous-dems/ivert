@@ -35,9 +35,6 @@ import ivert.vdatum_lookup
 from ivert.photon_classes import class_labels
 from ivert.utils.paths import absolute_path
 
-if typing.TYPE_CHECKING:
-    import pyproj
-
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
@@ -347,11 +344,7 @@ def _sample_dem_along_track(
         from ivert.utils import dem_geom  # noqa: PLC0415 - slow import
 
         try:
-            # With its default of "both", this returns a (horizontal, vertical) pair.
-            _, dem_vert = typing.cast(
-                "tuple[pyproj.CRS | None, pyproj.CRS | None]",
-                dem_geom.get_dem_reference_frame_from_file(dem_path),
-            )
+            _, dem_vert = dem_geom.get_dem_reference_frame_from_file(dem_path)
         except (
             OSError,
             ValueError,

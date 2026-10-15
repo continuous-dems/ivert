@@ -43,8 +43,27 @@ def _epsg_equivalent(crs: pyproj.CRS | None) -> pyproj.CRS | None:
     return crs if found is None else pyproj.CRS.from_epsg(int(found[1]))
 
 
+# What get_dem_reference_frame_from_user_input() and _from_file() take for a CRS.
+_CRSInput = typing.Union[pyproj.CRS, "rasterio.crs.CRS", str, int, None]
+
+
+@typing.overload
 def get_dem_reference_frame_from_user_input(
-    crs: typing.Union[pyproj.CRS, "rasterio.crs.CRS", str, int, None],
+    crs: _CRSInput,
+    vert_horz_or_both: typing.Literal["horz", "vert"],
+) -> pyproj.CRS | None: ...
+@typing.overload
+def get_dem_reference_frame_from_user_input(
+    crs: _CRSInput,
+    vert_horz_or_both: typing.Literal["both"] = "both",
+) -> tuple[pyproj.CRS | None, pyproj.CRS | None]: ...
+@typing.overload
+def get_dem_reference_frame_from_user_input(
+    crs: _CRSInput,
+    vert_horz_or_both: str,
+) -> pyproj.CRS | tuple | None: ...
+def get_dem_reference_frame_from_user_input(
+    crs: _CRSInput,
     vert_horz_or_both: str = "both",
 ) -> pyproj.CRS | tuple | None:
     """Return the horizontal and/or vertical CRS derived from an input CRS value.
@@ -97,6 +116,21 @@ def get_dem_reference_frame_from_user_input(
     raise ValueError(msg)
 
 
+@typing.overload
+def get_dem_reference_frame_from_file(
+    dem_fname: str,
+    vert_horz_or_both: typing.Literal["horz", "vert"],
+) -> pyproj.CRS | None: ...
+@typing.overload
+def get_dem_reference_frame_from_file(
+    dem_fname: str,
+    vert_horz_or_both: typing.Literal["both"] = "both",
+) -> tuple[pyproj.CRS | None, pyproj.CRS | None]: ...
+@typing.overload
+def get_dem_reference_frame_from_file(
+    dem_fname: str,
+    vert_horz_or_both: str,
+) -> pyproj.CRS | tuple | None: ...
 def get_dem_reference_frame_from_file(
     dem_fname: str,
     vert_horz_or_both: str = "both",
@@ -310,7 +344,7 @@ def get_wgs84_bounding_box(
     return b[0], b[2], b[1], b[3]  # → (xmin, xmax, ymin, ymax)
 
 
-def _comparable_reference(reference):
+def _comparable_reference(reference: pyproj.CRS | str | int) -> pyproj.CRS | str:
     """Return a CRS or reference ID in a form that can be compared for equality."""
     if isinstance(reference, pyproj.CRS):
         return reference
@@ -321,7 +355,7 @@ def _comparable_reference(reference):
         return str(reference).strip().lower()
 
 
-def same_reference(a, b):
+def same_reference(a: pyproj.CRS | str | int, b: pyproj.CRS | str | int) -> bool:
     """Return True if two CRSs or vertical reference IDs name the same thing."""
     a, b = _comparable_reference(a), _comparable_reference(b)
     if isinstance(a, pyproj.CRS) and isinstance(b, pyproj.CRS):
@@ -329,14 +363,18 @@ def same_reference(a, b):
     return a == b
 
 
-def reference_label(reference):
+def reference_label(reference: pyproj.CRS | str | int) -> str:
     """Return a short printable name for a CRS or vertical reference ID."""
     if isinstance(reference, pyproj.CRS):
         return reference.to_string()
     return str(reference)
 
 
-def resolve_horizontal_crs(dem_name, file_horz_crs, projection_horz=None):
+def resolve_horizontal_crs(
+    dem_name: str,
+    file_horz_crs: pyproj.CRS | None,
+    projection_horz: pyproj.CRS | None = None,
+) -> pyproj.CRS:
     """Return a DEM's horizontal CRS: the one from -p/--projection, else the file's.
 
     Args:

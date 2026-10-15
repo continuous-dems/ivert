@@ -5,7 +5,7 @@ import multiprocessing as mp
 import psutil
 
 
-def physical_cpu_count():
+def physical_cpu_count() -> int:
     """On this machine, get the number of physical cores.
 
     Not logical cores (when hyperthreading is available), but actual physical cores.

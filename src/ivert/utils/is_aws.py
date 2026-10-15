@@ -3,7 +3,7 @@
 from pathlib import Path
 
 
-def is_aws():
+def is_aws() -> bool:
     """Return True if running in an Amazon Web Services environment. False otherwise."""
     # The Amazon OS 2 EC2 instances we run have a /var/lib/cloud/instance/datasource
     # file, which contains "DataSourceEc2: DataSourceEc2" line. Look for that.

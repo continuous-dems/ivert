@@ -24,7 +24,7 @@ NEARSHORE_WATER_SURFACE = 41
 INLAND_WATER_SURFACE = 42
 
 
-def photon_classes():
+def photon_classes() -> tuple[tuple[int, str], ...]:
     """Return ``((code, description), ...)`` in the order globato lists them.
 
     Read from globato's ``PHOTON_CLASSES``. Raises ``ImportError`` if globato is
@@ -37,12 +37,12 @@ def photon_classes():
     return tuple(PHOTON_CLASSES.items())
 
 
-def class_descriptions():
+def class_descriptions() -> dict[int, str]:
     """Return ``{code: description}`` (the full upstream text) per class."""
     return dict(photon_classes())
 
 
-def _short(description):
+def _short(description: str) -> str:
     """Strip parenthetical qualifiers and any '/'-separated alternates.
 
     e.g. ``"Seafloor (ATL24 / Dynamic Algo)"`` -> ``"Seafloor"``.
@@ -50,7 +50,7 @@ def _short(description):
     return re.sub(r"\(.*?\)", "", description).split("/")[0].strip()
 
 
-def class_labels():
+def class_labels() -> dict[int, str]:
     """Return ``{code: short human label}``.
 
     For example, ``41 -> "Nearshore Water Surface"``.
@@ -58,7 +58,7 @@ def class_labels():
     return {code: _short(desc) for code, desc in photon_classes()}
 
 
-def class_names():
+def class_names() -> dict[int, str]:
     """Return ``{code: short snake_case name}``.
 
     For example, ``41 -> "nearshore_water_surface"``.
