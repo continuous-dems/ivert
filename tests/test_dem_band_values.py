@@ -278,6 +278,16 @@ def test_projection_without_a_horizontal_crs_is_an_error():
         validate_dem._resolve_dem_crs("dem.tif", WGS84, EGM2008, "EPSG:5703")
 
 
+@pytest.mark.usefixtures("no_transformez_check")
+def test_a_vertical_datum_with_no_vertical_crs_is_an_error():
+    """A horizontal-only code given to -V leaves the DEM with no vertical datum.
+
+    transformez's check refuses it first; this covers the case where it doesn't.
+    """
+    with pytest.raises(ValueError, match="has no vertical datum"):
+        validate_dem._resolve_dem_crs("dem.tif", WGS84, EGM2008, None, "EPSG:4326")
+
+
 def test_exports_use_the_projection():
     """Error exports use -p's horizontal CRS, without a transformez vertical part."""
     ds = types.SimpleNamespace(crs=None)

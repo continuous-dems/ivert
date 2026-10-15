@@ -1488,12 +1488,15 @@ def _resolve_dem_crs(
             dem_label,
             dem_geom.reference_label(file_vert_crs),
         )
-    vert: pyproj.CRS | tuple | str | None
+    vert: pyproj.CRS | str | None
     try:
         vert = dem_geom.get_dem_reference_frame_from_user_input(user_vert, "vert")
     except pyproj.exceptions.CRSError:
         # A transformez reference ID such as 'vdatum:mllw', which pyproj can't read.
         vert = user_vert
+    if vert is None:
+        msg = f"{user_flag} {user_vert} has no vertical datum."
+        raise ValueError(msg)
     return horz, vert
 
 
@@ -1526,13 +1529,11 @@ def _fetch_photons(
     dem_ds = rasterio.open(dem_name)
     dem_array = dem_ds.read(band_num)
 
-    dem_horz_ref_frame, dem_vert_ref_frame = dem_geom.get_dem_reference_frame_from_file(
-        dem_name,
-    )
+    file_horz_crs, file_vert_crs = dem_geom.get_dem_reference_frame_from_file(dem_name)
     dem_horz_ref_frame, dem_vert_ref_frame = _resolve_dem_crs(
         dem_name,
-        dem_horz_ref_frame,
-        dem_vert_ref_frame,
+        file_horz_crs,
+        file_vert_crs,
         dem_projection,
         dem_vertical_datum,
     )
@@ -1733,7 +1734,8 @@ def _compute_photon_overlap(
 
     dem_ndv = _band_nodata(dem_ds, band_num, user_ndv, default_ndv)
 
-    if np.isnan(dem_ndv):
+    # With no nodata value at all, only NaN cells are missing, as with a NaN one.
+    if dem_ndv is None or np.isnan(dem_ndv):
         dem_goodpixel_mask = ~np.isnan(dem_array)
     else:
         dem_goodpixel_mask = dem_array != dem_ndv
