@@ -2216,11 +2216,8 @@ def _write_validation_outputs(
     empty_results_filename,
     summary_stats_filename,
     plot_filename,
-    write_summary_stats,
-    plot_results,
     location_name,
     outliers_sd_threshold,
-    mark_empty_results,
     shared_ret_values,
     files_to_export,
     export_error_formats=None,
@@ -2232,7 +2229,8 @@ def _write_validation_outputs(
 ):
     """Concatenate results, filter outliers, and write all output files.
 
-    Returns the final files_to_export list.
+    The empty-marker, summary-stats and plot file names are None when that output
+    isn't wanted. Returns the final files_to_export list.
     """
     if len(results_dataframes_list) == 0:
         return files_to_export
@@ -2271,7 +2269,7 @@ def _write_validation_outputs(
 
     if len(results_dataframe) == 0:
         logger.info("No valid results in results dataframe. No outputs computed.")
-        if mark_empty_results:
+        if empty_results_filename is not None:
             empty_results_filename.write_text(_EMPTY_RESULTS_TEXT, encoding="utf-8")
             logger.info(
                 "Created %s to indicate no data was returned here.",
@@ -2299,7 +2297,7 @@ def _write_validation_outputs(
     written_files = [results_dataframe_file]
     shared_ret_values["results_dataframe_file"] = results_dataframe_file
 
-    if write_summary_stats:
+    if summary_stats_filename is not None:
         write_summary_stats_file(
             results_dataframe,
             summary_stats_filename,
@@ -2323,7 +2321,7 @@ def _write_validation_outputs(
         written_files.extend(exported)
         shared_ret_values["error_export_files"] = exported
 
-    if plot_results:
+    if plot_filename is not None:
         if location_name is None:
             location_name = Path(dem_source.dem_file_path(dem_name)).name
         ivert.plot_validation_results.plot_histograms_and_line(
@@ -2544,11 +2542,8 @@ def validate_dem_parallel(
         empty_results_filename=empty_results_filename,
         summary_stats_filename=summary_stats_filename,
         plot_filename=plot_filename,
-        write_summary_stats=write_summary_stats,
-        plot_results=plot_results,
         location_name=location_name,
         outliers_sd_threshold=outliers_sd_threshold,
-        mark_empty_results=mark_empty_results,
         shared_ret_values=shared_ret_values,
         files_to_export=files_to_export,
         export_error_formats=export_error_formats,
