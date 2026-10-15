@@ -514,8 +514,6 @@ def _evaluate_rules(
     (west, south, east, north) box.
     """
     rules = settings.rules
-    n = len(lon)
-    no = np.zeros(n, dtype=bool)
 
     # Bounds wide enough that every window and coast distance measured from a
     # photon stays inside the data read.
@@ -524,34 +522,18 @@ def _evaluate_rules(
 
     ref = ref_shallowest = None
     if settings.needs_reference:
-        ref_array, ref_transform = _load_reference(
-            settings.ref_raster,
+        ref, ref_shallowest = _reference_depths(
+            lon,
+            lat,
+            settings,
             bounds,
             cache_dir,
         )
-        ref = _sample(ref_array, ref_transform, lon, lat)
-        if "deep" in rules:
-            shallow_array, shallow_transform = _shallowest_within(
-                ref_array,
-                ref_transform,
-                settings.ref_window_m,
-                lat0=float(np.mean(lat)),
-            )
-            ref_shallowest = _sample(shallow_array, shallow_transform, lon, lat)
 
     on_land = covered = None
     coast = None
     if settings.needs_landmask:
-        land, covered_area, coast = get_landmask(bounds)
-        covered = shapely.intersects_xy(covered_area, lon, lat)
-        on_land = covered & shapely.intersects_xy(land, lon, lat)
-        n_uncovered = int(np.count_nonzero(~covered))
-        if n_uncovered:
-            logger.warning(
-                "%s class-40 photons lie where no OSM landmask is available; the "
-                "'offshore' and 'land' bathymetry filters skip them.",
-                f"{n_uncovered:,}",
-            )
+        on_land, covered, coast = _landmask_at(lon, lat, get_landmask(bounds))
 
     flags = {}
     with np.errstate(invalid="ignore"):
@@ -562,31 +544,16 @@ def _evaluate_rules(
             flags["deep"] = ref_shallowest < -settings.max_depth_m
 
         if "offshore" in rules:
-            if on_land is None or covered is None:
-                # settings.needs_landmask is true whenever this rule is on.
-                msg = "The offshore rule needs the landmask, which wasn't read."
-                raise RuntimeError(msg)
-            # Depth below the sea surface, approximated as depth below the EGM2008
-            # geoid. That misses the ocean tide, dynamic topography and surge, which
-            # can be several metres in macrotidal areas. Issue #112 tracks storing the
-            # real instantaneous sea surface per photon to replace this proxy.
-            depth_below_surface = -ortho_h
-            candidate = (
-                covered & ~on_land & (depth_below_surface < settings.near_surface_m)
+            flags["offshore"] = _offshore_flags(
+                lon,
+                lat,
+                ortho_h,
+                settings,
+                ref=ref,
+                on_land=on_land,
+                covered=covered,
+                coast=coast,
             )
-            if settings.offshore_min_ref_depth_m is not None:
-                if ref is None:
-                    msg = (
-                        "The offshore rule's minimum reference depth needs the "
-                        "reference bathymetry, which wasn't read."
-                    )
-                    raise RuntimeError(msg)
-                candidate &= ref < -settings.offshore_min_ref_depth_m
-            offshore = no.copy()
-            if candidate.any():
-                dist = _distance_to_coast_m(coast, lon[candidate], lat[candidate])
-                offshore[candidate] = dist > settings.min_coast_dist_m
-            flags["offshore"] = offshore
 
         if "reference" in rules:
             if ref is None:
@@ -605,6 +572,100 @@ def _evaluate_rules(
 
     # NaN comparisons are already False; make every mask a plain bool array.
     return {rule: np.asarray(flags[rule], dtype=bool) for rule in rules}
+
+
+def _reference_depths(
+    lon: np.ndarray,
+    lat: np.ndarray,
+    settings: BathyFilterSettings,
+    bounds: BBox,
+    cache_dir: str | None,
+) -> tuple[np.ndarray, np.ndarray | None]:
+    """Sample the reference bathymetry at the photons.
+
+    Returns (the reference height at each photon, the shallowest reference height
+    within settings.ref_window_m of it). The second is None unless the 'deep' rule
+    is on, which alone uses it.
+    """
+    ref_array, ref_transform = _load_reference(settings.ref_raster, bounds, cache_dir)
+    ref = _sample(ref_array, ref_transform, lon, lat)
+    if "deep" not in settings.rules:
+        return ref, None
+    shallow_array, shallow_transform = _shallowest_within(
+        ref_array,
+        ref_transform,
+        settings.ref_window_m,
+        lat0=float(np.mean(lat)),
+    )
+    return ref, _sample(shallow_array, shallow_transform, lon, lat)
+
+
+def _landmask_at(
+    lon: np.ndarray,
+    lat: np.ndarray,
+    landmask: _Landmask,
+) -> tuple[np.ndarray, np.ndarray, shapely.Geometry | None]:
+    """Place the photons on a landmask.
+
+    Returns (whether each is on land, whether the landmask covers it, the
+    coastline). Photons the landmask doesn't cover are logged, and count as off
+    land.
+    """
+    land, covered_area, coast = landmask
+    covered = shapely.intersects_xy(covered_area, lon, lat)
+    on_land = covered & shapely.intersects_xy(land, lon, lat)
+    n_uncovered = int(np.count_nonzero(~covered))
+    if n_uncovered:
+        logger.warning(
+            "%s class-40 photons lie where no OSM landmask is available; the "
+            "'offshore' and 'land' bathymetry filters skip them.",
+            f"{n_uncovered:,}",
+        )
+    return on_land, covered, coast
+
+
+def _offshore_flags(
+    lon: np.ndarray,
+    lat: np.ndarray,
+    ortho_h: np.ndarray,
+    settings: BathyFilterSettings,
+    *,
+    ref: np.ndarray | None,
+    on_land: np.ndarray | None,
+    covered: np.ndarray | None,
+    coast: shapely.Geometry | None,
+) -> np.ndarray:
+    """Flag the photons near the sea surface but far from any coast.
+
+    Raises:
+        RuntimeError: if the landmask wasn't read, or if
+            settings.offshore_min_ref_depth_m is set but the reference bathymetry
+            wasn't.
+
+    """
+    if on_land is None or covered is None:
+        # settings.needs_landmask is true whenever this rule is on.
+        msg = "The offshore rule needs the landmask, which wasn't read."
+        raise RuntimeError(msg)
+    # Depth below the sea surface, approximated as depth below the EGM2008
+    # geoid. That misses the ocean tide, dynamic topography and surge, which
+    # can be several metres in macrotidal areas. Issue #112 tracks storing the
+    # real instantaneous sea surface per photon to replace this proxy.
+    depth_below_surface = -ortho_h
+    candidate = covered & ~on_land & (depth_below_surface < settings.near_surface_m)
+    if settings.offshore_min_ref_depth_m is not None:
+        if ref is None:
+            msg = (
+                "The offshore rule's minimum reference depth needs the "
+                "reference bathymetry, which wasn't read."
+            )
+            raise RuntimeError(msg)
+        candidate &= ref < -settings.offshore_min_ref_depth_m
+    offshore = np.zeros(len(lon), dtype=bool)
+    if candidate.any():
+        dist = _distance_to_coast_m(coast, lon[candidate], lat[candidate])
+        offshore[candidate] = dist > settings.min_coast_dist_m
+    return offshore
 
 
 def _to_lonlat(
@@ -790,7 +851,8 @@ def _sample(
 ) -> np.ndarray:
     """Values of array at the points; NaN outside it."""
     rows, cols = rasterio.transform.rowcol(transform, lon, lat)
-    rows, cols = np.asarray(rows), np.asarray(cols)
+    # Whole numbers already, but rasterio 1.4.1 returns them as floats for arrays.
+    rows, cols = np.asarray(rows).astype(np.intp), np.asarray(cols).astype(np.intp)
     inside = (
         (rows >= 0) & (rows < array.shape[0]) & (cols >= 0) & (cols < array.shape[1])
     )

@@ -5,6 +5,7 @@ The Config class exposes every option as a read-only attribute.
 
 import ast
 import configparser
+import contextlib
 import datetime
 import importlib.resources
 import logging
@@ -111,6 +112,50 @@ def parse_option_descriptions(
             comment_buffer = []
 
     return descriptions
+
+
+# Returned by the option readers below for a value they don't read.
+_NOT_PARSED = object()
+
+
+def _literal_option_value(value: str) -> object:
+    """Read an option's value as a Python literal, a non-finite float or a boolean.
+
+    Returns _NOT_PARSED if it is none of those.
+    """
+    try:
+        # Using ast.literal_eval() rather than eval(), because literal_eval only
+        # allows the creation of generic python objects but doesn't allow the
+        # calling of functions or commands that could pose security risks. It will
+        # natively evaluate things like lists, dictionaries, or other generic python
+        # data types.
+        return ast.literal_eval(value)
+    except (NameError, ValueError, SyntaxError):
+        pass
+    if not isinstance(value, str):
+        return _NOT_PARSED
+
+    # literal_eval() can express every Python literal except the non-finite
+    # floats: "NaN" and "inf" are names rather than literals, so a setting
+    # written that way arrives here as a string and breaks any arithmetic
+    # done on it (numpy.isnan("NaN") raises a TypeError, for instance).
+    # Convert those, and only those: float() would also happily turn an
+    # unquoted zero-padded value such as "007" into 7.0, which would silently
+    # corrupt settings that are meant to stay strings.
+    with contextlib.suppress(ValueError):
+        number = float(value)
+        if not math.isfinite(number):
+            return number
+
+    # In some boolean cases, you can put other things besides "True/False", such as
+    # "yes/no" Use configparser's boolean vocabulary to try to interpret it as a
+    # boolean. The value is converted directly (rather than looked up by key) so
+    # that this also works for options coming from the [AWS] section or from the
+    # user config file, which need not exist in this parser's [DEFAULT].
+    bool_value = configparser.ConfigParser.BOOLEAN_STATES.get(value.strip().lower())
+    if bool_value is not None:
+        return bool_value
+    return _NOT_PARSED
 
 
 def _is_absolute_path(value: str) -> bool:
@@ -619,92 +664,48 @@ class Config:
         # afresh whether it is a path, so drop any earlier verdict first.
         self._path_keys.pop(key, None)
 
-        try:
-            # Using ast.literal_eval() rather than eval(), because literal_eval only
-            # allows the creation of generic python objects but doesn't allow the
-            # calling of functions or commands that could pose security risks. It will
-            # natively evaluate things like lists, dictionaries, or other generic python
-            # data types.
-            setattr(self, key, ast.literal_eval(value))
-        except (NameError, ValueError, SyntaxError):
-            pass
-        else:
-            return
-
-        # literal_eval() can express every Python literal except the non-finite
-        # floats: "NaN" and "inf" are names rather than literals, so a setting
-        # written that way arrives here as a string and breaks any arithmetic
-        # done on it (numpy.isnan("NaN") raises a TypeError, for instance).
-        # Convert those, and only those: float() would also happily turn an
-        # unquoted zero-padded value such as "007" into 7.0, which would silently
-        # corrupt settings that are meant to stay strings.
-        if isinstance(value, str):
-            try:
-                number = float(value)
-            except ValueError:
-                pass
-            else:
-                if not math.isfinite(number):
-                    setattr(self, key, number)
-                    return
-
-        # In some boolean cases, you can put other things besides "True/False", such as
-        # "yes/no" Use configparser's boolean vocabulary to try to interpret it as a
-        # boolean. The value is converted directly (rather than looked up by key) so
-        # that this also works for options coming from the [AWS] section or from the
-        # user config file, which need not exist in this parser's [DEFAULT].
-        if isinstance(value, str):
-            bool_value = configparser.ConfigParser.BOOLEAN_STATES.get(
-                value.strip().lower(),
-            )
-            if bool_value is not None:
-                setattr(self, key, bool_value)
-                return
-
-        # Check to see if this is potentially a path. Interpret it as such if it is a
-        # string and contains path characters ('\' in Windows or '/' in Linux). If this
-        # is the case, return the absolute path of that file/directory *relative* to the
-        # current directory the Config.ini file is contained.
-        try:
-            if key.lower() in _RELATIVE_PATH_KEYS:
-                # This path is resolved later against a different base directory
-                # (not the configfile's location), so keep it relative as-is.
-                pass
-
-            elif key[:3].lower() == "s3_":
-                # This is an S3 key-path. Do not convert it to an absolute path.
-                pass
-
-            elif re.match(r"[a-zA-Z][a-zA-Z0-9+\-.]*://", value.strip()):
-                # This is a URL (http://, https://, ftp://, s3://, etc.). Leave it
-                # as-is.
-                pass
-
-            # Treat the value as a path if it references the home directory ('~') or
-            # contains a path separator. Both '/' and '\' are recognized regardless of
-            # platform: config files are written with forward slashes (e.g. "~/.ivert"),
-            # which are valid on Windows too, so path handling must not depend on
-            # sys.platform. Path.expanduser resolves '~' cross-platform.
-            elif ("~" in value) or ("/" in value) or ("\\" in value):
-                # If it references the home directory, expand it on the local machine.
-                if "~" in value:
-                    setattr(self, key, absolute_path(Path(value).expanduser()))
-                # If it's already an absolute path, just use it as-is. Recognize both
-                # Unix ("/...") and Windows ("C:\...", "C:/...", or UNC "\\...") roots
-                # so shared config files resolve correctly on either platform.
-                elif _is_absolute_path(value):
-                    setattr(self, key, absolute_path(value))
-                # If it's a relative path, make it relative to the _configfile's
-                # directory.
-                else:
-                    setattr(self, key, self._abspath(value))
+        parsed = _literal_option_value(value)
+        if parsed is _NOT_PARSED:
+            parsed = self._path_option_value(key, value)
+            if parsed is not _NOT_PARSED:
                 # Record that this option names a local path, so callers such as
                 # "ivert setup" can find them without a hard-coded list.
                 self._path_keys[key] = None
-                return
-        except ValueError:
-            pass
+        if parsed is _NOT_PARSED:
+            # Otherwise, it's probably just a regular string value, set it as-is.
+            parsed = value
+        setattr(self, key, parsed)
 
-        # Otherwise, it's probably just a regular string value, set it as-is.
-        setattr(self, key, value)
-        return
+    def _path_option_value(self, key: str, value: str) -> object:
+        r"""Return an option's value as an absolute local path, if it is one.
+
+        A value is a path if it references the home directory ('~') or contains a
+        path separator. Both '/' and '\' are recognized regardless of platform:
+        config files are written with forward slashes (e.g. "~/.ivert"), which are
+        valid on Windows too, so path handling must not depend on sys.platform. A
+        relative path is taken from the configfile's own directory.
+
+        Returns _NOT_PARSED for anything else, and for values that look like paths
+        but name nothing on this machine's disk: S3 keys, URLs, and the options in
+        _RELATIVE_PATH_KEYS, which are resolved later against another directory.
+        """
+        if (
+            key.lower() in _RELATIVE_PATH_KEYS
+            or key[:3].lower() == "s3_"
+            # A URL (http://, https://, ftp://, s3://, etc.).
+            or re.match(r"[a-zA-Z][a-zA-Z0-9+\-.]*://", value.strip())
+            or not ("~" in value or "/" in value or "\\" in value)
+        ):
+            return _NOT_PARSED
+        try:
+            # If it references the home directory, expand it on the local machine.
+            if "~" in value:
+                return absolute_path(Path(value).expanduser())
+            # If it's already an absolute path, just use it as-is. Recognize both
+            # Unix ("/...") and Windows ("C:\...", "C:/...", or UNC "\\...")
+            # roots so shared config files resolve correctly on either platform.
+            if _is_absolute_path(value):
+                return absolute_path(value)
+            return self._abspath(value)
+        except ValueError:
+            return _NOT_PARSED
