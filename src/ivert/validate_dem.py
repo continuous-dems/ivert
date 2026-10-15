@@ -2208,25 +2208,25 @@ def _run_parallel_cell_validation(
 
 
 def _write_validation_outputs(
-    results_dataframes_list,
-    dem_ds,
-    dem_name,
+    results_dataframes_list: list[pd.DataFrame],
+    dem_ds: rasterio.io.DatasetReader | None,
+    dem_name: str,
     *,
-    results_dataframe_file,
-    empty_results_filename,
-    summary_stats_filename,
-    plot_filename,
-    location_name,
-    outliers_sd_threshold,
-    shared_ret_values,
-    files_to_export,
-    export_error_formats=None,
-    min_coverage_pct=None,
-    min_coverage_pct_land=None,
-    min_coverage_pct_bathy=None,
-    bathy_filter_report=None,
-    dem_projection=None,
-):
+    results_dataframe_file: Path,
+    empty_results_filename: Path | None,
+    summary_stats_filename: Path | None,
+    plot_filename: Path | None,
+    location_name: str | None,
+    outliers_sd_threshold: float | None,
+    shared_ret_values: MutableMapping,
+    files_to_export: list[Path],
+    export_error_formats: str | Iterable[str] | None = None,
+    min_coverage_pct: float | None = None,
+    min_coverage_pct_land: float | None = None,
+    min_coverage_pct_bathy: float | None = None,
+    bathy_filter_report: ivert.bathy_filters.BathyFilterReport | None = None,
+    dem_projection: str | int | None = None,
+) -> list[Path]:
     """Concatenate results, filter outliers, and write all output files.
 
     The empty-marker, summary-stats and plot file names are None when that output
@@ -2809,11 +2809,11 @@ def write_summary_stats_file(
 
 
 def generate_result_geotiff(
-    results_dataframe,
-    dem_ds,
-    result_tif_filename,
-    empty_val=None,
-    crs=None,
+    results_dataframe: pd.DataFrame,
+    dem_ds: rasterio.io.DatasetReader,
+    result_tif_filename: str | Path,
+    empty_val: float | None = None,
+    crs: rasterio.crs.CRS | None = None,
 ) -> None:
     """Given the results in the dataframe, output geotiffs to visualize these.
 
@@ -2872,7 +2872,10 @@ _ERROR_EXPORT_FIELDS = (
 )
 
 
-def _results_cell_centers(results_dataframe, dem_ds):
+def _results_cell_centers(
+    results_dataframe: pd.DataFrame,
+    dem_ds: rasterio.io.DatasetReader,
+) -> tuple[npt.NDArray, npt.NDArray]:
     """Return (x, y) arrays of DEM-cell-center coordinates for each result row.
 
     Coordinates are in the DEM's own CRS, derived from the (i, j) multi-index and the
@@ -2887,7 +2890,13 @@ def _results_cell_centers(results_dataframe, dem_ds):
     return x, y
 
 
-def _export_errors_vector(results_dataframe, dem_ds, out_fname, fmt, crs=None) -> None:
+def _export_errors_vector(
+    results_dataframe: pd.DataFrame,
+    dem_ds: rasterio.io.DatasetReader,
+    out_fname: str | Path,
+    fmt: str,
+    crs: rasterio.crs.CRS | None = None,
+) -> None:
     """Write a point at each validated cell's center to a GeoPackage or Shapefile."""
     driver_name = {"gpkg": "GPKG", "shp": "ESRI Shapefile"}[fmt]
 
@@ -2925,7 +2934,11 @@ def _export_errors_vector(results_dataframe, dem_ds, out_fname, fmt, crs=None) -
     logger.debug("%s written.", out_fname)
 
 
-def _export_errors_xyz(results_dataframe, dem_ds, out_fname) -> None:
+def _export_errors_xyz(
+    results_dataframe: pd.DataFrame,
+    dem_ds: rasterio.io.DatasetReader,
+    out_fname: str | Path,
+) -> None:
     """Write a whitespace-delimited 'x y error' text file, one cell center per line."""
     x_centers, y_centers = _results_cell_centers(results_dataframe, dem_ds)
     errors = results_dataframe["diff_mean"].to_numpy()
@@ -2937,7 +2950,7 @@ def _export_errors_xyz(results_dataframe, dem_ds, out_fname) -> None:
     logger.debug("%s written.", out_fname)
 
 
-def normalize_export_formats(formats):
+def normalize_export_formats(formats: str | Iterable[str] | None) -> list[str]:
     """Normalize format names into a de-duplicated list of recognized names.
 
     Accepts a comma-separated string or an iterable. Names are lower-cased, and
@@ -2955,7 +2968,7 @@ def normalize_export_formats(formats):
     return seen
 
 
-def _photon_results_filename(results_dataframe_file):
+def _photon_results_filename(results_dataframe_file: str | Path) -> Path:
     """Return the '<dem>_photons.h5' path matching a given results dataframe file.
 
     The photon output belongs next to the rest of a DEM's validation results, so
@@ -2972,7 +2985,10 @@ def _photon_results_filename(results_dataframe_file):
     )
 
 
-def _error_export_filenames(results_dataframe_file, formats):
+def _error_export_filenames(
+    results_dataframe_file: str | Path,
+    formats: str | Iterable[str] | None,
+) -> list[Path]:
     """Return the '<dem>_errors.<ext>' paths a format request would produce."""
     results_dataframe_file = Path(results_dataframe_file)
     base = results_dataframe_file.stem.removesuffix("_results") + "_errors"
@@ -2983,12 +2999,12 @@ def _error_export_filenames(results_dataframe_file, formats):
 
 
 def export_error_results(
-    results_dataframe,
-    dem_ds,
-    results_dataframe_file,
-    formats,
-    dem_crs=None,
-):
+    results_dataframe: pd.DataFrame | None,
+    dem_ds: rasterio.io.DatasetReader,
+    results_dataframe_file: str | Path,
+    formats: str | Iterable[str] | None,
+    dem_crs: rasterio.crs.CRS | None = None,
+) -> list[Path]:
     """Export the per-cell ICESat-2 errors from a results dataframe into GIS formats.
 
     For each requested format a single file is written next to the results dataframe,
