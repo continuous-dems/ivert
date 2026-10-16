@@ -5,7 +5,9 @@ import logging
 import re
 import traceback
 from collections.abc import Sequence
+from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any, NamedTuple
 
 import numpy as np
 import pandas as pd
@@ -388,6 +390,374 @@ def dems_needing_validation(
     return to_validate, reused
 
 
+def _first_matching_dem(
+    dem_names: Sequence[str | Path],
+    fname_filter: str | None,
+    fname_omit: str | None,
+) -> str:
+    """Return the first DEM name whose file name passes 'fname_filter' and 'fname_omit'.
+
+    Only the names are checked, not whether each is a DEM raster, so this can differ
+    from the first DEM that _resolve_dem_list() returns.
+    """
+    names = [str(dem) for dem in dem_names]
+    matching = [
+        fn
+        for fn in names
+        if (fname_filter is None or re.search(fname_filter, Path(fn).name) is not None)
+        and (fname_omit is None or re.search(fname_omit, Path(fn).name) is None)
+    ]
+    return matching[0]
+
+
+def _collection_output_dir(
+    dem_list_or_dir: str | Path | Sequence[str | Path],
+    output_dir: str | Path | None,
+    fname_filter: str | None,
+    fname_omit: str | None,
+) -> Path:
+    """Return the directory a collection writes its summary files into.
+
+    That is 'output_dir' if it is an existing directory. Otherwise it is the input's
+    folder, with 'output_dir' (if given) taken relative to it. The input's folder is
+    the directory given, if one was given with no 'output_dir'; otherwise it is the
+    folder of the file given, or of the first listed DEM passing the filters.
+    """
+    if output_dir is not None and Path(output_dir).is_dir():
+        return Path(output_dir)
+    if isinstance(dem_list_or_dir, (str, Path)):
+        # A str, as a DEM name: dem_source reads a subdataset string's file out of it.
+        single_input = str(dem_list_or_dir)
+        if output_dir is None and Path(single_input).is_dir():
+            return Path(single_input)
+        input_dir = Path(dem_source.dem_file_path(single_input)).parent
+    else:
+        first_dem = _first_matching_dem(dem_list_or_dir, fname_filter, fname_omit)
+        input_dir = Path(dem_source.dem_file_path(first_dem)).parent
+    return input_dir if output_dir is None else input_dir / output_dir
+
+
+class _SummaryFiles(NamedTuple):
+    """The paths of a collection's summary files."""
+
+    stats: Path
+    plot: Path
+    csv: Path
+    results_h5: Path
+
+
+def _summary_files(directory: Path, place_name: str | None) -> _SummaryFiles:
+    """Return the paths of a collection's summary files in 'directory'."""
+    results_base = _summary_results_base(place_name)
+    # Swap only the trailing "_results" that _summary_results_base() appends. A blanket
+    # str.replace("_results", ...) rewrites every occurrence, so a place name that
+    # itself contains "results" (e.g. "oregon results 2024" -> "oregon_results_2024")
+    # would have its own text rewritten mid-name as well.
+    sibling_base = results_base.removesuffix("_results")
+    return _SummaryFiles(
+        stats=directory / (sibling_base + "_summary_stats.txt"),
+        plot=directory / (sibling_base + "_plot.png"),
+        csv=directory / (sibling_base + "_individual_results.csv"),
+        results_h5=directory / (results_base + ".h5"),
+    )
+
+
+def _collection_is_finished(
+    dem_list: list[str],
+    output_dir: str | Path | None,
+    summary: _SummaryFiles,
+    *,
+    write_summary_csv: bool,
+    include_photons: bool,
+    variable: str | None,
+) -> bool:
+    """Return True, and say so, if a run without -ow would have nothing left to do.
+
+    That is when every DEM already has results (or failed in an earlier run) and every
+    summary file is written. DEMs that failed in an earlier run are listed again.
+    """
+    summary_files = [summary.results_h5, summary.stats, summary.plot]
+    if write_summary_csv:
+        summary_files.append(summary.csv)
+    if not all(fn.exists() for fn in summary_files) or not all(
+        _dem_is_done(
+            dem,
+            _dem_output_dir(dem, output_dir, dem_list),
+            include_photons=include_photons,
+            variable=variable,
+        )
+        for dem in dem_list
+    ):
+        return False
+
+    logger.info(
+        "Every DEM is already validated in %s, and the collection's summary files "
+        "are written. There's nothing left to do here.\n"
+        " To recompute them, run with --overwrite enabled, or delete output"
+        " files as needed and re-run to create them again.",
+        summary.stats.parent,
+    )
+    failed_earlier = [
+        Path(dem_source.dem_file_path(dem)).name
+        for dem in dem_list
+        if _failed_earlier(
+            dem,
+            _dem_output_dir(dem, output_dir, dem_list),
+            include_photons=include_photons,
+            variable=variable,
+        )
+    ]
+    if failed_earlier:
+        logger.error(
+            "%d of %d DEMs failed in an earlier run and were not tried again (see "
+            "their %s files; use -ow/--overwrite to retry them): %s",
+            len(failed_earlier),
+            len(dem_list),
+            ERROR_MARKER_SUFFIX,
+            ", ".join(failed_earlier),
+        )
+    return True
+
+
+@dataclass
+class _CollectionResults:
+    """What the DEMs of a collection run produced, gathered DEM by DEM."""
+
+    # Every file the DEMs' validations wrote, for the list of files written.
+    files_to_export: list = field(default_factory=list)
+    # The results file of each DEM that has one, and that DEM, in the same order.
+    # DEMs that come back empty or fail are left out, so these can't be indexed from
+    # the list of DEMs.
+    results_files: list[str | Path] = field(default_factory=list)
+    results_dems: list[str] = field(default_factory=list)
+    # The DEMs with no photons to validate against, as named in the summary CSV.
+    empty_dems: list[str] = field(default_factory=list)
+    # DEMs skipped because of an error, reported again once the run is over.
+    failed_dems: list[str] = field(default_factory=list)
+
+
+def _skip_failed_earlier(
+    listed_dem: str,
+    dem_file: str,
+    dem_output_dir: Path,
+    *,
+    overwrite: bool,
+    include_photons: bool,
+    variable: str | None,
+) -> bool:
+    """Return True if this DEM failed in an earlier run, and so is skipped.
+
+    A DEM that failed is left alone until -ow is given. With 'overwrite', its error
+    markers are deleted instead, and it is tried again.
+    """
+    if overwrite:
+        for stale_marker in _error_marker_paths(listed_dem, dem_output_dir, variable):
+            stale_marker.unlink(missing_ok=True)
+        return False
+    marker = _failed_earlier(
+        listed_dem,
+        dem_output_dir,
+        include_photons=include_photons,
+        variable=variable,
+    )
+    if marker is None:
+        return False
+    logger.error(
+        "Skipping %s: it failed in an earlier run (see %s). Use "
+        "-ow/--overwrite to try it again.",
+        dem_file,
+        marker,
+    )
+    return True
+
+
+def _resolve_listed_dem(
+    listed_dem: str,
+    variable: str | None,
+    dem_output_dir: Path,
+) -> str | None:
+    """Return the path or subdataset string to validate for a listed DEM.
+
+    The NetCDF/HDF5 variable is picked here, one file at a time. A DEM that can't be
+    read or isn't georeferenced is logged and gets an error marker; that returns None.
+    """
+    try:
+        dem_path = dem_source.resolve_dem_source(listed_dem, variable)
+        dem_source.check_georeferenced(dem_path)
+    except dem_source.DEMSourceError as exc:
+        # Not logger.exception: the message names the file and what is wrong.
+        logger.error("Skipping: %s", exc)  # noqa: TRY400
+        _write_error_marker(
+            dem_output_dir
+            / (dem_source.dem_base_name(listed_dem) + ERROR_MARKER_SUFFIX),
+            listed_dem,
+            str(exc),
+        )
+        return None
+    return dem_path
+
+
+def _run_validate_dem(
+    dem_path: str,
+    dem_file: str,
+    error_fname: Path,
+    validate_kwargs: dict[str, Any],
+) -> dict | None:
+    """Validate one DEM; return the files it wrote, or None if it failed.
+
+    A failure is logged and written to the DEM's error marker, 'error_fname'.
+    """
+    shared_ret_values: dict = {}
+    try:
+        validate_dem.validate_dem(
+            dem_path,
+            shared_ret_values=shared_ret_values,
+            **validate_kwargs,
+        )
+    except MemoryError:
+        # Not logger.exception: running out of memory on a DEM is self-explanatory
+        # and the traceback is the same every time.
+        logger.error(  # noqa: TRY400
+            "Skipping %s due to memory error.",
+            dem_file,
+        )
+        _write_error_marker(
+            error_fname,
+            dem_path,
+            "Ran out of memory validating this DEM.",
+        )
+        return None
+
+    except KeyboardInterrupt:
+        raise
+
+    except Exception as exc:
+        logger.exception("Skipping %s.", dem_file)
+        _write_error_marker(error_fname, dem_path, str(exc), traceback.format_exc())
+        return None
+
+    return shared_ret_values
+
+
+def _validate_listed_dem(
+    i: int,
+    dem_list: list[str],
+    output_dir: str | Path | None,
+    results: _CollectionResults,
+    validate_kwargs: dict[str, Any],
+    *,
+    overwrite: bool,
+    include_photons: bool,
+    variable: str | None,
+) -> None:
+    """Validate the i-th DEM of a collection, and add what it produced to 'results'."""
+    listed_dem = dem_list[i]
+    logger.info(
+        "\n======= %s %s of %s =======",
+        Path(listed_dem).name,
+        "(" + str(i + 1),
+        str(len(dem_list)) + ")",
+    )
+
+    dem_file = Path(dem_source.dem_file_path(listed_dem)).name
+    this_output_dir = _dem_output_dir(listed_dem, output_dir, dem_list)
+    if not this_output_dir.exists():
+        this_output_dir.mkdir()
+
+    if _skip_failed_earlier(
+        listed_dem,
+        dem_file,
+        this_output_dir,
+        overwrite=overwrite,
+        include_photons=include_photons,
+        variable=variable,
+    ):
+        results.failed_dems.append(dem_file)
+        return
+
+    dem_path = _resolve_listed_dem(listed_dem, variable, this_output_dir)
+    if dem_path is None:
+        results.failed_dems.append(dem_file)
+        return
+
+    dem_base = dem_source.dem_base_name(dem_path)
+    results_h5_file = this_output_dir / (dem_base + "_results.h5")
+    empty_fname = this_output_dir / (dem_base + "_results_EMPTY.txt")
+    error_fname = this_output_dir / (dem_base + ERROR_MARKER_SUFFIX)
+
+    written = _run_validate_dem(dem_path, dem_file, error_fname, validate_kwargs)
+    if written is None:
+        results.failed_dems.append(dem_file)
+        return
+
+    results.files_to_export.extend(list(written.values()))
+    if results_h5_file.exists():
+        results.results_files.append(results_h5_file)
+        results.results_dems.append(dem_path)
+    elif empty_fname.exists():
+        results.empty_dems.append(dem_source.dem_display_name(dem_path))
+
+
+def _write_collection_summaries(
+    results: _CollectionResults,
+    summary: _SummaryFiles,
+    *,
+    place_name: str | None,
+    write_summary_csv: bool,
+) -> list:
+    """Write a collection's summary files; return every file the run wrote."""
+    total_results_df = plot_validation_results.get_data_from_h5_or_list(
+        results.results_files,
+        orig_filenames=results.results_dems,
+        include_filenames=True,
+    )
+
+    files_to_export = results.files_to_export
+    # Everything appended from here on is a collection-wide summary output.
+    num_tile_files = len(files_to_export)
+
+    if write_summary_csv:
+        write_summary_csv_file(
+            total_results_df,
+            results.empty_dems,
+            summary.csv,
+        )
+        files_to_export.append(summary.csv)
+
+    # The bathymetry filter counts, summed over the DEMs validated.
+    bathy_filter_report = ivert.bathy_filters.BathyFilterReport.combine(
+        [ivert.bathy_filters.read_report_from_h5(fn) for fn in results.results_files],
+    )
+
+    # Output the statistics summary file.
+    validate_dem.write_summary_stats_file(
+        total_results_df,
+        summary.stats,
+        bathy_filter_report=bathy_filter_report,
+    )
+    files_to_export.append(summary.stats)
+
+    # Output the validation results plot.
+    plot_validation_results.plot_histograms_and_line(
+        total_results_df,
+        summary.plot,
+        place_name=place_name,
+    )
+    files_to_export.append(summary.plot)
+
+    total_results_df.to_hdf(
+        summary.results_h5,
+        key="results",
+        complib="zlib",
+        complevel=3,
+    )
+    ivert.bathy_filters.write_report_to_h5(summary.results_h5, bathy_filter_report)
+    files_to_export.append(summary.results_h5)
+
+    validate_dem.log_written_files(files_to_export[num_tile_files:])
+    return files_to_export
+
+
 def validate_list_of_dems(
     dem_list_or_dir: str | Path | Sequence[str | Path],
     *,
@@ -427,124 +797,23 @@ def validate_list_of_dems(
     given, without a default elevation variable) is logged and skipped. 'dem_projection'
     is the DEMs' CRS, as in validate_dem.validate_dem().
     """
-    # A single file or directory, or else a list of DEMs.
-    single_input: str | None = None
-    dem_names: list[str] = []
-    if isinstance(dem_list_or_dir, (str, Path)):
-        # A str, as a DEM name: dem_source reads a subdataset string's file out of it.
-        single_input = str(dem_list_or_dir)
-    else:
-        dem_names = [str(dem) for dem in dem_list_or_dir]
-    if output_dir is None:
-        if single_input is not None and Path(single_input).is_dir():
-            stats_and_plots_dir = Path(single_input)
-        elif single_input is not None:
-            stats_and_plots_dir = Path(dem_source.dem_file_path(single_input)).parent
-        else:
-            dem_list_fitting_filter = [
-                fn
-                for fn in dem_names
-                if (
-                    (
-                        (fname_filter is None)
-                        or (re.search(fname_filter, Path(fn).name) is not None)
-                    )
-                    and (
-                        (fname_omit is None)
-                        or (re.search(fname_omit, Path(fn).name) is None)
-                    )
-                )
-            ]
-            stats_and_plots_dir = Path(
-                dem_source.dem_file_path(dem_list_fitting_filter[0]),
-            ).parent
-    elif Path(output_dir).is_dir():
-        stats_and_plots_dir = Path(output_dir)
-    # If the output dir appears to be a relative path, then join it with the input dir.
-    elif single_input is not None:
-        stats_and_plots_dir = (
-            Path(dem_source.dem_file_path(single_input)).parent / output_dir
-        )
-    else:
-        dem_list_fitting_filter = [
-            fn
-            for fn in dem_names
-            if (
-                (
-                    (fname_filter is None)
-                    or (re.search(fname_filter, Path(fn).name) is not None)
-                )
-                and (
-                    (fname_omit is None)
-                    or (re.search(fname_omit, Path(fn).name) is None)
-                )
-            )
-        ]
-        stats_and_plots_dir = (
-            Path(dem_source.dem_file_path(dem_list_fitting_filter[0])).parent
-            / output_dir
-        )
-
-    stats_and_plots_base = _summary_results_base(place_name)
-
-    # Swap only the trailing "_results" that _summary_results_base() appends. A blanket
-    # str.replace("_results", ...) rewrites every occurrence, so a place name that
-    # itself contains "results" (e.g. "oregon results 2024" -> "oregon_results_2024")
-    # would have its own text rewritten mid-name as well.
-    sibling_base = stats_and_plots_base.removesuffix("_results")
-
-    statsfile_name = stats_and_plots_dir / (sibling_base + "_summary_stats.txt")
-    plot_file_name = stats_and_plots_dir / (sibling_base + "_plot.png")
-    csv_name = stats_and_plots_dir / (sibling_base + "_individual_results.csv")
-    results_h5 = stats_and_plots_dir / (stats_and_plots_base + ".h5")
-
+    summary = _summary_files(
+        _collection_output_dir(dem_list_or_dir, output_dir, fname_filter, fname_omit),
+        place_name,
+    )
     dem_list = _resolve_dem_list(dem_list_or_dir, fname_filter, fname_omit)
 
     # Without --overwrite, stop only if every DEM already has results (or failed in an
     # earlier run) and every summary file is written. Otherwise the loop below reuses
     # the DEMs that are done, validates the rest, and rewrites the summaries.
-    summary_files = [results_h5, statsfile_name, plot_file_name]
-    if write_summary_csv:
-        summary_files.append(csv_name)
-    if (
-        not overwrite
-        and all(fn.exists() for fn in summary_files)
-        and all(
-            _dem_is_done(
-                dem,
-                _dem_output_dir(dem, output_dir, dem_list),
-                include_photons=include_photon_validation,
-                variable=variable,
-            )
-            for dem in dem_list
-        )
+    if not overwrite and _collection_is_finished(
+        dem_list,
+        output_dir,
+        summary,
+        write_summary_csv=write_summary_csv,
+        include_photons=include_photon_validation,
+        variable=variable,
     ):
-        logger.info(
-            "Every DEM is already validated in %s, and the collection's summary files "
-            "are written. There's nothing left to do here.\n"
-            " To recompute them, run with --overwrite enabled, or delete output"
-            " files as needed and re-run to create them again.",
-            stats_and_plots_dir,
-        )
-        failed_earlier = [
-            Path(dem_source.dem_file_path(dem)).name
-            for dem in dem_list
-            if _failed_earlier(
-                dem,
-                _dem_output_dir(dem, output_dir, dem_list),
-                include_photons=include_photon_validation,
-                variable=variable,
-            )
-        ]
-        if failed_earlier:
-            logger.error(
-                "%d of %d DEMs failed in an earlier run and were not tried again (see "
-                "their %s files; use -ow/--overwrite to retry them): %s",
-                len(failed_earlier),
-                len(dem_list),
-                ERROR_MARKER_SUFFIX,
-                ", ".join(failed_earlier),
-            )
         return None
 
     # Generate a single photon database object and pass it repeatedly to all the
@@ -561,193 +830,59 @@ def validate_list_of_dems(
             or ivert.bathy_filters.BathyFilterSettings.from_config(),
         )
 
-    files_to_export = []
-    list_of_results_dfs: list[str | Path] = []
-    # The DEM behind each entry of list_of_results_dfs, in the same order. DEMs that
-    # come back empty or fail are skipped, so this can't be indexed from dem_list.
-    list_of_results_dems = []
-    # The DEMs with no photons to validate against, as named in the summary CSV.
-    list_of_empty_dems = []
-    # DEMs skipped because of an error, reported again once the run is over.
-    failed_dems = []
+    # The settings every DEM's validate_dem.validate_dem() call gets.
+    validate_kwargs: dict[str, Any] = {
+        "output_dir": output_dir,
+        "classes": classes,
+        "band_num": band_num,
+        "icesat2_photon_database_obj": photon_db_obj,
+        "dem_vertical_datum": input_vdatum,
+        "dem_projection": dem_projection,
+        "dem_ndv": dem_ndv,
+        "overwrite": overwrite,
+        "write_summary_stats": create_individual_results,
+        "include_photon_level_validation": include_photon_validation,
+        "plot_results": create_individual_results,
+        "outliers_sd_threshold": outliers_sd_threshold,
+        "mark_empty_results": True,
+        "measure_coverage": measure_coverage,
+        "min_coverage_pct": min_coverage_pct,
+        "min_coverage_pct_land": min_coverage_pct_land,
+        "min_coverage_pct_bathy": min_coverage_pct_bathy,
+        "min_photons_per_cell": min_photons_per_cell,
+        "min_confidence_level": min_confidence_level,
+        "min_bathy_confidence": min_bathy_confidence,
+        "bathy_filter_settings": bathy_filter_settings,
+        "export_error_formats": export_error_formats,
+        "exclude_zones": exclude_zones,
+    }
 
-    # For each DEM, validate it.
-    for i, listed_dem in enumerate(dem_list):
-        logger.info(
-            "\n======= %s %s of %s =======",
-            Path(listed_dem).name,
-            "(" + str(i + 1),
-            str(len(dem_list)) + ")",
+    results = _CollectionResults()
+    for i in range(len(dem_list)):
+        _validate_listed_dem(
+            i,
+            dem_list,
+            output_dir,
+            results,
+            validate_kwargs,
+            overwrite=overwrite,
+            include_photons=include_photon_validation,
+            variable=variable,
         )
-
-        dem_file = Path(dem_source.dem_file_path(listed_dem)).name
-        this_output_dir = _dem_output_dir(listed_dem, output_dir, dem_list)
-        if not this_output_dir.exists():
-            this_output_dir.mkdir()
-
-        # A DEM that failed in an earlier run is left alone until -ow is given.
-        if overwrite:
-            for stale_marker in _error_marker_paths(
-                listed_dem,
-                this_output_dir,
-                variable,
-            ):
-                stale_marker.unlink(missing_ok=True)
-        else:
-            marker = _failed_earlier(
-                listed_dem,
-                this_output_dir,
-                include_photons=include_photon_validation,
-                variable=variable,
-            )
-            if marker is not None:
-                logger.error(
-                    "Skipping %s: it failed in an earlier run (see %s). Use "
-                    "-ow/--overwrite to try it again.",
-                    dem_file,
-                    marker,
-                )
-                failed_dems.append(dem_file)
-                continue
-
-        # Pick the NetCDF/HDF5 variable to validate now, one file at a time.
-        try:
-            dem_path = dem_source.resolve_dem_source(listed_dem, variable)
-            dem_source.check_georeferenced(dem_path)
-        except dem_source.DEMSourceError as exc:
-            # Not logger.exception: the message names the file and what is wrong.
-            logger.error("Skipping: %s", exc)  # noqa: TRY400
-            _write_error_marker(
-                this_output_dir
-                / (dem_source.dem_base_name(listed_dem) + ERROR_MARKER_SUFFIX),
-                listed_dem,
-                str(exc),
-            )
-            failed_dems.append(dem_file)
-            continue
-
-        dem_base = dem_source.dem_base_name(dem_path)
-        results_h5_file = this_output_dir / (dem_base + "_results.h5")
-        empty_fname = this_output_dir / (dem_base + "_results_EMPTY.txt")
-        error_fname = this_output_dir / (dem_base + ERROR_MARKER_SUFFIX)
-
-        try:
-            shared_ret_values: dict = {}
-            # Do the validation.
-            # Note: We automatically skip the icesat-2 download here because we already
-            # downloaded it above for the whole directory.
-            validate_dem.validate_dem(
-                dem_path,
-                output_dir,
-                classes=classes,
-                band_num=band_num,
-                shared_ret_values=shared_ret_values,
-                icesat2_photon_database_obj=photon_db_obj,
-                dem_vertical_datum=input_vdatum,
-                dem_projection=dem_projection,
-                dem_ndv=dem_ndv,
-                overwrite=overwrite,
-                write_summary_stats=create_individual_results,
-                include_photon_level_validation=include_photon_validation,
-                plot_results=create_individual_results,
-                outliers_sd_threshold=outliers_sd_threshold,
-                mark_empty_results=True,
-                measure_coverage=measure_coverage,
-                min_coverage_pct=min_coverage_pct,
-                min_coverage_pct_land=min_coverage_pct_land,
-                min_coverage_pct_bathy=min_coverage_pct_bathy,
-                min_photons_per_cell=min_photons_per_cell,
-                min_confidence_level=min_confidence_level,
-                min_bathy_confidence=min_bathy_confidence,
-                bathy_filter_settings=bathy_filter_settings,
-                export_error_formats=export_error_formats,
-                exclude_zones=exclude_zones,
-            )
-        except MemoryError:
-            # Not logger.exception: running out of memory on a DEM is self-explanatory
-            # and the traceback is the same every time.
-            logger.error(  # noqa: TRY400
-                "Skipping %s due to memory error.",
-                dem_file,
-            )
-            _write_error_marker(
-                error_fname,
-                dem_path,
-                "Ran out of memory validating this DEM.",
-            )
-            failed_dems.append(dem_file)
-            continue
-
-        except KeyboardInterrupt:
-            raise
-
-        except Exception as exc:
-            logger.exception("Skipping %s.", dem_file)
-            _write_error_marker(error_fname, dem_path, str(exc), traceback.format_exc())
-            failed_dems.append(dem_file)
-            continue
-
-        files_to_export.extend(list(shared_ret_values.values()))
-
-        if results_h5_file.exists():
-            list_of_results_dfs.append(results_h5_file)
-            list_of_results_dems.append(dem_path)
-
-        elif empty_fname.exists():
-            list_of_empty_dems.append(dem_source.dem_display_name(dem_path))
 
     # An extra newline is appreciated here just for readability's sake.
     logger.info("")
 
-    if len(list_of_results_dfs) == 0:
+    if not results.results_files:
         logger.info("No results dataframes generated. Aborting.")
-        _log_failed_dems(failed_dems, len(dem_list))
+        _log_failed_dems(results.failed_dems, len(dem_list))
         return None
 
-    # Generate the overall summary stats file.
-    total_results_df = plot_validation_results.get_data_from_h5_or_list(
-        list_of_results_dfs,
-        orig_filenames=list_of_results_dems,
-        include_filenames=True,
-    )
-
-    # Everything appended from here on is a collection-wide summary output.
-    num_tile_files = len(files_to_export)
-
-    if write_summary_csv:
-        write_summary_csv_file(
-            total_results_df,
-            list_of_empty_dems,
-            csv_name,
-        )
-        files_to_export.append(csv_name)
-
-    # The bathymetry filter counts, summed over the DEMs validated.
-    bathy_filter_report = ivert.bathy_filters.BathyFilterReport.combine(
-        [ivert.bathy_filters.read_report_from_h5(fn) for fn in list_of_results_dfs],
-    )
-
-    # Output the statistics summary file.
-    validate_dem.write_summary_stats_file(
-        total_results_df,
-        statsfile_name,
-        bathy_filter_report=bathy_filter_report,
-    )
-    files_to_export.append(statsfile_name)
-
-    # Output the validation results plot.
-    plot_validation_results.plot_histograms_and_line(
-        total_results_df,
-        plot_file_name,
+    files_to_export = _write_collection_summaries(
+        results,
+        summary,
         place_name=place_name,
+        write_summary_csv=write_summary_csv,
     )
-    files_to_export.append(plot_file_name)
-
-    if results_h5 is not None:
-        total_results_df.to_hdf(results_h5, key="results", complib="zlib", complevel=3)
-        ivert.bathy_filters.write_report_to_h5(results_h5, bathy_filter_report)
-        files_to_export.append(results_h5)
-
-    validate_dem.log_written_files(files_to_export[num_tile_files:])
-    _log_failed_dems(failed_dems, len(dem_list))
+    _log_failed_dems(results.failed_dems, len(dem_list))
     return files_to_export
