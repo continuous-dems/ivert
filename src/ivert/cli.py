@@ -34,6 +34,7 @@ from ivert.utils.paths import absolute_path
 from ivert.utils.sizeof_format import sizeof_fmt
 
 if typing.TYPE_CHECKING:
+    import geopandas
     import pyproj
     from shapely.geometry.base import BaseGeometry
 
@@ -1773,6 +1774,149 @@ def _export_single_granule(
     _echo_export_summary(written, len(gdf), "photons")
 
 
+def _parse_class_codes(classes: str) -> list[int]:
+    """Return the photon class codes in a -c/--classes value ('1/40/41' or '1,40,41').
+
+    Raises:
+        click.ClickException: if a code isn't an integer.
+
+    """
+    try:
+        return [int(c) for c in classes.replace(",", "/").split("/") if c != ""]
+    except ValueError as exc:
+        msg = f"Invalid --classes value '{classes}': {exc}"
+        raise click.ClickException(msg) from exc
+
+
+def _granules_to_convert(
+    db: "IS2Database",
+    bbox: BBox | None,
+    dates: tuple[int, int] | None,
+) -> "geopandas.GeoDataFrame":
+    """Return the database index rows of the granules to convert.
+
+    With neither a bbox nor YYYYMMDD 'dates', that is every granule holding photons.
+
+    Raises:
+        click.ClickException: if there is no database, or no granule matches.
+
+    """
+    gdf_index = db.open_gdf()
+    if gdf_index is None or len(gdf_index) == 0:
+        msg = (
+            f"No IVERT database found (or it is empty) at: {db.db_fname}\n"
+            "Run 'ivert database download <bbox>' to create one."
+        )
+        raise click.ClickException(msg)
+
+    if bbox is None and dates is None:
+        # Empty-tile markers hold no photons.
+        granule_rows = gdf_index[~db.empty_tile_rows(gdf_index)]
+    else:
+        spatial = bbox if bbox is not None else (-180.0, 180.0, -90.0, 90.0)
+        tmin, tmax = (
+            dates if dates is not None else (_EXPORT_DATE_MIN, _EXPORT_DATE_MAX)
+        )
+        granule_rows = db.query_granules((*spatial, tmin, tmax))
+        if granule_rows is None:
+            granule_rows = gdf_index.iloc[0:0]
+
+    if len(granule_rows) == 0:
+        msg = "No granules found matching the requested region and/or date range."
+        raise click.ClickException(msg)
+    return granule_rows
+
+
+def _confirm_large_convert(
+    granule_rows: "geopandas.GeoDataFrame",
+    *,
+    whole_database: bool,
+    force: bool,
+) -> None:
+    """Warn, and ask before going on, if the granules hold a great many photons.
+
+    Raises:
+        click.Abort: if the user says not to go on.
+
+    """
+    est_photons = (
+        int(granule_rows["numphotons"].sum())
+        if "numphotons" in granule_rows.columns
+        else 0
+    )
+    if est_photons < _EXPORT_WARN_PHOTON_THRESHOLD or force:
+        return
+    scope = "the entire database" if whole_database else "the requested region"
+    click.echo(
+        f"WARNING: Converting {scope} covers {len(granule_rows):,} granule(s) "
+        f"with up to ~{est_photons:,} photons. This may produce very large output "
+        "file(s) and take a while.",
+        err=True,
+    )
+    if not click.confirm("\nContinue with the conversion anyway?", default=False):
+        raise click.Abort
+
+
+def _read_granule_photons(
+    db: "IS2Database",
+    granule_rows: "geopandas.GeoDataFrame",
+    target: _ExportTarget,
+    *,
+    class_list: list[int] | None,
+    delta_time_range: tuple[float, float] | None,
+) -> "geopandas.GeoDataFrame":
+    """Read the granules' photons in the target region, classes and time range.
+
+    Granule files missing from disk are skipped with a message.
+
+    Raises:
+        click.ClickException: if no photon is left.
+
+    """
+    import geopandas  # noqa: PLC0415 - slow import
+    import pandas as pd  # noqa: PLC0415 - slow import
+
+    from ivert import export_vector as ev  # noqa: PLC0415 - slow import
+
+    total = len(granule_rows)
+    click.echo(f"Reading {total:,} granule(s) ...")
+
+    gdfs = []
+    for i, (_, row) in enumerate(granule_rows.iterrows(), start=1):
+        fpath = Path(db.granules_dir) / row["filename"]
+        if not fpath.exists():
+            click.echo(f"  Skipping missing granule file: {row['filename']}", err=True)
+            continue
+
+        gdf = ev.nc_to_geodataframe(fpath, classes=class_list)
+        if target.bbox is not None:
+            gdf = ev.subset_gdf_to_bbox(gdf, target.bbox)
+        if target.geometry is not None:
+            gdf = ev.subset_gdf_to_geometry(gdf, target.geometry)
+        if delta_time_range is not None:
+            gdf = ev.subset_gdf_to_date_range(gdf, *delta_time_range)
+
+        if len(gdf) > 0:
+            gdfs.append(gdf)
+
+        logger.info(
+            "  [%s/%s] %s: %s photons",
+            i,
+            total,
+            row["filename"],
+            f"{len(gdf):,}",
+        )
+
+    if not gdfs:
+        msg = "No photons found to convert after filtering."
+        raise click.ClickException(msg)
+
+    return geopandas.GeoDataFrame(
+        pd.concat(gdfs, ignore_index=True),
+        crs=ev.WGS84_EPSG,
+    )
+
+
 @database.command("convert")
 @click.argument("bbox_or_file", nargs=-1, required=False)
 @click.option(
@@ -1936,27 +2080,22 @@ def database_convert(
         raise click.ClickException(str(exc)) from exc
 
     # --- Parse class filter. ---
-    class_list = None
-    if classes:
-        try:
-            class_list = [
-                int(c) for c in classes.replace(",", "/").split("/") if c != ""
-            ]
-        except ValueError as exc:
-            msg = f"Invalid --classes value '{classes}': {exc}"
-            raise click.ClickException(msg) from exc
+    class_list = _parse_class_codes(classes) if classes else None
 
     # --- Work out what was asked for. ---
     target = _resolve_export_target(list(bbox_or_file), projection, wsen=wsen)
-    bbox = target.bbox
 
     db = is2db_mod.IS2Database()
 
     # --- Parse the optional date range. ---
-    date_filtering = date_start is not None or date_end is not None
-    tmin, tmax = _EXPORT_DATE_MIN, _EXPORT_DATE_MAX
-    if date_filtering:
-        tmin, tmax = _parse_date_range(db, date_start, date_end)
+    dates = None
+    if date_start is not None or date_end is not None:
+        dates = _parse_date_range(db, date_start, date_end)
+    delta_time_range = (
+        None
+        if dates is None
+        else (_yyyymmdd_to_delta_time(dates[0]), _yyyymmdd_to_delta_time(dates[1]))
+    )
 
     # --- A single .nc file is read straight off disk, with no database lookup. ---
     # Only the "index" and "granule" kinds have a path.
@@ -1967,7 +2106,7 @@ def database_convert(
                 fmt_keys,
                 output,
                 overwrite=overwrite,
-                filters_given=bool(classes) or date_filtering,
+                filters_given=bool(classes) or dates is not None,
             )
         else:
             _export_single_granule(
@@ -1976,98 +2115,22 @@ def database_convert(
                 output,
                 overwrite=overwrite,
                 class_list=class_list,
-                delta_time_range=(
-                    (_yyyymmdd_to_delta_time(tmin), _yyyymmdd_to_delta_time(tmax))
-                    if date_filtering
-                    else None
-                ),
+                delta_time_range=delta_time_range,
             )
         return
 
-    # --- Open the database index. ---
-    gdf_index = db.open_gdf()
-    if gdf_index is None or len(gdf_index) == 0:
-        msg = (
-            f"No IVERT database found (or it is empty) at: {db.db_fname}\n"
-            "Run 'ivert database download <bbox>' to create one."
-        )
-        raise click.ClickException(msg)
-
-    # --- Select the granules to read. ---
-    if bbox is None and not date_filtering:
-        # Empty-tile markers hold no photons.
-        granule_rows = gdf_index[~db.empty_tile_rows(gdf_index)]
-    else:
-        spatial = bbox if bbox is not None else (-180.0, 180.0, -90.0, 90.0)
-        bbox6 = (spatial[0], spatial[1], spatial[2], spatial[3], tmin, tmax)
-        granule_rows = db.query_granules(bbox6)
-        if granule_rows is None:
-            granule_rows = gdf_index.iloc[0:0]
-
-    if len(granule_rows) == 0:
-        msg = "No granules found matching the requested region and/or date range."
-        raise click.ClickException(msg)
-
-    # --- Warn on large exports. ---
-    est_photons = (
-        int(granule_rows["numphotons"].sum())
-        if "numphotons" in granule_rows.columns
-        else 0
+    granule_rows = _granules_to_convert(db, target.bbox, dates)
+    _confirm_large_convert(
+        granule_rows,
+        whole_database=target.bbox is None,
+        force=force,
     )
-    if est_photons >= _EXPORT_WARN_PHOTON_THRESHOLD and not force:
-        scope = "the entire database" if bbox is None else "the requested region"
-        click.echo(
-            f"WARNING: Converting {scope} covers {len(granule_rows):,} granule(s) "
-            f"with up to ~{est_photons:,} photons. This may produce very large output "
-            "file(s) and take a while.",
-            err=True,
-        )
-        if not click.confirm("\nContinue with the conversion anyway?", default=False):
-            raise click.Abort
-
-    # --- Read, subset, and merge granules. ---
-    import geopandas  # noqa: PLC0415 - slow import
-    import pandas as pd  # noqa: PLC0415 - slow import
-
-    dt_min = _yyyymmdd_to_delta_time(tmin) if date_filtering else None
-    dt_max = _yyyymmdd_to_delta_time(tmax) if date_filtering else None
-
-    total = len(granule_rows)
-    click.echo(f"Reading {total:,} granule(s) ...")
-
-    gdfs = []
-    for i, (_, row) in enumerate(granule_rows.iterrows(), start=1):
-        fpath = Path(db.granules_dir) / row["filename"]
-        if not fpath.exists():
-            click.echo(f"  Skipping missing granule file: {row['filename']}", err=True)
-            continue
-
-        gdf = ev.nc_to_geodataframe(fpath, classes=class_list)
-        if bbox is not None:
-            gdf = ev.subset_gdf_to_bbox(gdf, bbox)
-        if target.geometry is not None:
-            gdf = ev.subset_gdf_to_geometry(gdf, target.geometry)
-        if dt_min is not None and dt_max is not None:
-            gdf = ev.subset_gdf_to_date_range(gdf, dt_min, dt_max)
-
-        if len(gdf) > 0:
-            gdfs.append(gdf)
-
-        logger.info(
-            "  [%s/%s] %s: %s photons",
-            i,
-            total,
-            row["filename"],
-            f"{len(gdf):,}",
-        )
-
-    if not gdfs:
-        msg = "No photons found to convert after filtering."
-        raise click.ClickException(msg)
-
-    merged = geopandas.GeoDataFrame(
-        pd.concat(gdfs, ignore_index=True),
-        crs=ev.WGS84_EPSG,
+    merged = _read_granule_photons(
+        db,
+        granule_rows,
+        target,
+        class_list=class_list,
+        delta_time_range=delta_time_range,
     )
 
     # --- Write the requested format(s). ---
@@ -2697,6 +2760,174 @@ def _write_run_manifest(
     logger.info("Wrote run manifest %s", path)
 
 
+def _check_projection_vdatum(projection: str) -> None:
+    """Check a -p/--projection value, and the vertical datum it may carry.
+
+    It is checked once, rather than failing on every DEM. It may carry a vertical datum
+    ('EPSG:6893', 'EPSG:4326+3855', 'EPSG:4326+vdatum:mllw'); -V/--vdatum, if given,
+    overrides that part when each DEM is validated.
+
+    Raises:
+        click.ClickException: if the projection or its vertical datum can't be used.
+
+    """
+    _, proj_vert = _check_projection_option(projection)
+    if proj_vert is None:
+        return
+    resolved_proj_vert = vdatum_lookup.resolve_vdatum(proj_vert)
+    if resolved_proj_vert is None:
+        msg = (
+            f"The vertical datum '{proj_vert}' in -p/--projection "
+            f"'{projection}' is not recognised."
+        )
+        raise click.ClickException(msg)
+    try:
+        vdatum_lookup.check_vdatum(resolved_proj_vert)
+    except ValueError as exc:
+        msg = (
+            f"The vertical datum '{proj_vert}' in -p/--projection "
+            f"'{projection}' can't be used: {exc}"
+        )
+        raise click.ClickException(msg) from exc
+
+
+def _resolve_vdatum_option(vdatum: str) -> str | None:
+    """Return a -V/--vdatum value as a reference transformez takes; None if not given.
+
+    Common datum names ('navd88', 'mllw') become references such as 'EPSG:5703' and
+    'vdatum:mllw'.
+
+    Raises:
+        click.ClickException: if the datum isn't recognised or transformez can't use it.
+
+    """
+    if vdatum == "NONE_PROVIDED":
+        return None
+    resolved = vdatum_lookup.resolve_vdatum(vdatum)
+    if resolved is None:
+        msg = (
+            f"Unrecognised vertical datum '{vdatum}'. "
+            "Provide an EPSG code (e.g. 'EPSG:5703', '5703') or a known short name "
+            "(e.g. 'navd88', 'egm2008', 'mllw'). "
+            "Run 'ivert validate --list-vdatums' to see all recognised names."
+        )
+        raise click.ClickException(msg)
+    try:
+        vdatum_lookup.check_vdatum(resolved)
+    except ValueError as exc:
+        msg = f"Vertical datum '{vdatum}' can't be used: {exc}"
+        raise click.ClickException(msg) from exc
+    return resolved
+
+
+def _parse_ndv(ndv: str | None) -> float | None:
+    """Return an --ndv value as a float ('nan' is NaN), or None if not given.
+
+    Raises:
+        click.ClickException: if it isn't a number.
+
+    """
+    if ndv is None:
+        return None
+    if str(ndv).lower() == "nan":
+        return float("nan")
+    try:
+        return float(ndv)
+    except ValueError:
+        msg = f"Invalid --ndv value '{ndv}'. Provide a number or 'nan'."
+        raise click.ClickException(msg) from None
+
+
+def _export_formats_override(export_formats: str | None) -> str | list[str] | None:
+    """Return an --export-formats value as validate_dem's export_error_formats.
+
+    None means "use the config default"; an explicit 'none' or empty value is [], for
+    "skip error exports for this run".
+    """
+    if export_formats is None:
+        return None
+    if str(export_formats).strip().lower() in ("none", ""):
+        return []
+    return export_formats
+
+
+def _expand_inputs(files_or_directory: tuple[str, ...]) -> list[str]:
+    """Expand any glob patterns the shell left unexpanded (e.g., quoted patterns).
+
+    A pattern matching nothing is kept as it is.
+
+    Raises:
+        click.ClickException: if there are no inputs.
+
+    """
+    expanded = []
+    for f in files_or_directory:
+        # A user-supplied pattern, possibly absolute, which Path.glob rejects.
+        matches = glob.glob(f)  # noqa: PTH207
+        expanded.extend(matches or [f])
+
+    if not expanded:
+        msg = "No input files or directory found."
+        raise click.ClickException(msg)
+    return expanded
+
+
+def _validation_classes(classes: str, *, buildings: bool) -> list[int]:
+    """Return the sorted photon class codes to validate with, buildings added if asked.
+
+    Raises:
+        click.ClickException: if a code isn't an integer, or there are none.
+
+    """
+    class_list = _parse_class_codes(str(classes))
+    if not class_list:
+        msg = (
+            "--classes must name at least one photon class code. "
+            "Run 'ivert classes' for the full list of codes."
+        )
+        raise click.ClickException(msg)
+    if buildings:
+        class_list.append(BUILDINGS)
+    return sorted(set(class_list))
+
+
+def _ensure_photon_database() -> None:
+    """Fail early, and legibly, if there is no photon database to validate against.
+
+    If the granules are on disk but the index file isn't, this rebuilds it.
+
+    Raises:
+        click.ClickException: if there is no database.
+
+    """
+    from ivert import icesat2_database_v2 as is2db_mod  # noqa: PLC0415 - slow import
+
+    try:
+        is2db_mod.IS2Database().ensure_index_exists()
+    except is2db_mod.DatabaseNotFoundError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+
+def _results_dir(dem_input: str | list[str], outdir: Path) -> Path:
+    """Return the output directory, a relative one resolved against the DEMs' directory.
+
+    That is the folder of a DEM file (or a subdataset string's file), the directory
+    itself, or for a list the folder of its first DEM, rather than the current working
+    directory.
+    """
+    from ivert.utils import dem_source  # noqa: PLC0415 - slow import
+
+    if Path(outdir).is_absolute():
+        return outdir
+    if isinstance(dem_input, list):
+        dem_dir = absolute_path(dem_source.dem_file_path(dem_input[0])).parent
+    elif Path(dem_input).is_dir():
+        dem_dir = absolute_path(dem_input)
+    else:
+        dem_dir = absolute_path(dem_source.dem_file_path(dem_input)).parent
+    return dem_dir / outdir
+
+
 def _run_validate(
     files_or_directory: tuple[str, ...],
     *,
@@ -2735,101 +2966,22 @@ def _run_validate(
     from ivert import (  # noqa: PLC0415 - slow import
         validate_dem_collection as vdc_module,
     )
+    from ivert.utils import dem_source  # noqa: PLC0415 - slow import
 
-    # Check -p/--projection once here, rather than failing on every DEM. It may carry
-    # a vertical datum too ('EPSG:6893', 'EPSG:4326+3855', 'EPSG:4326+vdatum:mllw');
-    # -V/--vdatum, if given, overrides that part when each DEM is validated.
     if projection is not None:
-        _, proj_vert = _check_projection_option(projection)
-        if proj_vert is not None:
-            resolved_proj_vert = vdatum_lookup.resolve_vdatum(proj_vert)
-            if resolved_proj_vert is None:
-                msg = (
-                    f"The vertical datum '{proj_vert}' in -p/--projection "
-                    f"'{projection}' is not recognised."
-                )
-                raise click.ClickException(msg)
-            try:
-                vdatum_lookup.check_vdatum(resolved_proj_vert)
-            except ValueError as exc:
-                msg = (
-                    f"The vertical datum '{proj_vert}' in -p/--projection "
-                    f"'{projection}' can't be used: {exc}"
-                )
-                raise click.ClickException(msg) from exc
-
-    # Resolve common datum names ('navd88', 'mllw') to references transformez takes
-    # ('EPSG:5703', 'vdatum:mllw'), and stop now if transformez can't use one.
-    if vdatum != "NONE_PROVIDED":
-        resolved = vdatum_lookup.resolve_vdatum(vdatum)
-        if resolved is None:
-            msg = (
-                f"Unrecognised vertical datum '{vdatum}'. "
-                "Provide an EPSG code (e.g. 'EPSG:5703', '5703') or a known short name "
-                "(e.g. 'navd88', 'egm2008', 'mllw'). "
-                "Run 'ivert validate --list-vdatums' to see all recognised names."
-            )
-            raise click.ClickException(msg)
-        try:
-            vdatum_lookup.check_vdatum(resolved)
-        except ValueError as exc:
-            msg = f"Vertical datum '{vdatum}' can't be used: {exc}"
-            raise click.ClickException(msg) from exc
-        vdatum = resolved
-
-    # Parse the --ndv value: "nan" → float('nan'), else convert to float.
-    ndv_float = None
-    if ndv is not None:
-        if str(ndv).lower() == "nan":
-            ndv_float = float("nan")
-        else:
-            try:
-                ndv_float = float(ndv)
-            except ValueError:
-                msg = f"Invalid --ndv value '{ndv}'. Provide a number or 'nan'."
-                raise click.ClickException(msg) from None
-
-    # Resolve the export-formats override. None means "use the config default"; an
-    # explicit 'none'/empty value means "skip error exports for this run".
-    export_error_formats: str | list[str] | None = None
-    if export_formats is not None:
-        if str(export_formats).strip().lower() in ("none", ""):
-            export_error_formats = []
-        else:
-            export_error_formats = export_formats
+        _check_projection_vdatum(projection)
+    # None lets the DEMs' own metadata give their vertical datum.
+    dem_vdatum = _resolve_vdatum_option(vdatum)
+    ndv_float = _parse_ndv(ndv)
+    export_error_formats = _export_formats_override(export_formats)
 
     if outdir is None:
         # Config keeps this setting relative, so it resolves against each DEM's
         # directory rather than the config file's.
         outdir = Path(Config().ivert_results_subdir)
 
-    # Expand any glob patterns the shell left unexpanded (e.g., quoted patterns).
-    expanded = []
-    for f in files_or_directory:
-        # A user-supplied pattern, possibly absolute, which Path.glob rejects.
-        matches = glob.glob(f)  # noqa: PTH207
-        expanded.extend(matches or [f])
-
-    if not expanded:
-        msg = "No input files or directory found."
-        raise click.ClickException(msg)
-
-    try:
-        class_list = [
-            int(c) for c in str(classes).replace(",", "/").split("/") if c != ""
-        ]
-    except ValueError as exc:
-        msg = f"Invalid --classes value '{classes}': {exc}"
-        raise click.ClickException(msg) from exc
-    if not class_list:
-        msg = (
-            "--classes must name at least one photon class code. "
-            "Run 'ivert classes' for the full list of codes."
-        )
-        raise click.ClickException(msg)
-    if buildings and BUILDINGS not in class_list:
-        class_list.append(BUILDINGS)
-    class_list = sorted(set(class_list))
+    expanded = _expand_inputs(files_or_directory)
+    class_list = _validation_classes(classes, buildings=buildings)
 
     if manifest_options is not None:
         if export_error_formats is None:
@@ -2838,7 +2990,7 @@ def _run_validate(
             export_error_formats_resolved = export_error_formats
         manifest_options = {
             **manifest_options,
-            "vdatum": None if vdatum == "NONE_PROVIDED" else vdatum,
+            "vdatum": dem_vdatum,
             "classes": "/".join(str(c) for c in class_list),
             "export_formats": ",".join(
                 vd_module.normalize_export_formats(export_error_formats_resolved),
@@ -2846,33 +2998,16 @@ def _run_validate(
             or "none",
         }
 
-    # Fail early, and legibly, if there is no photon database to validate against.
-    # If the granules are on disk but the index file isn't, this rebuilds it.
-    from ivert import icesat2_database_v2 as is2db_mod  # noqa: PLC0415 - slow import
+    _ensure_photon_database()
 
-    try:
-        is2db_mod.IS2Database().ensure_index_exists()
-    except is2db_mod.DatabaseNotFoundError as exc:
-        raise click.ClickException(str(exc)) from exc
-
-    from ivert.utils import dem_source  # noqa: PLC0415 - slow import
-
-    # None lets the DEMs' own metadata give their vertical datum.
-    dem_vdatum = None if vdatum == "NONE_PROVIDED" else vdatum
     if len(expanded) == 1 and Path(dem_source.dem_file_path(expanded[0])).is_file():
         # A multi-variable file (e.g. NetCDF) becomes the subdataset string of the
         # variable to validate. Raises DEMVariableError if there isn't one, and
         # DEMNotGeoreferencedError if GDAL finds no geotransform for it.
         dem_name = dem_source.resolve_dem_source(expanded[0], variable)
         dem_source.check_georeferenced(dem_name)
-        # validate_dem uses output_dir as-is, so resolve any relative path against
-        # the DEM's own directory rather than the current working directory.
-        if not Path(outdir).is_absolute():
-            single_outdir = (
-                absolute_path(dem_source.dem_file_path(dem_name)).parent / outdir
-            )
-        else:
-            single_outdir = outdir
+        # validate_dem uses output_dir as-is, so resolve it here.
+        single_outdir = _results_dir(dem_name, outdir)
         if manifest_options is not None and vd_module.dem_needs_validation(
             dem_name,
             single_outdir,
@@ -2910,16 +3045,7 @@ def _run_validate(
         )
     else:
         dem_input = expanded[0] if len(expanded) == 1 else expanded
-        if not Path(outdir).is_absolute():
-            if isinstance(dem_input, list):
-                dem_dir = absolute_path(dem_source.dem_file_path(dem_input[0])).parent
-            elif Path(dem_input).is_dir():
-                dem_dir = absolute_path(dem_input)
-            else:
-                dem_dir = absolute_path(dem_source.dem_file_path(dem_input)).parent
-            multi_outdir = dem_dir / outdir
-        else:
-            multi_outdir = outdir
+        multi_outdir = _results_dir(dem_input, outdir)
         if manifest_options is not None:
             to_validate, reused = vdc_module.dems_needing_validation(
                 dem_input,
