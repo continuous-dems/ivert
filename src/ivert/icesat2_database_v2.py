@@ -102,6 +102,60 @@ class DownloadSummary(NamedTuple):
         return self.parts_downloaded + self.parts_empty + self.parts_failed
 
 
+# A download part's outcome, for adding into a DownloadSummary.
+_PART_FAILED = DownloadSummary(parts_failed=1)
+_PART_EMPTY = DownloadSummary(parts_empty=1)
+
+# Harmony job states that mean a cached job can't be re-used.
+_HARMONY_ERROR_STATES = frozenset({"complete_with_errors", "failed", "canceled"})
+
+
+def _first_set_value(values: pd.Series) -> str | None:
+    """Return the first value that is neither missing nor blank, as a str."""
+    values = values.dropna()
+    values = values[values != ""]
+    return str(values.iloc[0]) if len(values) > 0 else None
+
+
+def _downloaded_h5_files(results: Sequence[tuple]) -> tuple[list[str], int]:
+    """Return the files fetchez downloaded, sorted, and the number that failed.
+
+    The files are absolute paths as strings, for globato's reader.
+    """
+    h5_files = sorted(
+        str(absolute_path(entry["dst_fn"]))
+        for _, entry in results
+        if entry.get("status") == 0
+        and entry.get("dst_fn")
+        and Path(entry["dst_fn"]).exists()
+    )
+    n_failed = sum(1 for _, entry in results if entry.get("status") != 0)
+    return h5_files, n_failed
+
+
+def _of_release(h5_files: list[str], atl_version: str) -> list[str]:
+    """Return the granule files of the ATL03 release asked for, logging any others.
+
+    fetchez only uses the version to look up a Harmony collection it already knows
+    about, and falls back to whatever Harmony serves for "ATL03" otherwise, so check
+    what actually came back.
+    """
+    wrong_release = [
+        fn for fn in h5_files if _atl_release_from_filename(fn) != atl_version
+    ]
+    if not wrong_release:
+        return h5_files
+    logger.error(
+        "Ignoring %d granule(s) that are not ATL03 v%s "
+        "(nsidc_atl_version), e.g. %s. The installed fetchez may not "
+        "support that version yet.",
+        len(wrong_release),
+        atl_version,
+        Path(wrong_release[0]).name,
+    )
+    return [fn for fn in h5_files if fn not in wrong_release]
+
+
 def _yyyymmdd_to_delta_time(yyyymmdd: int | str) -> float:
     """Convert a YYYYMMDD integer to ICESat-2 delta_time (seconds since 2018-01-01)."""
     return (
@@ -2090,84 +2144,12 @@ class IS2Database:
         target_vd = self._vertical_datum_to_vertical_epsg(vertical_datum_cfg)
 
         # Reject the download if existing records use a different datum.
-        existing_gdf_check = self.open_gdf()
-        if (
-            existing_gdf_check is not None
-            and len(existing_gdf_check) > 0
-            and "vertical_datum" in existing_gdf_check.columns
-        ):
-            existing_vd_vals = existing_gdf_check["vertical_datum"].dropna()
-            existing_vd_vals = existing_vd_vals[existing_vd_vals != ""]
-            if len(existing_vd_vals) > 0:
-                existing_vd = str(existing_vd_vals.iloc[0])
-                existing_hd = "EPSG:4326"
-                if "horizontal_datum" in existing_gdf_check.columns:
-                    existing_hd_vals = existing_gdf_check["horizontal_datum"].dropna()
-                    existing_hd_vals = existing_hd_vals[existing_hd_vals != ""]
-                    if len(existing_hd_vals) > 0:
-                        existing_hd = str(existing_hd_vals.iloc[0])
-                if existing_vd != target_vd:
-                    logger.error(
-                        "Datum mismatch: the existing database stores data in "
-                        "horizontal datum %s and vertical datum %s, but the current "
-                        "configuration requests vertical datum %s "
-                        "(icesat2_vertical_datum=%r). All granules in a single "
-                        "database must share the same datum. Change "
-                        "'icesat2_vertical_datum' in your user config to match the "
-                        "existing database, or create a new database.",
-                        existing_hd,
-                        existing_vd,
-                        target_vd,
-                        vertical_datum_cfg,
-                    )
-                    return DownloadSummary(parts_failed=1)
+        if self._datum_mismatch(target_vd, vertical_datum_cfg):
+            return DownloadSummary(parts_failed=1)
 
-        # The regions actually asked for: the fewest rectangles that cover the
-        # area, whether it came in as a geometry or as a plain box.
-        tmin, tmax = int(bbox[4]), int(bbox[5])
-        if geometry is None:
-            geometry = shapely.box(bbox[0], bbox[2], bbox[1], bbox[3])
-        requested = [
-            (*tile, tmin, tmax) for tile in tile_geometry_into_bboxes(geometry)
-        ]
-        if len(requested) == 0:
-            logger.info(
-                "The requested area has no extent. Nothing to download.",
-            )
+        bboxes = self._boxes_to_download(bbox, geometry, replace=replace)
+        if len(bboxes) == 0:
             return DownloadSummary()
-        logger.info(
-            "The requested area is covered by %d rectangular query region(s).",
-            len(requested),
-        )
-
-        if replace:
-            bboxes = requested
-            logger.info(
-                "--replace enabled: re-downloading the full requested region and "
-                "overwriting any overlapping existing granules.",
-            )
-        else:
-            bboxes = self.filter_query_bboxes(requested)
-
-            if len(bboxes) == 0:
-                logger.info(
-                    "All required granules already exist in the database. Nothing new "
-                    "to download.",
-                )
-                return DownloadSummary()
-
-            def _as_floats(
-                boxes: Iterable[Sequence[float]],
-            ) -> list[tuple[float, ...]]:
-                return sorted(tuple(float(v) for v in b) for b in boxes)
-
-            if _as_floats(bboxes) != _as_floats(requested):
-                logger.info(
-                    "Existing database coverage partially overlaps the requested "
-                    "region. Downloading only the missing sub-region(s) (%d area(s) "
-                    "to fill).",
-                    len(bboxes),
-                )
 
         actual_bbox = (
             min(bb[0] for bb in bboxes),
@@ -2187,356 +2169,546 @@ class IS2Database:
 
         atl_version = normalize_atl_version(self.config.nsidc_atl_version)
 
-        parts_downloaded = parts_empty = parts_failed = granules_added = 0
-
+        summary = DownloadSummary()
         for i, sbbox in enumerate(bboxes):
             logger.info("=" * 85)
             logger.info("Part %d of %d: %s", i + 1, len(bboxes), sbbox)
             logger.info("=" * 85)
 
-            # A string: it is handed to fetchez.
-            cache_dir = str(
-                self.icesat2_download_dir / cache_subdir
-                if cache_subdir is not None
-                else self.icesat2_download_dir,
-            )
-            Path(cache_dir).mkdir(parents=True, exist_ok=True)
-
-            # fetchez region is "xmin/xmax/ymin/ymax"
-            region_str = f"{sbbox[0]}/{sbbox[1]}/{sbbox[2]}/{sbbox[3]}"
-            time_start = (
-                datetime.datetime.strptime(str(int(sbbox[4])), "%Y%m%d")
-                .replace(tzinfo=datetime.UTC)
-                .strftime("%Y-%m-%dT00:00:00")
-            )
-            time_end = (
-                datetime.datetime.strptime(str(int(sbbox[5])), "%Y%m%d")
-                .replace(tzinfo=datetime.UTC)
-                .strftime("%Y-%m-%dT00:00:00")
-            )
-
-            logger.info(
-                "Fetching ATL03 v%s granules: region=%s  %s -> %s",
-                atl_version,
-                region_str,
-                time_start,
-                time_end,
-            )
-            src_region = fetchez.spatial.parse_region(region_str)[0]
-            # requests.csv decides which Harmony job this part uses. fetchez's own
-            # cache of a module's results is keyed without the job ID, so it would
-            # hand back the links of whichever job ran first for this box.
-            mod = _FetchezIceSat2(
-                src_region=src_region,
-                outdir=cache_dir,
-                subset=True,
-                version=atl_version,
-                time_start=time_start,
-                time_end=time_end,
-                use_cache=False,
-            )
-
-            # Check for a cached Harmony job for this bbox before submitting.
-            requests_csv = ICESat2RequestsCSV(self.config)
-            cached = requests_csv.find_matching_request(
-                "ATL03",
+            part = self._download_part(
                 sbbox,
-                only_unexpired=True,
                 atl_version=atl_version,
-            )
-            if cached:
-                # Ping Harmony to verify the cached job completed without errors.
-                # Jobs with "complete_with_errors", "failed", or "canceled" status
-                # cannot be reliably re-used, so a new job must be submitted instead.
-                _error_states = {"complete_with_errors", "failed", "canceled"}
-                cached_job_id = cached["jobID"]
-                current_status = mod.harmony_ping_for_status(cached_job_id)
-                current_state = (
-                    current_status.get("status", "") if current_status else ""
-                )
-                if current_state in _error_states:
-                    logger.warning(
-                        "Cached Harmony job %s has status '%s'; submitting a new job.",
-                        cached_job_id,
-                        current_state,
-                    )
-                    cached = None
-                else:
-                    mod.subset_job_id = cached_job_id
-                    n_granules = cached.get("numInputGranules", "?")
-                    logger.info(
-                        "Re-using cached Harmony job (%s ATL03 granules): "
-                        "https://harmony.earthdata.nasa.gov/jobs/%s",
-                        n_granules,
-                        mod.subset_job_id,
-                    )
-            if not cached:
-                harmony_status = mod.harmony_make_request()
-                if harmony_status and "jobID" in harmony_status:
-                    mod.subset_job_id = harmony_status["jobID"]
-                    n_granules = harmony_status.get("numInputGranules", "?")
-                    logger.info(
-                        "Harmony job submitted (%s ATL03 granules): "
-                        "https://harmony.earthdata.nasa.gov/jobs/%s",
-                        n_granules,
-                        mod.subset_job_id,
-                    )
-                    requests_csv.add_record(
-                        "ATL03",
-                        sbbox,
-                        harmony_status,
-                        atl_version=atl_version,
-                    )
-                else:
-                    # Without a job ID, mod.run() would submit a job of its own, which
-                    # requests.csv would never record. Leave this part for a rerun.
-                    logger.warning(
-                        "Harmony did not accept the request for bbox %s. Skipping for "
-                        "now. You may re-run the command later to try again.",
-                        sbbox,
-                    )
-                    parts_failed += 1
-                    continue
-
-            mod.run()
-
-            # Give each subset a name that says which box it was cut to, before
-            # anything is fetched; see _subset_cache_filename for why.
-            for entry in mod.results:
-                dst = entry.get("dst_fn")
-                if dst:
-                    # fetchez's own entry, so it stays a string.
-                    entry["dst_fn"] = str(
-                        Path(dst).with_name(self._subset_cache_filename(dst, sbbox)),
-                    )
-
-            # Update the CSV with the final status (links, progress=100, etc.)
-            if mod.subset_job_id:
-                final_status = mod.harmony_ping_for_status(mod.subset_job_id)
-                if final_status:
-                    requests_csv.update_record(
-                        "ATL03",
-                        sbbox,
-                        final_status,
-                        fail_quietly=True,
-                    )
-
-            results = fetchez.core.run_fetchez([mod])
-            if not results:
-                logger.warning(
-                    "Harmony request returned no results for bbox %s. Skipping for "
-                    "now. This may be because zero files were returned or Harmony is "
-                    "temporarily down. You may re-run the command later if you feel "
-                    "this was in error.",
-                    sbbox,
-                )
-                parts_failed += 1
-                continue
-            # Strings, for globato's reader.
-            h5_files = sorted(
-                str(absolute_path(entry["dst_fn"]))
-                for _, entry in results
-                if entry.get("status") == 0
-                and entry.get("dst_fn")
-                and Path(entry["dst_fn"]).exists()
-            )
-
-            # A subset that failed to download might have had photons for any tile
-            # of this part, so such a part records no tile as empty (see below).
-            n_failed = sum(1 for _, entry in results if entry.get("status") != 0)
-
-            # One request, many files: the subset is stored per storage tile.
-            storage_tiles = split_bbox_into_parts(
-                sbbox,
+                target_vd=target_vd,
+                cache_subdir=cache_subdir,
+                replace=replace,
+                classes_to_keep=classes_to_keep,
                 tile_size_deg=tile_size_deg,
                 max_tile_scale_factor=max_tile_scale_factor,
-            )
-
-            if not h5_files:
-                if n_failed:
-                    logger.warning(
-                        "All %d granule download(s) for bbox %s failed. Skipping for "
-                        "now; you may re-run the command later to try again.",
-                        n_failed,
-                        sbbox,
-                    )
-                    parts_failed += 1
-                    continue
-                logger.info("No granules downloaded for this bbox.")
-                self._record_empty_tiles(storage_tiles, [], target_vd)
-                parts_empty += 1
-                continue
-
-            # fetchez only uses the version to look up a Harmony collection it
-            # already knows about, and falls back to whatever Harmony serves for
-            # "ATL03" otherwise, so check what actually came back.
-            wrong_release = [
-                fn for fn in h5_files if _atl_release_from_filename(fn) != atl_version
-            ]
-            if wrong_release:
-                logger.error(
-                    "Ignoring %d granule(s) that are not ATL03 v%s "
-                    "(nsidc_atl_version), e.g. %s. The installed fetchez may not "
-                    "support that version yet.",
-                    len(wrong_release),
-                    atl_version,
-                    Path(wrong_release[0]).name,
-                )
-                h5_files = [fn for fn in h5_files if fn not in wrong_release]
-                if not h5_files:
-                    parts_failed += 1
-                    continue
-
-            logger.info(
-                "Downloaded %d ATL03 granule(s). Classifying and saving as NetCDF...",
-                len(h5_files),
-            )
-
-            use_external_masks = True
-
-            existing_gdf = self.open_gdf()
-            existing_filenames = (
-                set(existing_gdf["filename"].values)
-                if existing_gdf is not None
-                else set()
-            )
-
-            files_to_process = []
-            for h5_src in h5_files:
-                targets = []
-                for tile in storage_tiles:
-                    nc_basename = self._nc_filename(h5_src, tile)
-                    if nc_basename in existing_filenames and not replace:
-                        logger.info("Skipping %s (already in database).", nc_basename)
-                    else:
-                        targets.append((tile, self.granules_dir / nc_basename))
-                if targets:
-                    files_to_process.append((h5_src, targets))
-
-            new_records, unclassified = self._classify_files(
-                files_to_process,
-                sbbox,
-                classes_to_keep=classes_to_keep,
-                min_confidence_level=min_confidence_level,
                 min_bathy_confidence=min_bathy_confidence,
-                use_external_masks=use_external_masks,
+                min_confidence_level=min_confidence_level,
+            )
+            summary = DownloadSummary(
+                *(total + n for total, n in zip(summary, part, strict=True)),
+            )
+        return summary
+
+    def _datum_mismatch(self, target_vd: str, vertical_datum_cfg: str) -> bool:
+        """Return whether the database already holds data in another vertical datum.
+
+        All granules in a single database must share one datum. A mismatch is logged
+        as an error, naming the configured 'icesat2_vertical_datum'.
+        """
+        gdf = self.open_gdf()
+        if gdf is None or len(gdf) == 0 or "vertical_datum" not in gdf.columns:
+            return False
+        existing_vd = _first_set_value(gdf["vertical_datum"])
+        if existing_vd is None or existing_vd == target_vd:
+            return False
+        existing_hd = None
+        if "horizontal_datum" in gdf.columns:
+            existing_hd = _first_set_value(gdf["horizontal_datum"])
+        logger.error(
+            "Datum mismatch: the existing database stores data in "
+            "horizontal datum %s and vertical datum %s, but the current "
+            "configuration requests vertical datum %s "
+            "(icesat2_vertical_datum=%r). All granules in a single "
+            "database must share the same datum. Change "
+            "'icesat2_vertical_datum' in your user config to match the "
+            "existing database, or create a new database.",
+            existing_hd or "EPSG:4326",
+            existing_vd,
+            target_vd,
+            vertical_datum_cfg,
+        )
+        return True
+
+    def _boxes_to_download(
+        self,
+        bbox: list | tuple,
+        geometry: shapely.Geometry | None,
+        *,
+        replace: bool,
+    ) -> list[BBoxWithDates]:
+        """Return the query boxes to request: the area asked for, less what is stored.
+
+        The area is the fewest rectangles that cover 'geometry', or else the
+        horizontal part of 'bbox', over the dates of 'bbox'. With 'replace', all of
+        it is requested again. An empty list means there is nothing to download.
+        """
+        # The regions actually asked for: the fewest rectangles that cover the
+        # area, whether it came in as a geometry or as a plain box.
+        tmin, tmax = int(bbox[4]), int(bbox[5])
+        if geometry is None:
+            geometry = shapely.box(bbox[0], bbox[2], bbox[1], bbox[3])
+        requested = [
+            (*tile, tmin, tmax) for tile in tile_geometry_into_bboxes(geometry)
+        ]
+        if len(requested) == 0:
+            logger.info(
+                "The requested area has no extent. Nothing to download.",
+            )
+            return []
+        logger.info(
+            "The requested area is covered by %d rectangular query region(s).",
+            len(requested),
+        )
+
+        if replace:
+            logger.info(
+                "--replace enabled: re-downloading the full requested region and "
+                "overwriting any overlapping existing granules.",
+            )
+            return requested
+
+        bboxes = self.filter_query_bboxes(requested)
+        if len(bboxes) == 0:
+            logger.info(
+                "All required granules already exist in the database. Nothing new "
+                "to download.",
+            )
+            return []
+
+        def _as_floats(
+            boxes: Iterable[Sequence[float]],
+        ) -> list[tuple[float, ...]]:
+            return sorted(tuple(float(v) for v in b) for b in boxes)
+
+        if _as_floats(bboxes) != _as_floats(requested):
+            logger.info(
+                "Existing database coverage partially overlaps the requested "
+                "region. Downloading only the missing sub-region(s) (%d area(s) "
+                "to fill).",
+                len(bboxes),
+            )
+        return bboxes
+
+    def _download_part(
+        self,
+        sbbox: BBoxWithDates,
+        *,
+        atl_version: str,
+        target_vd: str,
+        cache_subdir: str | None,
+        replace: bool,
+        classes_to_keep: Sequence[int],
+        tile_size_deg: float,
+        max_tile_scale_factor: float,
+        min_bathy_confidence: float,
+        min_confidence_level: int,
+    ) -> DownloadSummary:
+        """Download, classify and store one query box; return how that part went.
+
+        The returned summary counts this one part as downloaded, empty or failed.
+
+        Raises:
+            OSError: if the database index could not be written.
+
+        """
+        mod = self._fetchez_module(
+            sbbox,
+            atl_version=atl_version,
+            cache_subdir=cache_subdir,
+        )
+
+        requests_csv = ICESat2RequestsCSV(self.config)
+        if not self._attach_harmony_job(mod, sbbox, requests_csv, atl_version):
+            return _PART_FAILED
+
+        mod.run()
+
+        # Give each subset a name that says which box it was cut to, before
+        # anything is fetched; see _subset_cache_filename for why.
+        for entry in mod.results:
+            dst = entry.get("dst_fn")
+            if dst:
+                # fetchez's own entry, so it stays a string.
+                entry["dst_fn"] = str(
+                    Path(dst).with_name(self._subset_cache_filename(dst, sbbox)),
+                )
+
+        # Update the CSV with the final status (links, progress=100, etc.)
+        if mod.subset_job_id:
+            final_status = mod.harmony_ping_for_status(mod.subset_job_id)
+            if final_status:
+                requests_csv.update_record(
+                    "ATL03",
+                    sbbox,
+                    final_status,
+                    fail_quietly=True,
+                )
+
+        results = fetchez.core.run_fetchez([mod])
+        if not results:
+            logger.warning(
+                "Harmony request returned no results for bbox %s. Skipping for "
+                "now. This may be because zero files were returned or Harmony is "
+                "temporarily down. You may re-run the command later if you feel "
+                "this was in error.",
+                sbbox,
+            )
+            return _PART_FAILED
+        h5_files, n_failed = _downloaded_h5_files(results)
+
+        # One request, many files: the subset is stored per storage tile.
+        storage_tiles = split_bbox_into_parts(
+            sbbox,
+            tile_size_deg=tile_size_deg,
+            max_tile_scale_factor=max_tile_scale_factor,
+        )
+
+        if not h5_files:
+            return self._part_without_files(
+                sbbox,
+                storage_tiles,
+                target_vd,
+                n_failed=n_failed,
             )
 
-            # Keep the landmask globato just fetched for this part, one file per
-            # storage tile, so validations here need not query OSM for it again.
-            self._store_landmasks(storage_tiles)
+        h5_files = _of_release(h5_files, atl_version)
+        if not h5_files:
+            return _PART_FAILED
 
-            if n_failed:
-                logger.warning(
-                    "%d granule download(s) for bbox %s failed, so its tiles without "
-                    "photons are not recorded as downloaded; a later run tries them "
-                    "again.",
-                    n_failed,
-                    sbbox,
-                )
-            if unclassified:
-                logger.warning(
-                    "%d granule(s) for bbox %s could not be classified, so its tiles "
-                    "without photons are not recorded as downloaded; a later run "
-                    "tries them again.",
-                    len(unclassified),
-                    sbbox,
-                )
-            if not (n_failed or unclassified):
-                self._record_empty_tiles(storage_tiles, new_records, target_vd)
-
-            if not new_records:
-                if unclassified:
-                    parts_failed += 1
-                else:
-                    parts_empty += 1
-                continue
-
-            existing_gdf = self._drop_empty_tiles_now_filled(new_records)
-
-            new_gdf = pd.DataFrame(new_records)[list(self._empty_db_dict().keys())]
-            if existing_gdf is None or len(existing_gdf) == 0:
-                self.gdf = new_gdf
-            else:
-                if replace:
-                    # Match on the underlying NASA granule id (source_granule), not the
-                    # full nc filename: the nc filename embeds the query bbox/dates,
-                    # which can differ between the original download and this --replace
-                    # re-download, so a filename-only comparison would fail to find the
-                    # old record to drop.
-                    new_source_granules = set(new_gdf["source_granule"].values)
-                    if "source_granule" in existing_gdf.columns:
-                        existing_source_granules = existing_gdf[
-                            "source_granule"
-                        ].fillna(
-                            existing_gdf["filename"].apply(
-                                self._source_granule_from_filename,
-                            ),
-                        )
-                    else:
-                        existing_source_granules = existing_gdf["filename"].apply(
-                            self._source_granule_from_filename,
-                        )
-                    same_granule = existing_source_granules.isin(new_source_granules)
-                    # Only replace records whose query bbox (lat/lon + time) overlaps
-                    # the region/dates just (re-)downloaded (sbbox). Records for the
-                    # same source granule but a non-overlapping query bbox are
-                    # legitimately distinct data (e.g. a different date range or region)
-                    # and must not be dropped, since doing so would discard original
-                    # data rather than de-duplicate it.
-                    bbox_overlaps = pd.Series(
-                        ivert.utils.cuboid_funcs.cuboids_intersect_vectorized(
-                            xmin=existing_gdf["query_bbox_xmin"].to_numpy(),
-                            xmax=existing_gdf["query_bbox_xmax"].to_numpy(),
-                            ymin=existing_gdf["query_bbox_ymin"].to_numpy(),
-                            ymax=existing_gdf["query_bbox_ymax"].to_numpy(),
-                            zmin=existing_gdf["query_bbox_tmin"].to_numpy(),
-                            zmax=existing_gdf["query_bbox_tmax"].to_numpy(),
-                            query=sbbox,
-                            bbox_order="axis",
-                        ),
-                        index=existing_gdf.index,
-                    )
-                    is_replaced = same_granule & bbox_overlaps
-                    n_replaced = int(is_replaced.sum())
-                    if n_replaced:
-                        logger.info(
-                            "Replacing %d existing record(s) with newly-downloaded "
-                            "data.",
-                            n_replaced,
-                        )
-                        for old_fname in existing_gdf.loc[is_replaced, "filename"]:
-                            (self.granules_dir / old_fname).unlink(
-                                missing_ok=True,
-                            )
-                        existing_gdf = existing_gdf[~is_replaced]
-                self.gdf = pd.concat(
-                    [existing_gdf, new_gdf],
-                    ignore_index=True,
-                )
-
-            parts_downloaded += 1
-            granules_added += len(new_records)
-            logger.info("Created %d new record(s).", len(new_records))
-
-            self._write_index(self.gdf)
-
-            if self.db_fname.exists():
-                logger.info(
-                    "Updated %s with %d total records.",
-                    self.db_fname.name,
-                    len(self.gdf),
-                )
-            else:
-                msg = f"Failed to write {self.db_fname.name}"
-                raise OSError(msg)
-
-        return DownloadSummary(
-            parts_downloaded=parts_downloaded,
-            parts_empty=parts_empty,
-            parts_failed=parts_failed,
-            granules_added=granules_added,
+        logger.info(
+            "Downloaded %d ATL03 granule(s). Classifying and saving as NetCDF...",
+            len(h5_files),
         )
+
+        new_records, unclassified = self._classify_files(
+            self._files_to_process(h5_files, storage_tiles, replace=replace),
+            sbbox,
+            classes_to_keep=classes_to_keep,
+            min_confidence_level=min_confidence_level,
+            min_bathy_confidence=min_bathy_confidence,
+            use_external_masks=True,
+        )
+
+        # Keep the landmask globato just fetched for this part, one file per
+        # storage tile, so validations here need not query OSM for it again.
+        self._store_landmasks(storage_tiles)
+
+        self._record_part_coverage(
+            sbbox,
+            storage_tiles,
+            new_records,
+            target_vd,
+            n_failed=n_failed,
+            n_unclassified=len(unclassified),
+        )
+
+        if not new_records:
+            return _PART_FAILED if unclassified else _PART_EMPTY
+
+        self._add_records_to_index(new_records, sbbox, replace=replace)
+        return DownloadSummary(parts_downloaded=1, granules_added=len(new_records))
+
+    def _fetchez_module(
+        self,
+        sbbox: BBoxWithDates,
+        *,
+        atl_version: str,
+        cache_subdir: str | None,
+    ) -> _FetchezIceSat2:
+        """Return the fetchez ATL03 module for one query box, its cache folder made.
+
+        Its results are not taken from fetchez's own cache.
+        """
+        # A string: it is handed to fetchez.
+        cache_dir = str(
+            self.icesat2_download_dir / cache_subdir
+            if cache_subdir is not None
+            else self.icesat2_download_dir,
+        )
+        Path(cache_dir).mkdir(parents=True, exist_ok=True)
+
+        # fetchez region is "xmin/xmax/ymin/ymax"
+        region_str = f"{sbbox[0]}/{sbbox[1]}/{sbbox[2]}/{sbbox[3]}"
+        time_start = (
+            datetime.datetime.strptime(str(int(sbbox[4])), "%Y%m%d")
+            .replace(tzinfo=datetime.UTC)
+            .strftime("%Y-%m-%dT00:00:00")
+        )
+        time_end = (
+            datetime.datetime.strptime(str(int(sbbox[5])), "%Y%m%d")
+            .replace(tzinfo=datetime.UTC)
+            .strftime("%Y-%m-%dT00:00:00")
+        )
+
+        logger.info(
+            "Fetching ATL03 v%s granules: region=%s  %s -> %s",
+            atl_version,
+            region_str,
+            time_start,
+            time_end,
+        )
+        src_region = fetchez.spatial.parse_region(region_str)[0]
+        # requests.csv decides which Harmony job this part uses. fetchez's own
+        # cache of a module's results is keyed without the job ID, so it would
+        # hand back the links of whichever job ran first for this box.
+        return _FetchezIceSat2(
+            src_region=src_region,
+            outdir=cache_dir,
+            subset=True,
+            version=atl_version,
+            time_start=time_start,
+            time_end=time_end,
+            use_cache=False,
+        )
+
+    @staticmethod
+    def _attach_harmony_job(
+        mod: _FetchezIceSat2,
+        sbbox: BBoxWithDates,
+        requests_csv: ICESat2RequestsCSV,
+        atl_version: str,
+    ) -> bool:
+        """Give the module a Harmony job: a cached one if usable, else a new one.
+
+        A new job is recorded in requests.csv. Returns False if Harmony refused the
+        request, leaving the part for a later run.
+        """
+        # Check for a cached Harmony job for this bbox before submitting.
+        cached = requests_csv.find_matching_request(
+            "ATL03",
+            sbbox,
+            only_unexpired=True,
+            atl_version=atl_version,
+        )
+        if cached:
+            # Ping Harmony to verify the cached job completed without errors.
+            # Jobs with "complete_with_errors", "failed", or "canceled" status
+            # cannot be reliably re-used, so a new job must be submitted instead.
+            cached_job_id = cached["jobID"]
+            current_status = mod.harmony_ping_for_status(cached_job_id)
+            current_state = current_status.get("status", "") if current_status else ""
+            if current_state not in _HARMONY_ERROR_STATES:
+                mod.subset_job_id = cached_job_id
+                logger.info(
+                    "Re-using cached Harmony job (%s ATL03 granules): "
+                    "https://harmony.earthdata.nasa.gov/jobs/%s",
+                    cached.get("numInputGranules", "?"),
+                    mod.subset_job_id,
+                )
+                return True
+            logger.warning(
+                "Cached Harmony job %s has status '%s'; submitting a new job.",
+                cached_job_id,
+                current_state,
+            )
+
+        harmony_status = mod.harmony_make_request()
+        if not (harmony_status and "jobID" in harmony_status):
+            # Without a job ID, mod.run() would submit a job of its own, which
+            # requests.csv would never record. Leave this part for a rerun.
+            logger.warning(
+                "Harmony did not accept the request for bbox %s. Skipping for "
+                "now. You may re-run the command later to try again.",
+                sbbox,
+            )
+            return False
+        mod.subset_job_id = harmony_status["jobID"]
+        logger.info(
+            "Harmony job submitted (%s ATL03 granules): "
+            "https://harmony.earthdata.nasa.gov/jobs/%s",
+            harmony_status.get("numInputGranules", "?"),
+            mod.subset_job_id,
+        )
+        requests_csv.add_record(
+            "ATL03",
+            sbbox,
+            harmony_status,
+            atl_version=atl_version,
+        )
+        return True
+
+    def _part_without_files(
+        self,
+        sbbox: BBoxWithDates,
+        storage_tiles: Sequence[BBoxWithDates],
+        target_vd: str,
+        *,
+        n_failed: int,
+    ) -> DownloadSummary:
+        """Return how a part that downloaded no file went, marking its tiles if empty.
+
+        It failed if any download failed; else the region has no granules, and each
+        of its tiles is recorded as holding no photons.
+        """
+        if n_failed:
+            logger.warning(
+                "All %d granule download(s) for bbox %s failed. Skipping for "
+                "now; you may re-run the command later to try again.",
+                n_failed,
+                sbbox,
+            )
+            return _PART_FAILED
+        logger.info("No granules downloaded for this bbox.")
+        self._record_empty_tiles(storage_tiles, [], target_vd)
+        return _PART_EMPTY
+
+    def _files_to_process(
+        self,
+        h5_files: list[str],
+        storage_tiles: Sequence[BBoxWithDates],
+        *,
+        replace: bool,
+    ) -> list[tuple[str, list[tuple[BBoxWithDates, Path]]]]:
+        """Pair each downloaded file with the storage tiles to write it to.
+
+        A tile whose file is already in the database is skipped, unless 'replace'.
+        Files with no tile left to write are left out.
+        """
+        existing_gdf = self.open_gdf()
+        existing_filenames = (
+            set(existing_gdf["filename"].values) if existing_gdf is not None else set()
+        )
+
+        files_to_process = []
+        for h5_src in h5_files:
+            targets = []
+            for tile in storage_tiles:
+                nc_basename = self._nc_filename(h5_src, tile)
+                if nc_basename in existing_filenames and not replace:
+                    logger.info("Skipping %s (already in database).", nc_basename)
+                else:
+                    targets.append((tile, self.granules_dir / nc_basename))
+            if targets:
+                files_to_process.append((h5_src, targets))
+        return files_to_process
+
+    def _record_part_coverage(
+        self,
+        sbbox: BBoxWithDates,
+        storage_tiles: Sequence[BBoxWithDates],
+        new_records: list[dict],
+        target_vd: str,
+        *,
+        n_failed: int,
+        n_unclassified: int,
+    ) -> None:
+        """Mark the part's tiles left without photons, if every granule was read.
+
+        A granule that failed to download or classify might have had photons for
+        any tile of the part, so then no tile is marked, and a later run tries the
+        part again.
+        """
+        if n_failed:
+            logger.warning(
+                "%d granule download(s) for bbox %s failed, so its tiles without "
+                "photons are not recorded as downloaded; a later run tries them "
+                "again.",
+                n_failed,
+                sbbox,
+            )
+        if n_unclassified:
+            logger.warning(
+                "%d granule(s) for bbox %s could not be classified, so its tiles "
+                "without photons are not recorded as downloaded; a later run "
+                "tries them again.",
+                n_unclassified,
+                sbbox,
+            )
+        if not (n_failed or n_unclassified):
+            self._record_empty_tiles(storage_tiles, new_records, target_vd)
+
+    def _add_records_to_index(
+        self,
+        new_records: list[dict],
+        sbbox: BBoxWithDates,
+        *,
+        replace: bool,
+    ) -> None:
+        """Add a part's new records to the index and write it out.
+
+        With 'replace', the records they re-download are dropped, files and all.
+
+        Raises:
+            OSError: if the index file could not be written.
+
+        """
+        existing_gdf = self._drop_empty_tiles_now_filled(new_records)
+
+        new_gdf = pd.DataFrame(new_records)[list(self._empty_db_dict().keys())]
+        if existing_gdf is None or len(existing_gdf) == 0:
+            self.gdf = new_gdf
+        else:
+            if replace:
+                existing_gdf = self._drop_replaced_records(existing_gdf, new_gdf, sbbox)
+            self.gdf = pd.concat(
+                [existing_gdf, new_gdf],
+                ignore_index=True,
+            )
+
+        logger.info("Created %d new record(s).", len(new_records))
+
+        self._write_index(self.gdf)
+
+        if self.db_fname.exists():
+            logger.info(
+                "Updated %s with %d total records.",
+                self.db_fname.name,
+                len(self.gdf),
+            )
+        else:
+            msg = f"Failed to write {self.db_fname.name}"
+            raise OSError(msg)
+
+    def _drop_replaced_records(
+        self,
+        existing_gdf: pd.DataFrame,
+        new_gdf: pd.DataFrame,
+        sbbox: BBoxWithDates,
+    ) -> pd.DataFrame:
+        """Return the existing records less the ones replaced, whose files are deleted.
+
+        A record is replaced if it is of a source granule just downloaded again, and
+        its query box overlaps 'sbbox'.
+        """
+        # Match on the underlying NASA granule id (source_granule), not the
+        # full nc filename: the nc filename embeds the query bbox/dates,
+        # which can differ between the original download and this --replace
+        # re-download, so a filename-only comparison would fail to find the
+        # old record to drop.
+        new_source_granules = set(new_gdf["source_granule"].values)
+        from_filename = existing_gdf["filename"].apply(
+            self._source_granule_from_filename,
+        )
+        if "source_granule" in existing_gdf.columns:
+            existing_source_granules = existing_gdf["source_granule"].fillna(
+                from_filename,
+            )
+        else:
+            existing_source_granules = from_filename
+        same_granule = existing_source_granules.isin(new_source_granules)
+        # Only replace records whose query bbox (lat/lon + time) overlaps
+        # the region/dates just (re-)downloaded (sbbox). Records for the
+        # same source granule but a non-overlapping query bbox are
+        # legitimately distinct data (e.g. a different date range or region)
+        # and must not be dropped, since doing so would discard original
+        # data rather than de-duplicate it.
+        bbox_overlaps = pd.Series(
+            ivert.utils.cuboid_funcs.cuboids_intersect_vectorized(
+                xmin=existing_gdf["query_bbox_xmin"].to_numpy(),
+                xmax=existing_gdf["query_bbox_xmax"].to_numpy(),
+                ymin=existing_gdf["query_bbox_ymin"].to_numpy(),
+                ymax=existing_gdf["query_bbox_ymax"].to_numpy(),
+                zmin=existing_gdf["query_bbox_tmin"].to_numpy(),
+                zmax=existing_gdf["query_bbox_tmax"].to_numpy(),
+                query=sbbox,
+                bbox_order="axis",
+            ),
+            index=existing_gdf.index,
+        )
+        is_replaced = same_granule & bbox_overlaps
+        n_replaced = int(is_replaced.sum())
+        if n_replaced:
+            logger.info(
+                "Replacing %d existing record(s) with newly-downloaded data.",
+                n_replaced,
+            )
+            for old_fname in existing_gdf.loc[is_replaced, "filename"]:
+                (self.granules_dir / old_fname).unlink(missing_ok=True)
+            existing_gdf = existing_gdf[~is_replaced]
+        return existing_gdf
 
     @staticmethod
     def _tile_key(bbox: Sequence[float]) -> BBoxWithDates:
