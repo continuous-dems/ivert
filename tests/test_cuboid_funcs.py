@@ -149,3 +149,88 @@ def test_an_unknown_bbox_order_is_an_error(call):
 def test_every_bbox_order_name_is_read_by_cuboids_intersect(order, a, b):
     """Each name gives the layout it says."""
     assert cf.cuboids_intersect(a, b, bbox_order=order)
+
+
+# ---------------------------------------------------------------------------
+# merge_cuboids and its helpers
+# ---------------------------------------------------------------------------
+def _cell(x, y, z=0):
+    """A unit cube with its low corner at (x, y, z), in point order."""
+    return (x, y, z, x + 1, y + 1, z + 1)
+
+
+@pytest.mark.parametrize(
+    ("b", "merged"),
+    [
+        (_cell(1, 0), (0, 0, 0, 2, 1, 1)),  # east
+        (_cell(0, 1), (0, 0, 0, 1, 2, 1)),  # north
+        (_cell(0, 0, 1), (0, 0, 0, 1, 1, 2)),  # above
+    ],
+    ids=["x", "y", "z"],
+)
+def test_cubes_sharing_a_face_merge_along_that_axis(b, merged):
+    """Two boxes that line up exactly in two axes and touch in the third are one."""
+    assert cf._merge_pair(_cell(0, 0), b, 1e-10) == merged
+    assert cf._merge_pair(b, _cell(0, 0), 1e-10) == merged
+
+
+def test_along_only_merges_on_that_axis():
+    """Asking for rows must not join a cell to the one north of it."""
+    assert cf._merge_pair(_cell(0, 0), _cell(0, 1), 1e-10, along="x") is None
+    assert cf._merge_pair(_cell(0, 0), _cell(1, 0), 1e-10, along="x") is not None
+
+
+def test_a_box_inside_another_is_absorbed_only_in_a_full_merge():
+    """The larger box wins, but a one-axis strip pass leaves both alone."""
+    big = (0, 0, 0, 4, 4, 4)
+    small = (1, 1, 1, 2, 2, 2)
+
+    assert cf._merge_pair(small, big, 1e-10) == big
+    assert cf._merge_pair(small, big, 1e-10, along="x") is None
+
+
+def test_boxes_that_only_share_an_edge_do_not_merge():
+    """Diagonal neighbours aren't a box together."""
+    assert cf._merge_pair(_cell(0, 0), _cell(1, 1), 1e-10) is None
+
+
+def test_a_gap_smaller_than_tol_counts_as_touching():
+    """Floating-point noise between neighbours must not stop a merge."""
+    b = (1 + 1e-12, 0, 0, 2, 1, 1)
+
+    assert cf._merge_pair(_cell(0, 0), b, 1e-10) == (0, 0, 0, 2, 1, 1)
+
+
+def test_greedy_merge_repeats_until_nothing_more_merges():
+    """A 3 x 2 block of cells, in any order, ends up as one box."""
+    cells = [_cell(x, y) for y in (1, 0) for x in (2, 0, 1)]
+
+    assert cf._greedy_merge(cells, 1e-10) == [(0, 0, 0, 3, 2, 1)]
+
+
+@pytest.mark.parametrize(
+    ("prefer", "expected"),
+    [
+        ("row", [(0, 0, 0, 2, 1, 1), (0, 1, 0, 1, 2, 1)]),
+        ("column", [(0, 0, 0, 1, 2, 1), (1, 0, 0, 2, 1, 1)]),
+    ],
+)
+def test_prefer_breaks_a_tie_between_rows_and_columns(prefer, expected):
+    """An L of three cells is two boxes either way; prefer picks the orientation."""
+    cells = [_cell(0, 0), _cell(1, 0), _cell(0, 1)]
+
+    assert sorted(cf.merge_cuboids(cells, prefer=prefer)) == expected
+
+
+def test_merge_drops_flat_and_repeated_boxes():
+    """A box with no volume isn't coverage, and one box listed twice is one box."""
+    flat = (5, 5, 5, 6, 6, 5)
+
+    assert cf.merge_cuboids([_cell(0, 0), _cell(0, 0), flat]) == [_cell(0, 0)]
+
+
+def test_merge_keeps_axis_order():
+    """(x1, x2, y1, y2, z1, z2) in, the same layout out."""
+    cells = [(0, 1, 0, 1, 0, 1), (1, 2, 0, 1, 0, 1)]
+
+    assert cf.merge_cuboids(cells, bbox_order="axis") == [(0, 2, 0, 1, 0, 1)]
