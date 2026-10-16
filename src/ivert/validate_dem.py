@@ -1851,7 +1851,7 @@ def _drop_excluded_photons(
             "%s photons excluded by exclusion zone(s).",
             f"{np.count_nonzero(excluded_mask):,}",
         )
-    return photon_df[~excluded_mask]
+    return photon_df[~excluded_mask].copy()
 
 
 def _run_photon_level_validation(

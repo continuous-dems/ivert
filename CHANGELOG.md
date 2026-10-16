@@ -36,6 +36,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `ICESat2RequestsCSV.add_record()` and `update_record()` no longer take the query box or the Harmony job as a string to be parsed (#196); pass a tuple and a dict, as everything in IVERT does.
 
 ### Fixed
+- `ivert validate --exclude` no longer prints a pandas `SettingWithCopyWarning` (#205). The photons left after dropping those in the exclusion zones were a view of the full table, so adding each photon's grid cell to them warned.
 - `ivert validate` no longer fails with `IndexError` in the bathymetry filters with rasterio 1.4.1, the oldest version IVERT allows (#204). That release returns pixel row and column numbers as floats, which can't index the reference bathymetry grid, so any validation of bathymetry photons with the `deep` or `reference` filter on, as both are by default, stopped there.
 - `ivert database convert --start-date` now includes photons from the start day itself (#187). The database records each granule by the days of its first and last photons, and a granule whose last day was the start date didn't count as overlapping it, so nearly all of that day's data was left out. The end date is unchanged and still excluded.
 - When `ivert validate -m` is given a manifest from a newer IVERT, the warning now says to upgrade with `pip install --upgrade ivert` or `conda update ivert` (#183). It told users to run `ivert upgrade`, a command left over from IVERT's old client/server design that no longer exists.
