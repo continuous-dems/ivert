@@ -4,6 +4,7 @@ import datetime
 import logging
 import re
 import traceback
+from collections.abc import Sequence
 from pathlib import Path
 
 import numpy as np
@@ -184,7 +185,7 @@ def _log_failed_dems(failed_dems: list[str], num_dems: int) -> None:
 
 
 def _resolve_dem_list(
-    dem_list_or_dir: str | Path | list[str] | tuple[str, ...],
+    dem_list_or_dir: str | Path | Sequence[str | Path],
     fname_filter: str | None,
     fname_omit: str | None,
 ) -> list[str]:
@@ -195,12 +196,14 @@ def _resolve_dem_list(
     """
     path = dem_list_or_dir
     # If we have a one-item list here, get the item in that list.
-    if isinstance(path, (list, tuple)) and len(path) == 1:
+    if not isinstance(path, (str, Path)) and len(path) == 1:
         path = path[0]
 
-    if isinstance(path, (list, tuple)):
-        dem_list = [fn for fn in path if _is_dem_raster(fn)]
-        skipped = [fn for fn in path if not _is_dem_raster(fn)]
+    if not isinstance(path, (str, Path)):
+        # DEM names stay strings: a NetCDF variable's name is a GDAL subdataset string.
+        names = [str(fn) for fn in path]
+        dem_list = [fn for fn in names if _is_dem_raster(fn)]
+        skipped = [fn for fn in names if not _is_dem_raster(fn)]
         if skipped:
             logger.warning(
                 "Skipping %d file(s) that are not a recognized DEM raster type (%s): "
@@ -348,7 +351,7 @@ def _dem_is_done(
 
 
 def dems_needing_validation(
-    dem_list_or_dir: str | Path | list[str],
+    dem_list_or_dir: str | Path | Sequence[str | Path],
     output_dir: str | Path,
     *,
     include_photons: bool = False,
@@ -386,7 +389,7 @@ def dems_needing_validation(
 
 
 def validate_list_of_dems(
-    dem_list_or_dir: str | Path | list[str],
+    dem_list_or_dir: str | Path | Sequence[str | Path],
     *,
     classes: list[int] | tuple[int, ...] = (1, 6, 40),
     output_dir: str | Path | None = None,
@@ -431,7 +434,7 @@ def validate_list_of_dems(
         # A str, as a DEM name: dem_source reads a subdataset string's file out of it.
         single_input = str(dem_list_or_dir)
     else:
-        dem_names = list(dem_list_or_dir)
+        dem_names = [str(dem) for dem in dem_list_or_dir]
     if output_dir is None:
         if single_input is not None and Path(single_input).is_dir():
             stats_and_plots_dir = Path(single_input)

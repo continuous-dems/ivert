@@ -1,5 +1,7 @@
 """Tests for how a collection validation picks DEMs from a directory or file list."""
 
+from pathlib import Path
+
 from ivert.validate_dem_collection import _resolve_dem_list
 
 
@@ -80,3 +82,16 @@ def test_a_single_dem_given_as_a_path(tmp_path):
 def test_an_empty_list_gives_no_dems():
     """An empty list raised TypeError from Path([]); it is just no DEMs."""
     assert _resolve_dem_list([], None, None) == []
+
+
+def test_a_list_of_paths(tmp_path, caplog):
+    """A list of Paths raised TypeError when a sidecar was named or a filter was given.
+
+    The names come back as strs.
+    """
+    files = _touch(tmp_path, "x_wgs84.tif", "x_wgs84.tif.aux.xml", "y_navd88.tif")
+
+    dems = _resolve_dem_list([Path(f) for f in files], r"_wgs84", None)
+
+    assert dems == [files[0]]
+    assert "x_wgs84.tif.aux.xml" in caplog.text
