@@ -155,15 +155,16 @@ DEM_RASTER_EXTENSIONS = (
     ".hdf5",
 )
 
-# IVERT's own HDF5 outputs, which must never be taken for DEMs if they share a
-# directory.
-_IVERT_OUTPUT_SUFFIXES = ("_results.h5", "_photons.h5")
+# IVERT's own outputs with a DEM raster extension, which must never be taken for DEMs
+# if they share a directory: results and photon tables, and the error rasters of
+# export_error_formats' "tif" (see validate_dem._error_export_filenames()).
+_IVERT_OUTPUT_SUFFIXES = ("_results.h5", "_photons.h5", "_errors.tif")
 
 
 def _is_dem_raster(fname: str | Path) -> bool:
     """Return True if the file name has one of the DEM_RASTER_EXTENSIONS (any case).
 
-    IVERT's own results files ('*_results.h5', '*_photons.h5') don't count.
+    IVERT's own outputs ('*_results.h5', '*_photons.h5', '*_errors.tif') don't count.
     """
     fname = Path(fname)
     if fname.name.lower().endswith(_IVERT_OUTPUT_SUFFIXES):
@@ -208,8 +209,8 @@ def _resolve_dem_list(
         skipped = [fn for fn in names if not _is_dem_raster(fn)]
         if skipped:
             logger.warning(
-                "Skipping %d file(s) that are not a recognized DEM raster type (%s): "
-                "%s",
+                "Skipping %d file(s) that are IVERT outputs or not a recognized DEM "
+                "raster type (%s): %s",
                 len(skipped),
                 ", ".join(DEM_RASTER_EXTENSIONS),
                 ", ".join(skipped),

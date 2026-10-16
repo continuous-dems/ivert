@@ -95,3 +95,23 @@ def test_a_list_of_paths(tmp_path, caplog):
 
     assert dems == [files[0]]
     assert "x_wgs84.tif.aux.xml" in caplog.text
+
+
+def test_ivert_outputs_beside_the_dems_are_not_dems(tmp_path):
+    """A rerun into the DEMs' folder validated the error rasters (#214).
+
+    Each run then added another layer, such as a_errors_errors.tif, and the error
+    rasters' results went into the collection's summary.
+    """
+    _touch(
+        tmp_path,
+        "a.tif",
+        "a_errors.tif",
+        "a_errors.gpkg",
+        "a_results.h5",
+        "a_photons.h5",
+    )
+
+    dems = _resolve_dem_list(str(tmp_path), None, None)
+
+    assert [Path(p).name for p in dems] == ["a.tif"]

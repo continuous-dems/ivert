@@ -102,6 +102,17 @@ def test_a_collection_rerun_reuses_finished_work(synthetic_region):
     assert results.stat().st_mtime_ns != first_mtime
 
 
+def test_a_rerun_with_results_beside_the_dems_has_nothing_to_do(synthetic_region):
+    """A rerun took the first run's error rasters for DEMs and validated them (#214)."""
+    dem = synthetic_region.dem("land.tif")
+    validate_dem_collection.validate_list_of_dems(str(dem.parent))
+    first_run = _files_in(dem.parent)
+    assert "land_errors.tif" in first_run
+
+    assert validate_dem_collection.validate_list_of_dems(str(dem.parent)) is None
+    assert _files_in(dem.parent) == first_run
+
+
 def test_a_collection_marks_a_dem_that_fails_and_validates_the_rest(synthetic_region):
     """A DEM with no CRS gets an error marker; the others still get results."""
     good = synthetic_region.dem("land.tif")
