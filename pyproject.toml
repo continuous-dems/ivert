@@ -131,18 +131,15 @@ ignore_missing_imports = true
 [tool.ruff.lint]
 select = ["ALL"]
 ignore = [
-    "C901",     # complex-structure
     # Permanent: CPY001 wants a copyright notice at the top of every file. The MIT
     # LICENSE at the repository root already covers all of them.
     "CPY001",   # missing-copyright-notice
-    "PLR0912",  # too-many-branches
     # Permanent: PLR0913 caps a function at five parameters, keyword-only ones
     # included. Each click option is its own parameter, and the validation functions
     # take the same options, so the only fix is to bundle them into objects. Long
     # argument lists are kept safe by making all but the first few keyword-only,
     # which PLR0917 enforces.
     "PLR0913",  # too-many-arguments
-    "PLR0915",  # too-many-statements
     # Permanent: TRY003 wants a custom exception class for every multi-word message.
     # Most of ours are one-off argument checks or click exceptions, whose message
     # is what the user sees, so a class per message would add nothing.
