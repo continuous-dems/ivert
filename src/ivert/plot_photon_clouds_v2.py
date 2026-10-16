@@ -548,6 +548,263 @@ def plot_beam(
     logger.info("  Saved %s", outpath)
 
 
+class _PlotSettings(typing.NamedTuple):
+    """How main() plots each beam: the limits, classes, DEMs and vertical datum."""
+
+    zlim: _Limits | None
+    dlim: _Limits | None
+    classes: set[int] | None
+    dem: Sequence[str]
+    # The vertical datum to transform photons and DEMs to, or None for EGM2008.
+    target_vert: str | None
+    # Where datum-shift grids are cached, or None for the working directory.
+    cache_dir: str | None
+    ylabel: str
+
+
+def _resolve_target_vdatum(vdatum: str | None) -> tuple[str | None, str]:
+    """Return a --vdatum value's vertical datum and the plots' y-axis label.
+
+    Without a datum the plots stay in EGM2008, untransformed. Exits with a message
+    if the datum isn't recognised or can't be used.
+    """
+    if not vdatum:
+        return None, "Elevation / depth (m, EGM2008 geoid)"
+
+    from ivert.utils import dem_geom  # noqa: PLC0415 - slow import
+
+    vdatum_str = ivert.vdatum_lookup.resolve_vdatum(vdatum)
+    if vdatum_str is None:
+        sys.exit(
+            f"Unknown vertical datum: {vdatum!r}. "
+            "Use an EPSG code or common name (e.g. 'navd88', 'egm2008', 'mllw').",
+        )
+    try:
+        ivert.vdatum_lookup.check_vdatum(vdatum_str)
+    except ValueError as exc:
+        sys.exit(f"Vertical datum {vdatum!r} can't be used: {exc}")
+    _, target_vert = dem_geom.split_srs_string(vdatum_str)
+    return target_vert, f"Elevation / depth (m, {_get_vdatum_label(vdatum_str)})"
+
+
+def _limits(low: float | None, high: float | None) -> _Limits | None:
+    """Return plot limits, or None if neither end is set."""
+    if low is None and high is None:
+        return None
+    return (low, high)
+
+
+def _parse_classes(classes_str: str | None) -> set[int] | None:
+    """Return the --classes codes to highlight: None for all, empty for none."""
+    if classes_str is None:
+        return None
+    if classes_str == "":
+        return set()
+    return {int(c) for c in classes_str.split("/")}
+
+
+def _h5_only_path(
+    input_path: Path,
+    h5_file: str | None,
+    h5_search_dirs: Sequence[Path],
+) -> Path:
+    """Return the .h5 file to plot on its own: the input, --h5's path, or one found.
+
+    Exits with a message if the file named doesn't exist or none is found.
+    """
+    if input_path.suffix.lower() == ".h5":
+        return input_path
+    if h5_file:
+        h5_path = absolute_path(h5_file)
+        if not h5_path.exists():
+            sys.exit(f".h5 file not found: {h5_path}")
+        return h5_path
+    found = _find_h5(input_path, h5_search_dirs)
+    if found is None:
+        sys.exit("--h5-only: no matching .h5 found in cache.")
+    return found
+
+
+def _background_h5_path(
+    nc_path: Path,
+    h5_file: str | None,
+    h5_search_dirs: Sequence[Path],
+    *,
+    search: bool,
+) -> Path | None:
+    """Return the .h5 file to plot under an .nc file's photons, or None.
+
+    That is --h5's path, or with 'search' a file found for the granule (a warning
+    if none is). Exits with a message if the file named doesn't exist.
+    """
+    if search:
+        found = _find_h5(nc_path, h5_search_dirs)
+        if found is None:
+            logger.warning("--h5 given but no matching .h5 found in cache.")
+        return found
+    if h5_file:
+        h5_path = absolute_path(h5_file)
+        if not h5_path.exists():
+            sys.exit(f".h5 file not found: {h5_path}")
+        return h5_path
+    return None
+
+
+def _plot_with_dems(
+    df_plot: pd.DataFrame,
+    beam: str,
+    outpath: Path,
+    settings: _PlotSettings,
+) -> None:
+    """Plot one beam's photons, in the target datum, with the DEMs along its track."""
+    if settings.target_vert:
+        df_plot = _apply_vdatum_to_df(
+            df_plot,
+            settings.target_vert,
+            settings.cache_dir,
+        )
+    lons, lats, along_track = _positions_for_dem_sampling(df_plot, settings.dlim)
+    dem_profiles = _collect_dem_profiles(
+        settings.dem,
+        lons,
+        lats,
+        along_track,
+        target_vert=settings.target_vert,
+        cache_dir=settings.cache_dir,
+    )
+    plot_beam(
+        df_plot,
+        beam,
+        outpath,
+        zlim=settings.zlim,
+        dlim=settings.dlim,
+        classes=settings.classes,
+        dem_profiles=dem_profiles or None,
+        ylabel=settings.ylabel,
+    )
+
+
+def _plot_h5_only(
+    h5_path: Path,
+    laser: str | None,
+    out_dir: Path,
+    settings: _PlotSettings,
+) -> None:
+    """Plot each beam of an .h5 file (or just 'laser'), all its photons as noise."""
+    logger.info("H5-only: %s", h5_path.name)
+    beam_dts = _beam_delta_times(h5_path)
+    beams_to_plot = [laser] if laser else list(beam_dts.keys())
+
+    for beam in beams_to_plot:
+        if beam not in beam_dts:
+            logger.info("  Beam %s not in .h5, skipping.", beam)
+            continue
+        df_plot = _load_h5_beam_photons(h5_path, beam)
+        if df_plot.empty:
+            logger.info("  Beam %s: no photons, skipping.", beam)
+            continue
+        logger.info("  Beam %s: %s photons", beam, f"{len(df_plot):,}")
+        _plot_with_dems(df_plot, beam, out_dir / f"{h5_path.stem}_{beam}.png", settings)
+
+
+def _nc_beam_photons(
+    df: pd.DataFrame,
+    df_bg: pd.DataFrame,
+    beam: str,
+) -> pd.DataFrame:
+    """Return an .nc file's photons of one beam.
+
+    The beam is picked by the laser column, or in old .nc files without one by
+    matching (delta_time, x, y) to the beam's .h5 photons, 'df_bg'.
+    """
+    if "laser" in df.columns:
+        return df[df["laser"] == beam].copy()
+    return df.merge(
+        df_bg[["delta_time", "x", "y"]],
+        on=["delta_time", "x", "y"],
+        how="inner",
+    )
+
+
+def _with_along_track(df_beam: pd.DataFrame, df_bg: pd.DataFrame) -> pd.DataFrame:
+    """Return a beam's .nc photons with their along-track distances.
+
+    An .nc file from before the field was added gets them from the matching .h5
+    photons, 'df_bg', by (delta_time, x, y); photons with no match are dropped.
+    """
+    if "along_track_m" in df_beam.columns:
+        return df_beam
+    return df_beam.merge(
+        df_bg[["delta_time", "x", "y", "along_track_m"]],
+        on=["delta_time", "x", "y"],
+        how="left",
+    ).dropna(subset=["along_track_m"])
+
+
+def _plot_nc_with_h5(
+    df: pd.DataFrame,
+    h5_path: Path,
+    laser: str | None,
+    out_base: Path,
+    settings: _PlotSettings,
+) -> None:
+    """Plot each beam's .nc photons over all the .h5 file's photons, as noise.
+
+    Each plot is written to '<out_base>_<beam>.png'.
+    """
+    logger.info("Found .h5: %s", h5_path.name)
+    beam_dts = _beam_delta_times(h5_path)
+    beams_to_plot = [laser] if laser else list(beam_dts.keys())
+
+    for beam in beams_to_plot:
+        if beam not in beam_dts:
+            logger.info("  Beam %s not in .h5, skipping.", beam)
+            continue
+
+        df_bg = _load_h5_beam_photons(h5_path, beam)
+        if df_bg.empty:
+            logger.info("  Beam %s: no h5 photons, skipping.", beam)
+            continue
+
+        df_beam = _nc_beam_photons(df, df_bg, beam)
+        if df_beam.empty:
+            logger.info("  Beam %s: no photons in .nc, skipping.", beam)
+            continue
+        df_beam = _with_along_track(df_beam, df_bg)
+
+        logger.info(
+            "  Beam %s: %s classified + %s background photons",
+            beam,
+            f"{len(df_beam):,}",
+            f"{len(df_bg):,}",
+        )
+        df_plot = pd.concat([df_bg, df_beam], ignore_index=True)
+        _plot_with_dems(df_plot, beam, Path(f"{out_base}_{beam}.png"), settings)
+
+
+def _plot_nc_only(
+    df: pd.DataFrame,
+    laser: str | None,
+    out_base: Path,
+    settings: _PlotSettings,
+) -> None:
+    """Plot each beam of an .nc file's photons, from its laser and along-track fields.
+
+    Each plot is written to '<out_base>_<beam>.png'.
+    """
+    beams_in_nc = sorted(df["laser"].unique())
+    beams_to_plot = [laser] if laser else beams_in_nc
+    for beam in beams_to_plot:
+        df_beam = df[df["laser"] == beam].copy()
+        if df_beam.empty:
+            continue
+        if "along_track_m" not in df_beam.columns:
+            logger.info("  Beam %s: nc has no along_track_m, skipping.", beam)
+            continue
+        logger.info("  Beam %s: %s photons (nc only)", beam, f"{len(df_beam):,}")
+        _plot_with_dems(df_beam, beam, Path(f"{out_base}_{beam}.png"), settings)
+
+
 # Sentinel flag_value for --h5 given without a path.
 _H5_SEARCH_CACHE = "__SEARCH_CACHE__"
 
@@ -664,27 +921,9 @@ def main(
     # click.Path would make it ".".
     out_dir = Path(outdir) if outdir else None
 
-    # Resolve vertical datum --------------------------------------------------
-    target_vert = None
-    ylabel = "Elevation / depth (m, EGM2008 geoid)"
-    if vdatum:
-        from ivert.utils import dem_geom  # noqa: PLC0415 - slow import
-
-        vdatum_str = ivert.vdatum_lookup.resolve_vdatum(vdatum)
-        if vdatum_str is None:
-            sys.exit(
-                f"Unknown vertical datum: {vdatum!r}. "
-                "Use an EPSG code or common name (e.g. 'navd88', 'egm2008', 'mllw').",
-            )
-        try:
-            ivert.vdatum_lookup.check_vdatum(vdatum_str)
-        except ValueError as exc:
-            sys.exit(f"Vertical datum {vdatum!r} can't be used: {exc}")
-        _, target_vert = dem_geom.split_srs_string(vdatum_str)
-        ylabel = f"Elevation / depth (m, {_get_vdatum_label(vdatum_str)})"
+    target_vert, ylabel = _resolve_target_vdatum(vdatum)
 
     # Datum-shift grid cache (use ivert cache if available, else cwd)
-
     try:
         config = ivert.utils.configfile.Config()
     except (configparser.Error, OSError):
@@ -696,210 +935,42 @@ def main(
     if not input_path.exists():
         sys.exit(f"File not found: {input_path}")
 
-    zlim = None
-    if zmin is not None or zmax is not None:
-        zlim = (zmin, zmax)
+    settings = _PlotSettings(
+        zlim=_limits(zmin, zmax),
+        dlim=_limits(xmin, xmax),
+        classes=_parse_classes(classes_str),
+        dem=dem,
+        target_vert=target_vert,
+        cache_dir=cache_dir,
+        ylabel=ylabel,
+    )
 
-    dlim = None
-    if xmin is not None or xmax is not None:
-        dlim = (xmin, xmax)
-
-    if classes_str is None:
-        classes = None
-    elif classes_str == "":
-        classes = set()
-    else:
-        classes = {int(c) for c in classes_str.split("/")}
-
-    # ---------------------------------------------------------------------- h5-only
-    h5_only = h5_only or input_path.suffix.lower() == ".h5"
-
-    h5_path: Path | None
-    if h5_only:
-        # Resolve the h5 file to use
-        if input_path.suffix.lower() == ".h5":
-            h5_path = input_path
-        elif search_h5:
-            h5_path = _find_h5(input_path, h5_search_dirs)
-            if h5_path is None:
-                sys.exit("--h5-only: no matching .h5 found in cache.")
-        elif h5_file:
-            h5_path = absolute_path(h5_file)
-            if not h5_path.exists():
-                sys.exit(f".h5 file not found: {h5_path}")
-        else:
-            h5_path = _find_h5(input_path, h5_search_dirs)
-            if h5_path is None:
-                sys.exit("--h5-only: no matching .h5 found in cache.")
-
+    if h5_only or input_path.suffix.lower() == ".h5":
+        h5_path = _h5_only_path(input_path, h5_file, h5_search_dirs)
         out_dir = out_dir if out_dir is not None else h5_path.parent
         out_dir.mkdir(parents=True, exist_ok=True)
-        h5_stem = h5_path.stem
-
-        logger.info("H5-only: %s", h5_path.name)
-        beam_dts = _beam_delta_times(h5_path)
-        beams_to_plot = [laser] if laser else list(beam_dts.keys())
-
-        for beam in beams_to_plot:
-            if beam not in beam_dts:
-                logger.info("  Beam %s not in .h5, skipping.", beam)
-                continue
-            df_plot = _load_h5_beam_photons(h5_path, beam)
-            if df_plot.empty:
-                logger.info("  Beam %s: no photons, skipping.", beam)
-                continue
-            logger.info("  Beam %s: %s photons", beam, f"{len(df_plot):,}")
-            if target_vert:
-                df_plot = _apply_vdatum_to_df(df_plot, target_vert, cache_dir)
-            _dlons, _dlats, _datm = _positions_for_dem_sampling(df_plot, dlim)
-            dem_profiles = _collect_dem_profiles(
-                dem,
-                _dlons,
-                _dlats,
-                _datm,
-                target_vert=target_vert,
-                cache_dir=cache_dir,
-            )
-            outpath = out_dir / f"{h5_stem}_{beam}.png"
-            plot_beam(
-                df_plot,
-                beam,
-                outpath,
-                zlim=zlim,
-                dlim=dlim,
-                classes=classes,
-                dem_profiles=dem_profiles or None,
-                ylabel=ylabel,
-            )
+        _plot_h5_only(h5_path, laser, out_dir, settings)
         return
 
-    # -------------------------------------------------------------- nc + optional h5
     nc_path = input_path
     out_dir = out_dir if out_dir is not None else nc_path.parent
     out_dir.mkdir(parents=True, exist_ok=True)
 
     logger.info("Loading %s ...", nc_path.name)
     df = load_nc(nc_path)
-    nc_stem = nc_path.stem
 
     # Resolve .h5 path for beam splitting and noise background
-    if search_h5:
-        h5_path = _find_h5(nc_path, h5_search_dirs)
-        if h5_path is None:
-            logger.warning("--h5 given but no matching .h5 found in cache.")
-    elif h5_file:
-        h5_path = absolute_path(h5_file)
-        if not h5_path.exists():
-            sys.exit(f".h5 file not found: {h5_path}")
-    else:
-        h5_path = None
-
-    if h5_path:
-        logger.info("Found .h5: %s", h5_path.name)
-        beam_dts = _beam_delta_times(h5_path)
-        beams_to_plot = [laser] if laser else list(beam_dts.keys())
-
-        for beam in beams_to_plot:
-            if beam not in beam_dts:
-                logger.info("  Beam %s not in .h5, skipping.", beam)
-                continue
-
-            df_bg = _load_h5_beam_photons(h5_path, beam)
-            if df_bg.empty:
-                logger.info("  Beam %s: no h5 photons, skipping.", beam)
-                continue
-
-            # Filter nc photons to this beam using the laser column when present;
-            # fall back to exact (delta_time, x, y) matching for old nc files.
-            if "laser" in df.columns:
-                df_beam = df[df["laser"] == beam].copy()
-            else:
-                df_beam = df.merge(
-                    df_bg[["delta_time", "x", "y"]],
-                    on=["delta_time", "x", "y"],
-                    how="inner",
-                )
-
-            if df_beam.empty:
-                logger.info("  Beam %s: no photons in .nc, skipping.", beam)
-                continue
-
-            # Ensure along_track_m exists on the nc photons; get it from the h5
-            # position match if the nc file predates the field being added.
-            if "along_track_m" not in df_beam.columns:
-                df_beam = df_beam.merge(
-                    df_bg[["delta_time", "x", "y", "along_track_m"]],
-                    on=["delta_time", "x", "y"],
-                    how="left",
-                ).dropna(subset=["along_track_m"])
-
-            logger.info(
-                "  Beam %s: %s classified + %s background photons",
-                beam,
-                f"{len(df_beam):,}",
-                f"{len(df_bg):,}",
-            )
-            df_plot = pd.concat([df_bg, df_beam], ignore_index=True)
-            if target_vert:
-                df_plot = _apply_vdatum_to_df(df_plot, target_vert, cache_dir)
-            _dlons, _dlats, _datm = _positions_for_dem_sampling(df_plot, dlim)
-            dem_profiles = _collect_dem_profiles(
-                dem,
-                _dlons,
-                _dlats,
-                _datm,
-                target_vert=target_vert,
-                cache_dir=cache_dir,
-            )
-            outpath = out_dir / f"{nc_stem}_{beam}.png"
-            plot_beam(
-                df_plot,
-                beam,
-                outpath,
-                zlim=zlim,
-                dlim=dlim,
-                classes=classes,
-                dem_profiles=dem_profiles or None,
-                ylabel=ylabel,
-            )
+    background = _background_h5_path(
+        nc_path,
+        h5_file,
+        h5_search_dirs,
+        search=search_h5,
+    )
+    if background:
+        _plot_nc_with_h5(df, background, laser, out_dir / nc_path.stem, settings)
     # No .h5 — use laser/along_track_m from the nc file directly if present.
     elif "laser" in df.columns:
-        beams_in_nc = sorted(df["laser"].unique())
-        beams_to_plot_noh5 = [laser] if laser else beams_in_nc
-        for beam in beams_to_plot_noh5:
-            df_beam = df[df["laser"] == beam].copy()
-            if df_beam.empty:
-                continue
-            if "along_track_m" not in df_beam.columns:
-                logger.info("  Beam %s: nc has no along_track_m, skipping.", beam)
-                continue
-            logger.info("  Beam %s: %s photons (nc only)", beam, f"{len(df_beam):,}")
-            if target_vert:
-                df_beam = _apply_vdatum_to_df(
-                    df_beam,
-                    target_vert,
-                    cache_dir,
-                )
-            _dlons, _dlats, _datm = _positions_for_dem_sampling(df_beam, dlim)
-            dem_profiles = _collect_dem_profiles(
-                dem,
-                _dlons,
-                _dlats,
-                _datm,
-                target_vert=target_vert,
-                cache_dir=cache_dir,
-            )
-            outpath = out_dir / f"{nc_stem}_{beam}.png"
-            plot_beam(
-                df_beam,
-                beam,
-                outpath,
-                zlim=zlim,
-                dlim=dlim,
-                classes=classes,
-                dem_profiles=dem_profiles or None,
-                ylabel=ylabel,
-            )
+        _plot_nc_only(df, laser, out_dir / nc_path.stem, settings)
     else:
         logger.info("No .h5 found and nc has no beam/distance info — cannot plot.")
 
