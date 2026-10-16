@@ -243,21 +243,16 @@ def _resolve_dem_list(
     return dem_list
 
 
-def _dem_output_dir(
-    dem_path: str,
-    output_dir: str | Path | None,
-    dem_list: list[str],
-) -> Path:
+def _dem_output_dir(dem_path: str, output_dir: str | Path | None) -> Path:
     """Return the directory a collection writes one DEM's results into.
 
-    The DEM's own directory if 'output_dir' is None, 'output_dir' if it is an existing
-    directory, and otherwise 'output_dir' taken relative to the first DEM's directory.
+    That is the DEM's own directory if 'output_dir' is None, and otherwise
+    'output_dir', which validate_list_of_dems() has already resolved (see
+    _collection_output_dir()).
     """
     if output_dir is None:
         return Path(dem_source.dem_file_path(dem_path)).parent
-    if Path(output_dir).is_dir():
-        return Path(output_dir)
-    return Path(dem_source.dem_file_path(dem_list[0])).parent / output_dir
+    return Path(output_dir)
 
 
 # Marks a DEM that failed in a collection run, so later runs skip it until -ow is given.
@@ -417,24 +412,26 @@ def _collection_output_dir(
     fname_filter: str | None,
     fname_omit: str | None,
 ) -> Path:
-    """Return the directory a collection writes its summary files into.
+    """Return the absolute directory a collection writes its summary files into.
 
-    That is 'output_dir' if it is an existing directory. Otherwise it is the input's
-    folder, with 'output_dir' (if given) taken relative to it. The input's folder is
-    the directory given, if one was given with no 'output_dir'; otherwise it is the
-    folder of the file given, or of the first listed DEM passing the filters.
+    That is 'output_dir' if it is absolute, and otherwise the input's folder, with a
+    relative 'output_dir' taken from there, never from the current directory, as
+    'ivert validate' does. The input's folder is the directory given, or the folder of
+    the file given, or of the first listed DEM passing the filters.
     """
-    if output_dir is not None and Path(output_dir).is_dir():
+    if output_dir is not None and Path(output_dir).is_absolute():
         return Path(output_dir)
     if isinstance(dem_list_or_dir, (str, Path)):
         # A str, as a DEM name: dem_source reads a subdataset string's file out of it.
         single_input = str(dem_list_or_dir)
-        if output_dir is None and Path(single_input).is_dir():
-            return Path(single_input)
-        input_dir = Path(dem_source.dem_file_path(single_input)).parent
+        if Path(single_input).is_dir():
+            input_dir = Path(single_input)
+        else:
+            input_dir = Path(dem_source.dem_file_path(single_input)).parent
     else:
         first_dem = _first_matching_dem(dem_list_or_dir, fname_filter, fname_omit)
         input_dir = Path(dem_source.dem_file_path(first_dem)).parent
+    input_dir = absolute_path(input_dir)
     return input_dir if output_dir is None else input_dir / output_dir
 
 
@@ -483,7 +480,7 @@ def _collection_is_finished(
     if not all(fn.exists() for fn in summary_files) or not all(
         _dem_is_done(
             dem,
-            _dem_output_dir(dem, output_dir, dem_list),
+            _dem_output_dir(dem, output_dir),
             include_photons=include_photons,
             variable=variable,
         )
@@ -503,7 +500,7 @@ def _collection_is_finished(
         for dem in dem_list
         if _failed_earlier(
             dem,
-            _dem_output_dir(dem, output_dir, dem_list),
+            _dem_output_dir(dem, output_dir),
             include_photons=include_photons,
             variable=variable,
         )
@@ -661,9 +658,8 @@ def _validate_listed_dem(
     )
 
     dem_file = Path(dem_source.dem_file_path(listed_dem)).name
-    this_output_dir = _dem_output_dir(listed_dem, output_dir, dem_list)
-    if not this_output_dir.exists():
-        this_output_dir.mkdir()
+    this_output_dir = _dem_output_dir(listed_dem, output_dir)
+    this_output_dir.mkdir(parents=True, exist_ok=True)
 
     if _skip_failed_earlier(
         listed_dem,
@@ -797,11 +793,22 @@ def validate_list_of_dems(
     validate_dem.validate_dem(). A file without that variable (or, with no variable
     given, without a default elevation variable) is logged and skipped. 'dem_projection'
     is the DEMs' CRS, as in validate_dem.validate_dem().
+
+    Every DEM's results go in 'output_dir', and so do the collection's summary files.
+    A relative 'output_dir' is taken from the folder of the DEMs (see
+    _collection_output_dir()), wherever Python is run from. With no 'output_dir', each
+    DEM's results go beside it, and the summary files in that folder.
     """
-    summary = _summary_files(
-        _collection_output_dir(dem_list_or_dir, output_dir, fname_filter, fname_omit),
-        place_name,
+    summary_dir = _collection_output_dir(
+        dem_list_or_dir,
+        output_dir,
+        fname_filter,
+        fname_omit,
     )
+    if output_dir is not None:
+        # Resolved once, so validate_dem() writes where the markers and summaries go.
+        output_dir = summary_dir
+    summary = _summary_files(summary_dir, place_name)
     dem_list = _resolve_dem_list(dem_list_or_dir, fname_filter, fname_omit)
 
     # Without --overwrite, stop only if every DEM already has results (or failed in an

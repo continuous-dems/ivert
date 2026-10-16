@@ -113,6 +113,30 @@ def test_a_rerun_with_results_beside_the_dems_has_nothing_to_do(synthetic_region
     assert _files_in(dem.parent) == first_run
 
 
+def test_a_relative_output_folder_is_under_the_dems_folder(
+    synthetic_region,
+    tmp_path,
+    monkeypatch,
+):
+    """Each DEM's results went under the current directory, the summaries elsewhere.
+
+    So a rerun never found the results, and validated every DEM again.
+    """
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    monkeypatch.chdir(elsewhere)
+    dem = synthetic_region.dem("land.tif")
+
+    validate_dem_collection.validate_list_of_dems(str(dem.parent), output_dir="rel")
+
+    assert {"land_results.h5", "summary_results.h5"} <= _files_in(dem.parent / "rel")
+    assert not any(elsewhere.iterdir())
+    assert (
+        validate_dem_collection.validate_list_of_dems(str(dem.parent), output_dir="rel")
+        is None
+    )
+
+
 def test_a_collection_marks_a_dem_that_fails_and_validates_the_rest(synthetic_region):
     """A DEM with no CRS gets an error marker; the others still get results."""
     good = synthetic_region.dem("land.tif")
