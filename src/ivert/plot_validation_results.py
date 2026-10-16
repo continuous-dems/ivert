@@ -4,6 +4,7 @@ import collections
 import logging
 import math
 from pathlib import Path
+from typing import NamedTuple
 
 import matplotlib as mpl
 import matplotlib.pyplot as plt
@@ -11,6 +12,7 @@ import numpy as np
 import pandas as pd
 import tqdm
 from matplotlib import ticker
+from matplotlib.axes import Axes
 
 from ivert.utils import dem_source
 
@@ -105,6 +107,19 @@ def _read_results_file(
     return data
 
 
+class _HistogramStyle(NamedTuple):
+    """How one histogram panel is drawn: its bins, colour and surface name."""
+
+    nbins: int
+    color: str
+    surface: str
+
+
+_LAND_HISTOGRAM = _HistogramStyle(nbins=200, color="darkred", surface="land")
+# Fewer bins than the land histogram.
+_BATHY_HISTOGRAM = _HistogramStyle(nbins=100, color="blue", surface="bathy")
+
+
 def plot_histograms_and_line(
     results_h5_or_list_or_df: pd.DataFrame | str | Path | list[str | Path],
     output_figure_name: str | Path,
@@ -148,11 +163,17 @@ def plot_histograms_and_line(
     meandiff_land = meandiff[land_only_mask]
     bathy_mask = numphotons_bathy > 0
     meandiff_bathy = meandiff[bathy_mask]
-    has_land = len(meandiff_land) > 0
-    has_bathy = len(meandiff_bathy) > 0
+    histograms = [
+        (diffs, style)
+        for diffs, style in (
+            (meandiff_land, _LAND_HISTOGRAM),
+            (meandiff_bathy, _BATHY_HISTOGRAM),
+        )
+        if len(diffs) > 0
+    ]
 
     # ncols = number of histogram panels present + 1 scatter panel.
-    ncols = int(has_land) + int(has_bathy) + 1
+    ncols = len(histograms) + 1
 
     # Generate figure. Scale width proportionally to panel count.
     if figsize is None:
@@ -168,271 +189,26 @@ def plot_histograms_and_line(
     if ncols == 1:
         axes = [axes]
 
-    plot_label_margin = [0.015, 0.97]
-    plot_label_ha = "left"
-    plot_label_va = "top"
-    plot_label_size = "large"
-    plot_label_weight = "book"
-
     panel_letters = "ABCDE" if labels_uppercase else "abcde"
-    panel_idx = 0
 
-    #############################################################################
-    # Plot: Histogram of differences from ICESat-2 mean (land only), if present.
-    if has_land:
-        nbins = 200
-        ax1 = axes[panel_idx]
-        panel_letter = panel_letters[panel_idx]
-        panel_idx += 1
-
-        ax1.hist(meandiff_land, bins=nbins, color="darkred")
-        # Unicode "minus" sign is \u2212
-        ax1.set_title("DEM " + "\u2212" + " ICESat-2 elevation: land")
-        ax1.set_ylabel("% of data cells")
-        ax1.set_xlabel("Elevation difference (m)")
-        ax1.yaxis.set_major_formatter(
-            ticker.PercentFormatter(max(len(meandiff_land), 1), decimals=0),
+    # Histograms of differences from the ICESat-2 mean, land then bathy, if present.
+    for panel_idx, (diffs, style) in enumerate(histograms):
+        _plot_error_histogram(
+            axes[panel_idx],
+            diffs,
+            style,
+            panel_letter=panel_letters[panel_idx],
+            hist_cutoff_num_stddevs=hist_cutoff_num_stddevs,
+            also_add_rmse_to_hist=also_add_rmse_to_hist,
         )
 
-        # Add the lines for mean +- std
-        center = np.mean(meandiff_land)
-        std = np.std(meandiff_land)
-        ax1.axvline(x=center, color="black", linewidth=0.75)
-        ax1.axvline(x=center + std, color="black", linestyle="--", linewidth=0.5)
-        ax1.axvline(x=center - std, color="black", linestyle="--", linewidth=0.5)
-
-        # Crop the left & right (only if there are enough points)
-        if len(meandiff_land) >= _MIN_CELLS_TO_CROP:
-            cutoffs = np.percentile(meandiff_land, [1, 99])
-        else:
-            cutoffs = [min(meandiff_land), max(meandiff_land)]
-
-        # If we have a zero-width range, arbitrarily buffer it by 1 m in each direction.
-        if cutoffs[0] == cutoffs[1]:
-            cutoffs[0] = cutoffs[0] - 1
-            cutoffs[1] = cutoffs[1] + 1
-
-        # Do not crop the photo to make the stddev lines fall outside the plot.
-        # If they do, reset the min/max cutoff to be 2 stddev away from the mean on that
-        # side.
-        if (center + std) >= cutoffs[1] or hist_cutoff_num_stddevs is not None:
-            cutoffs[1] = center + (std * hist_cutoff_num_stddevs)
-        if (center - std) <= cutoffs[0] or hist_cutoff_num_stddevs is not None:
-            cutoffs[0] = center - (std * hist_cutoff_num_stddevs)
-
-        # Just error checking, if any of the cutoffs come back with NaN or Inf, just
-        # clip it to -1, 1, debug later.
-        if np.any(np.isnan(cutoffs) | np.isinf(cutoffs)):
-            cutoffs = [-1, 1]
-
-        ax1.set_xlim(cutoffs)
-
-        # Pad the top by 10%
-        ylim = ax1.get_ylim()
-        ax1.set_ylim((ylim[0], ylim[1] * 1.1))
-
-        txt = ax1.text(
-            0.11,
-            0.95,
-            rf"{center:.2f} $\pm$ {std:.2f} m",
-            ha="left",
-            va="top",
-            fontsize="small",
-            transform=ax1.transAxes,
-        )
-        txt.set_bbox(
-            {
-                "facecolor": "white",
-                "alpha": 0.85,
-                "edgecolor": "white",
-                "boxstyle": "square,pad=0",
-            },
-        )
-
-        # If requested, add the RMSE value to the figure.
-        if also_add_rmse_to_hist:
-            rmse = np.sqrt(np.mean(meandiff_land**2))
-            txt_std = ax1.text(
-                0.97,
-                0.95,
-                f"RMSE: {rmse:0.2f} m",
-                ha="right",
-                va="top",
-                fontsize="small",
-                transform=ax1.transAxes,
-            )
-            txt_std.set_bbox(
-                {
-                    "facecolor": "white",
-                    "alpha": 0.95,
-                    "edgecolor": "white",
-                    "boxstyle": "square,pad=0",
-                },
-            )
-
-        ax1.text(
-            *plot_label_margin,
-            panel_letter,
-            ha=plot_label_ha,
-            va=plot_label_va,
-            fontsize=plot_label_size,
-            fontweight=plot_label_weight,
-            transform=ax1.transAxes,
-        )
-
-    #############################################################################
-    # Plot: Histogram of differences from ICESat-2 mean (bathy only), if present.
-    if has_bathy:
-        nbins = 100  # fewer bins than land histogram
-        ax2 = axes[panel_idx]
-        panel_letter = panel_letters[panel_idx]
-        panel_idx += 1
-
-        ax2.hist(meandiff_bathy, bins=nbins, color="blue")
-        # Unicode "minus" sign is \u2212
-        ax2.set_title("DEM " + "\u2212" + " ICESat-2 elevation: bathy")
-        ax2.set_ylabel("% of data cells")
-        ax2.set_xlabel("Elevation difference (m)")
-        ax2.yaxis.set_major_formatter(
-            ticker.PercentFormatter(max(len(meandiff_bathy), 1), decimals=0),
-        )
-
-        # Add the lines for mean +- std
-        center = np.mean(meandiff_bathy)
-        std = np.std(meandiff_bathy)
-        ax2.axvline(x=center, color="black", linewidth=0.75)
-        ax2.axvline(x=center + std, color="black", linestyle="--", linewidth=0.5)
-        ax2.axvline(x=center - std, color="black", linestyle="--", linewidth=0.5)
-
-        # Crop the left & right (only if there are enough points)
-        if len(meandiff_bathy) >= _MIN_CELLS_TO_CROP:
-            cutoffs = np.percentile(meandiff_bathy, [1, 99])
-        else:
-            cutoffs = [min(meandiff_bathy), max(meandiff_bathy)]
-
-        # If we have a zero-width range, arbitrarily buffer it by 1 m in each direction.
-        if cutoffs[0] == cutoffs[1]:
-            cutoffs[0] = cutoffs[0] - 1
-            cutoffs[1] = cutoffs[1] + 1
-
-        # Do not crop the photo to make the stddev lines fall outside the plot.
-        # If they do, reset the min/max cutoff to be 2 stddev away from the mean on that
-        # side.
-        if (center + std) >= cutoffs[1] or hist_cutoff_num_stddevs is not None:
-            cutoffs[1] = center + (std * hist_cutoff_num_stddevs)
-        if (center - std) <= cutoffs[0] or hist_cutoff_num_stddevs is not None:
-            cutoffs[0] = center - (std * hist_cutoff_num_stddevs)
-
-        # Just error checking, if any of the cutoffs come back with NaN or Inf, just
-        # clip it to -1, 1, debug later.
-        if np.any(np.isnan(cutoffs) | np.isinf(cutoffs)):
-            cutoffs = [-1, 1]
-
-        ax2.set_xlim(cutoffs)
-
-        # Pad the top by 10%
-        ylim = ax2.get_ylim()
-        ax2.set_ylim((ylim[0], ylim[1] * 1.1))
-
-        txt = ax2.text(
-            0.11,
-            0.95,
-            rf"{center:.2f} $\pm$ {std:.2f} m",
-            ha="left",
-            va="top",
-            fontsize="small",
-            transform=ax2.transAxes,
-        )
-        txt.set_bbox(
-            {
-                "facecolor": "white",
-                "alpha": 0.85,
-                "edgecolor": "white",
-                "boxstyle": "square,pad=0",
-            },
-        )
-
-        # If requested, add the RMSE value to the figure.
-        if also_add_rmse_to_hist:
-            rmse = np.sqrt(np.mean(meandiff_bathy**2))
-            txt_std = ax2.text(
-                0.97,
-                0.95,
-                f"RMSE: {rmse:0.2f} m",
-                ha="right",
-                va="top",
-                fontsize="small",
-                transform=ax2.transAxes,
-            )
-            txt_std.set_bbox(
-                {
-                    "facecolor": "white",
-                    "alpha": 0.95,
-                    "edgecolor": "white",
-                    "boxstyle": "square,pad=0",
-                },
-            )
-
-        ax2.text(
-            *plot_label_margin,
-            panel_letter,
-            ha=plot_label_ha,
-            va=plot_label_va,
-            fontsize=plot_label_size,
-            fontweight=plot_label_weight,
-            transform=ax2.transAxes,
-        )
-
-    # Plot: 1:1 line of DEM/ICESat-2 elevations (always present).
-    #############################################################################
-    ax3 = axes[panel_idx]
-    panel_letter = panel_letters[panel_idx]
-
-    dotsize = 3
-    # Adjust the alpha depending how many points there are (more points == lighter dots)
-    alpha = 0.35 * max(0.0025, min(4, (math.log10(100) / math.log10(len(mean_elev)))))
-    # Can't have an alpha > 1.0, so cap it there.
-    alpha = min(alpha, 1.0)
-
-    # Scatter plots of both land and elev
-    ax3.scatter(
-        mean_elev[land_only_mask],
-        dem_elev[land_only_mask],
-        c="darkred",
-        s=dotsize,
-        linewidth=0,
-        alpha=alpha,
-    )
-    ax3.scatter(
-        mean_elev[~land_only_mask],
-        dem_elev[~land_only_mask],
-        c="blue",
-        s=dotsize,
-        linewidth=0,
-        alpha=min(alpha * 2, 0.35),
-    )
-    ax3.set_title("DEM vs. ICESat-2")
-    ax3.set_ylabel("DEM elevation (m)")
-    ax3.set_xlabel("ICESat-2 elevation (m)")
-    xlim = ax3.get_xlim()
-    ylim = ax3.get_ylim()
-
-    plotlim = (min(xlim[0], ylim[0]), max(xlim[1], ylim[1]))
-    ax3.set_xlim(plotlim)
-    ax3.set_ylim(plotlim)
-    ax3.plot(plotlim, plotlim, ls="--", c=".3", lw=0.5, alpha=0.6)
-    # Set the y-ticks the same as the x-ticks.
-    xticks = ax3.get_xticks()
-    ax3.set_yticks(xticks)
-
-    ax3.text(
-        *plot_label_margin,
-        panel_letter,
-        ha=plot_label_ha,
-        va=plot_label_va,
-        fontsize=plot_label_size,
-        fontweight=plot_label_weight,
-        transform=ax3.transAxes,
+    # 1:1 line of DEM/ICESat-2 elevations (always present).
+    _plot_elevation_scatter(
+        axes[len(histograms)],
+        mean_elev,
+        dem_elev,
+        land_only_mask,
+        panel_letter=panel_letters[len(histograms)],
     )
 
     # Figure title
@@ -462,3 +238,163 @@ def plot_histograms_and_line(
     plt.close(fig)
 
     return
+
+
+def _plot_error_histogram(
+    ax: Axes,
+    diffs: pd.Series,
+    style: _HistogramStyle,
+    *,
+    panel_letter: str,
+    hist_cutoff_num_stddevs: float,
+    also_add_rmse_to_hist: bool,
+) -> None:
+    """Draw a histogram of DEM minus ICESat-2 differences, with its mean and std."""
+    ax.hist(diffs, bins=style.nbins, color=style.color)
+    # Unicode "minus" sign is \u2212
+    ax.set_title("DEM " + "\u2212" + " ICESat-2 elevation: " + style.surface)
+    ax.set_ylabel("% of data cells")
+    ax.set_xlabel("Elevation difference (m)")
+    ax.yaxis.set_major_formatter(
+        ticker.PercentFormatter(max(len(diffs), 1), decimals=0),
+    )
+
+    # Add the lines for mean +- std
+    center = np.mean(diffs)
+    std = np.std(diffs)
+    ax.axvline(x=center, color="black", linewidth=0.75)
+    ax.axvline(x=center + std, color="black", linestyle="--", linewidth=0.5)
+    ax.axvline(x=center - std, color="black", linestyle="--", linewidth=0.5)
+
+    ax.set_xlim(_histogram_xlim(diffs, center, std, hist_cutoff_num_stddevs))
+
+    # Pad the top by 10%
+    ylim = ax.get_ylim()
+    ax.set_ylim((ylim[0], ylim[1] * 1.1))
+
+    _add_text_box(ax, 0.11, rf"{center:.2f} $\pm$ {std:.2f} m", ha="left", alpha=0.85)
+
+    # If requested, add the RMSE value to the figure.
+    if also_add_rmse_to_hist:
+        rmse = np.sqrt(np.mean(diffs**2))
+        _add_text_box(ax, 0.97, f"RMSE: {rmse:0.2f} m", ha="right", alpha=0.95)
+
+    _label_panel(ax, panel_letter)
+
+
+def _histogram_xlim(
+    diffs: pd.Series,
+    center: float,
+    std: float,
+    hist_cutoff_num_stddevs: float,
+) -> tuple[float, float]:
+    """Return the (left, right) x-axis limits for a histogram of differences."""
+    # Crop the left & right (only if there are enough points)
+    if len(diffs) >= _MIN_CELLS_TO_CROP:
+        cutoffs = np.percentile(diffs, [1, 99])
+    else:
+        cutoffs = [min(diffs), max(diffs)]
+
+    # If we have a zero-width range, arbitrarily buffer it by 1 m in each direction.
+    if cutoffs[0] == cutoffs[1]:
+        cutoffs[0] = cutoffs[0] - 1
+        cutoffs[1] = cutoffs[1] + 1
+
+    # Do not crop the photo to make the stddev lines fall outside the plot.
+    # If they do, reset the min/max cutoff to be 2 stddev away from the mean on that
+    # side.
+    if (center + std) >= cutoffs[1] or hist_cutoff_num_stddevs is not None:
+        cutoffs[1] = center + (std * hist_cutoff_num_stddevs)
+    if (center - std) <= cutoffs[0] or hist_cutoff_num_stddevs is not None:
+        cutoffs[0] = center - (std * hist_cutoff_num_stddevs)
+
+    # Just error checking, if any of the cutoffs come back with NaN or Inf, just
+    # clip it to -1, 1, debug later.
+    if np.any(np.isnan(cutoffs) | np.isinf(cutoffs)):
+        cutoffs = [-1, 1]
+
+    return (float(cutoffs[0]), float(cutoffs[1]))
+
+
+def _add_text_box(ax: Axes, x: float, text: str, *, ha: str, alpha: float) -> None:
+    """Write small text near the top of a panel, on a white box."""
+    txt = ax.text(
+        x,
+        0.95,
+        text,
+        ha=ha,
+        va="top",
+        fontsize="small",
+        transform=ax.transAxes,
+    )
+    txt.set_bbox(
+        {
+            "facecolor": "white",
+            "alpha": alpha,
+            "edgecolor": "white",
+            "boxstyle": "square,pad=0",
+        },
+    )
+
+
+def _plot_elevation_scatter(
+    ax: Axes,
+    mean_elev: pd.Series,
+    dem_elev: pd.Series,
+    land_only_mask: pd.Series,
+    *,
+    panel_letter: str,
+) -> None:
+    """Plot DEM against ICESat-2 elevations, land and bathy cells, with a 1:1 line."""
+    dotsize = 3
+    # Adjust the alpha depending how many points there are (more points == lighter dots)
+    alpha = 0.35 * max(0.0025, min(4, (math.log10(100) / math.log10(len(mean_elev)))))
+    # Can't have an alpha > 1.0, so cap it there.
+    alpha = min(alpha, 1.0)
+
+    # Scatter plots of both land and elev
+    ax.scatter(
+        mean_elev[land_only_mask],
+        dem_elev[land_only_mask],
+        c="darkred",
+        s=dotsize,
+        linewidth=0,
+        alpha=alpha,
+    )
+    ax.scatter(
+        mean_elev[~land_only_mask],
+        dem_elev[~land_only_mask],
+        c="blue",
+        s=dotsize,
+        linewidth=0,
+        alpha=min(alpha * 2, 0.35),
+    )
+    ax.set_title("DEM vs. ICESat-2")
+    ax.set_ylabel("DEM elevation (m)")
+    ax.set_xlabel("ICESat-2 elevation (m)")
+    xlim = ax.get_xlim()
+    ylim = ax.get_ylim()
+
+    plotlim = (min(xlim[0], ylim[0]), max(xlim[1], ylim[1]))
+    ax.set_xlim(plotlim)
+    ax.set_ylim(plotlim)
+    ax.plot(plotlim, plotlim, ls="--", c=".3", lw=0.5, alpha=0.6)
+    # Set the y-ticks the same as the x-ticks.
+    xticks = ax.get_xticks()
+    ax.set_yticks(xticks)
+
+    _label_panel(ax, panel_letter)
+
+
+def _label_panel(ax: Axes, letter: str) -> None:
+    """Write a panel's letter in its top-left corner."""
+    ax.text(
+        0.015,
+        0.97,
+        letter,
+        ha="left",
+        va="top",
+        fontsize="large",
+        fontweight="book",
+        transform=ax.transAxes,
+    )
