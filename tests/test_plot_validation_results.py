@@ -1,5 +1,7 @@
 """The summary figure: which panels it draws, and how far its histograms reach."""
 
+import warnings
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -116,14 +118,34 @@ def test_histogram_limits_are_num_stddevs_either_side_of_the_mean(num_stddevs):
     diffs = pd.Series(np.r_[np.random.default_rng(1).normal(0, 1, 990), [80.0] * 10])
     center, std = np.mean(diffs), np.std(diffs)
 
-    left, right = pvr._histogram_xlim(diffs, center, std, num_stddevs)
+    left, right = pvr._histogram_xlim(center, std, num_stddevs)
 
     assert left == pytest.approx(center - num_stddevs * std)
     assert right == pytest.approx(center + num_stddevs * std)
 
 
-def test_histogram_limits_are_never_nan():
-    """A NaN difference must not leave the axis with NaN limits."""
-    diffs = pd.Series([np.nan, 1.0, 2.0, 3.0])
+@pytest.mark.parametrize(
+    ("center", "limits"),
+    [(2.0, (1.9, 2.1)), (-0.5, (-0.525, -0.475)), (0.0, (-0.05, 0.05))],
+)
+def test_identical_differences_get_a_narrow_window(center, limits):
+    """With no spread, N std is no width; a narrow window keeps the one bar visible."""
+    assert pvr._histogram_xlim(center, 0.0, 2.5) == pytest.approx(limits)
 
-    assert pvr._histogram_xlim(diffs, np.nan, np.nan, 2.5) == (-1.0, 1.0)
+
+def test_identical_differences_draw_without_a_zero_width_axis(tmp_path):
+    """This used to set equal x-limits, which matplotlib warns about."""
+    data = _results(30, 0)
+    data["diff_mean"] = 0.5
+    data["dem_elev"] = data["mean"] + 0.5
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        pvr.plot_histograms_and_line(data, tmp_path / "f.png", dpi=50)
+
+    assert not any("identical low and high" in str(w.message) for w in caught)
+
+
+def test_histogram_limits_are_never_nan():
+    """Limits that can't be computed fall back to a fixed range, never NaN."""
+    assert pvr._histogram_xlim(np.nan, np.nan, 2.5) == (-1.0, 1.0)
