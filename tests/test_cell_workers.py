@@ -188,11 +188,10 @@ def test_workers_are_stopped_when_the_run_is_interrupted(monkeypatch):
 
 
 @pytest.mark.skipif(not hasattr(signal, "SIGKILL"), reason="Needs SIGKILL.")
-def test_a_crashed_workers_replacement_validates_the_remaining_cells(monkeypatch):
+def test_a_crashed_workers_replacement_validates_every_cell(monkeypatch):
     """The replacement used to sit idle, so a lone worker's crash ended the run.
 
-    Only the chunk out with the crashed worker may be lost; every cell handed out
-    after it must still be validated.
+    It retries the chunk out with the crashed worker, then takes up the rest.
     """
     started = []
     real_kick_off = validate_dem.kick_off_new_child_process
@@ -240,6 +239,98 @@ def test_a_crashed_workers_replacement_validates_the_remaining_cells(monkeypatch
         _kill([proc.pid for proc in started])
 
     validated = sorted(i for df in results for i, _ in df.index)
-    assert validated
-    assert validated == list(range(validated[0], n))
+    assert validated == list(range(n))
     assert len(started) == 2
+
+
+def _fake_worker(connection, crash_on_cell, crashes_left):
+    """Echo each chunk's cells back, but exit hard on crash_on_cell while crashes last.
+
+    crash_on_cell=None crashes on any chunk.
+    """
+    while True:
+        cells = connection.recv()[0]
+        if isinstance(cells, str):  # "STOP"
+            return
+        if (crash_on_cell is None or crash_on_cell in cells) and crashes_left.value:
+            crashes_left.value -= 1
+            os._exit(1)
+        connection.send(pd.DataFrame(index=cells))
+
+
+class _Progress:
+    def __init__(self) -> None:
+        self.n = 0
+
+    def update(self, count):
+        self.n += count
+
+
+def _run_pool(*, crash_on_cell, crashes, n_cells=100, chunk_cells=10):
+    """Run a one-worker pool of fake workers; return its cells and progress count."""
+    ctx = mp.get_context("fork")
+    crashes_left = ctx.Value("i", crashes)
+    started = []
+
+    def kick_off(**_kwargs: object):
+        pipe_parent, pipe_child = ctx.Pipe(duplex=True)
+        proc = ctx.Process(
+            target=_fake_worker,
+            args=(pipe_child, crash_on_cell, crashes_left),
+        )
+        proc.start()
+        started.append(proc)
+        return proc, pipe_parent, pipe_child
+
+    progress = _Progress()
+    pool = validate_dem._CellWorkerPool(
+        1,
+        n_cells=n_cells,
+        chunk_cells=chunk_cells,
+        chunk=lambda start, end: (np.arange(start, end),),
+        worker_args={},
+        progress=progress,
+    )
+    try:
+        with pytest.MonkeyPatch.context() as mpatch:
+            mpatch.setattr(validate_dem, "kick_off_new_child_process", kick_off)
+            pool.start()
+            results = pool.run()
+    finally:
+        _kill([proc.pid for proc in started if proc.pid is not None])
+    return sorted(i for df in results for i in df.index), progress.n
+
+
+fork_only = pytest.mark.skipif(
+    "fork" not in mp.get_all_start_methods(),
+    reason="Needs the fork start method.",
+)
+
+
+@fork_only
+def test_a_chunk_is_validated_on_a_retry():
+    """A crash that isn't the chunk's fault mustn't cost the chunk's cells."""
+    cells, progress = _run_pool(
+        crash_on_cell=35,
+        crashes=validate_dem._MAX_CHUNK_RETRIES,
+    )
+
+    assert cells == list(range(100))
+    assert progress == 100
+
+
+@fork_only
+def test_a_chunk_that_keeps_crashing_workers_is_left_out(caplog):
+    """After its retries, the chunk is dropped with a warning and the run goes on."""
+    cells, progress = _run_pool(crash_on_cell=35, crashes=1000)
+
+    assert cells == [*range(30), *range(40, 100)]
+    assert progress == 100
+    assert "Leaving them out of the results" in caplog.text
+
+
+@fork_only
+def test_workers_that_crash_on_every_chunk_stop_the_run():
+    """Retrying chunk after chunk would only crash worker after worker."""
+    with pytest.raises(RuntimeError, match="in a row"):
+        _run_pool(crash_on_cell=None, crashes=1000)

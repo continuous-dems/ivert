@@ -10,6 +10,7 @@ Created on Tue Jun 22 16:06:21 2021
 @author: mmacferrin
 """
 
+import collections
 import contextlib
 import logging
 import multiprocessing as mp
@@ -69,6 +70,14 @@ _CHUNKS_PER_WORKER = 4
 _MIN_CHUNK_CELLS = 20
 _MAX_CHUNK_CELLS = 2000
 _MIN_CELLS_PER_WORKER = 1000
+
+# A chunk whose worker crashes is handed out again up to this many times, then left
+# out. A crash may have nothing to do with the chunk (the OS killing a worker for
+# memory, say), but a chunk whose data crashes a worker would crash every one.
+_MAX_CHUNK_RETRIES = 2
+# This many worker crashes in a row, with no chunk finishing in between, means
+# something is wrong with every worker, not with one chunk, so the run is stopped.
+_ABORT_AFTER_CRASHES = 5
 
 # A cell validation that takes at least this long (s) logs its time in minutes.
 _LOG_MINUTES_AFTER_S = 100
@@ -2257,10 +2266,11 @@ def _share_photon_arrays(
 class _CellWorkerPool:
     """The cell-validation worker processes, and the chunks of cells handed to them.
 
-    Each worker slot has at most one chunk out at a time. Progress is measured in cells
-    *handed out*, not rows handed back: a worker omits any cell that fell below
-    'min_photons_per_cell', so the rows returned undercount the work done and the bar
-    would stall short of the total.
+    Each worker slot has at most one chunk out at a time. A chunk whose worker crashes
+    is handed out again, ahead of new cells, up to _MAX_CHUNK_RETRIES times. Progress
+    is measured in cells *handed out*, not rows handed back: a worker omits any cell
+    that fell below 'min_photons_per_cell', so the rows returned undercount the work
+    done and the bar would stall short of the total.
     """
 
     def __init__(
@@ -2281,8 +2291,11 @@ class _CellWorkerPool:
         self.procs: list[mp.process.BaseProcess | None] = [None] * n_workers
         self.pipes: list[mp.connection.Connection | None] = [None] * n_workers
         self.pipes_child: list[mp.connection.Connection | None] = [None] * n_workers
-        # Cells in the chunk currently out with each worker.
-        self.chunk_sizes = [0] * n_workers
+        # The chunk out with each worker: (start, end, crashes so far).
+        self.chunks: list[tuple[int, int, int] | None] = [None] * n_workers
+        # Chunks whose workers crashed, waiting to be handed out again.
+        self.retries: collections.deque[tuple[int, int, int]] = collections.deque()
+        self.crashes_in_a_row = 0
         self.n_cells = n_cells
         self.chunk_cells = chunk_cells
         self.chunk = chunk
@@ -2302,20 +2315,58 @@ class _CellWorkerPool:
             kick_off_new_child_process(**self.worker_args)
         )
 
+    def _has_work(self) -> bool:
+        """Return True while there are chunks left to hand out."""
+        return bool(self.retries) or self.cells_started < self.n_cells
+
     def _send_next_chunk(self, slot: int, pipe: mp.connection.Connection) -> None:
-        """Hand the next chunk of cells to a slot's worker."""
-        end = min(self.cells_started + self.chunk_cells, self.n_cells)
-        pipe.send(self.chunk(self.cells_started, end))
-        self.chunk_sizes[slot] = end - self.cells_started
-        self.cells_started = end
+        """Hand the next chunk of cells to a slot's worker, a retry if one waits."""
+        if self.retries:
+            start, end, crashes = self.retries.popleft()
+        else:
+            start = self.cells_started
+            end = min(start + self.chunk_cells, self.n_cells)
+            crashes = 0
+            self.cells_started = end
+        pipe.send(self.chunk(start, end))
+        self.chunks[slot] = (start, end, crashes)
         self.chunks_out += 1
 
     def _finish_chunk(self, slot: int) -> None:
         """Count the chunk out with a slot's worker as done."""
-        self.cells_finished += self.chunk_sizes[slot]
-        self.chunk_sizes[slot] = 0
+        chunk = self.chunks[slot]
+        if chunk is not None:
+            start, end, _ = chunk
+            self.cells_finished += end - start
+        self.chunks[slot] = None
         self.chunks_out -= 1
         self.progress.update(self.cells_finished - self.progress.n)
+
+    def _retry_or_drop_chunk(self, slot: int) -> None:
+        """Queue the chunk out with a slot's crashed worker again, or give up on it."""
+        chunk = self.chunks[slot]
+        if chunk is None:
+            return
+        start, end, crashes = chunk
+        if crashes < _MAX_CHUNK_RETRIES:
+            logger.warning(
+                "A cell-validation worker crashed. Validating its %d cells again"
+                " (retry %d of %d).",
+                end - start,
+                crashes + 1,
+                _MAX_CHUNK_RETRIES,
+            )
+            self.retries.append((start, end, crashes + 1))
+            self.chunks[slot] = None
+            self.chunks_out -= 1
+        else:
+            logger.warning(
+                "Cell-validation workers crashed %d times on the same %d cells."
+                " Leaving them out of the results.",
+                crashes + 1,
+                end - start,
+            )
+            self._finish_chunk(slot)
 
     def start(self) -> None:
         """Start a worker in every slot and hand each one a chunk."""
@@ -2359,22 +2410,22 @@ class _CellWorkerPool:
             return
 
         if not proc.is_alive():
-            logger.warning(
-                "Sub-process terminated unexpectedly. Some data may be"
-                " missing. Restarting a new process.",
-            )
             proc.join()
             pipe.close()
             pipe_child.close()
             self.procs[slot] = self.pipes[slot] = self.pipes_child[slot] = None
-            # The chunk this worker was working on died with it and is never
-            # retried, so count it as accounted for. Otherwise the bar could never
-            # reach the total once a worker has crashed.
-            self._finish_chunk(slot)
+            self.crashes_in_a_row += 1
+            if self.crashes_in_a_row >= _ABORT_AFTER_CRASHES:
+                msg = (
+                    f"Cell-validation workers crashed {self.crashes_in_a_row} times"
+                    " in a row without finishing any cells. Stopping."
+                )
+                raise RuntimeError(msg)
+            self._retry_or_drop_chunk(slot)
             # The replacement needs a chunk of its own to start on. Without one it
             # sat idle, and a run with a single worker ended here, every cell not
             # yet handed out silently dropped.
-            if self.cells_started < self.n_cells:
+            if self._has_work():
                 self._start_worker(slot)
                 new_pipe = self.pipes[slot]
                 if new_pipe is not None:
@@ -2384,8 +2435,9 @@ class _CellWorkerPool:
         if pipe.poll():
             self.results.append(pipe.recv())
             self._finish_chunk(slot)
+            self.crashes_in_a_row = 0
 
-            if self.cells_started < self.n_cells:
+            if self._has_work():
                 self._send_next_chunk(slot, pipe)
             else:
                 pipe.send(self.stop_message)
@@ -2442,8 +2494,8 @@ def _run_parallel_cell_validation(
     Returns a list of per-chunk result DataFrames (possibly empty on error or no data).
     """
     # Fail here rather than in every child: a child that raises is restarted by the
-    # loop below, which counts its chunk as finished, so the run would report
-    # success having silently dropped those cells.
+    # loop below, which retries its chunk and then gives up on it, so the run would
+    # report success having dropped those cells.
     _check_cell_validation_params(
         max_photons_per_cell,
         min_photons_per_cell,
