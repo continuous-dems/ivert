@@ -185,3 +185,152 @@ def test_workers_are_stopped_when_the_run_is_interrupted(monkeypatch):
 
     # The shared memory segments are released on the way out.
     assert leftover == []
+
+
+@pytest.mark.skipif(not hasattr(signal, "SIGKILL"), reason="Needs SIGKILL.")
+def test_a_crashed_workers_replacement_validates_every_cell(monkeypatch):
+    """The replacement used to sit idle, so a lone worker's crash ended the run.
+
+    It retries the chunk out with the crashed worker, then takes up the rest.
+    """
+    started = []
+    real_kick_off = validate_dem.kick_off_new_child_process
+
+    def kill_the_first_worker(*args: object, **kwargs: object):
+        proc, pipe_parent, pipe_child = real_kick_off(*args, **kwargs)
+        started.append(proc)
+        if len(started) == 1:
+            os.kill(proc.pid, signal.SIGKILL)
+        return proc, pipe_parent, pipe_child
+
+    monkeypatch.setattr(
+        validate_dem,
+        "kick_off_new_child_process",
+        kill_the_first_worker,
+    )
+
+    # Few enough cells for a single worker, but more than one chunk.
+    n = 500
+    photon_df = pd.DataFrame(
+        {
+            "i": np.arange(n, dtype=np.int64),
+            "j": np.zeros(n, dtype=np.int64),
+            "class_code": np.ones(n, dtype=np.int8),
+            "h": np.ones(n, dtype=np.float32),
+        },
+    )
+
+    try:
+        results = validate_dem._run_parallel_cell_validation(
+            photon_df,
+            photon_df["h"],
+            dem_overlap_i=photon_df["i"].to_numpy(),
+            dem_overlap_j=photon_df["j"].to_numpy(),
+            dem_overlap_elevs=np.zeros(n, dtype=np.float32),
+            n=n,
+            max_photons_per_cell=None,
+            min_photons_per_cell=1,
+            measure_coverage=False,
+            coverage_coords=None,
+            numprocs=1,
+            empty_val=-99999.0,
+        )
+    finally:
+        _kill([proc.pid for proc in started])
+
+    validated = sorted(i for df in results for i, _ in df.index)
+    assert validated == list(range(n))
+    assert len(started) == 2
+
+
+def _fake_worker(connection, crash_on_cell, crashes_left):
+    """Echo each chunk's cells back, but exit hard on crash_on_cell while crashes last.
+
+    crash_on_cell=None crashes on any chunk.
+    """
+    while True:
+        cells = connection.recv()[0]
+        if isinstance(cells, str):  # "STOP"
+            return
+        if (crash_on_cell is None or crash_on_cell in cells) and crashes_left.value:
+            crashes_left.value -= 1
+            os._exit(1)
+        connection.send(pd.DataFrame(index=cells))
+
+
+class _Progress:
+    def __init__(self) -> None:
+        self.n = 0
+
+    def update(self, count):
+        self.n += count
+
+
+def _run_pool(*, crash_on_cell, crashes, n_cells=100, chunk_cells=10):
+    """Run a one-worker pool of fake workers; return its cells and progress count."""
+    ctx = mp.get_context("fork")
+    crashes_left = ctx.Value("i", crashes)
+    started = []
+
+    def kick_off(**_kwargs: object):
+        pipe_parent, pipe_child = ctx.Pipe(duplex=True)
+        proc = ctx.Process(
+            target=_fake_worker,
+            args=(pipe_child, crash_on_cell, crashes_left),
+        )
+        proc.start()
+        started.append(proc)
+        return proc, pipe_parent, pipe_child
+
+    progress = _Progress()
+    pool = validate_dem._CellWorkerPool(
+        1,
+        n_cells=n_cells,
+        chunk_cells=chunk_cells,
+        chunk=lambda start, end: (np.arange(start, end),),
+        worker_args={},
+        progress=progress,
+    )
+    try:
+        with pytest.MonkeyPatch.context() as mpatch:
+            mpatch.setattr(validate_dem, "kick_off_new_child_process", kick_off)
+            pool.start()
+            results = pool.run()
+    finally:
+        _kill([proc.pid for proc in started if proc.pid is not None])
+    return sorted(i for df in results for i in df.index), progress.n
+
+
+fork_only = pytest.mark.skipif(
+    "fork" not in mp.get_all_start_methods(),
+    reason="Needs the fork start method.",
+)
+
+
+@fork_only
+def test_a_chunk_is_validated_on_a_retry():
+    """A crash that isn't the chunk's fault mustn't cost the chunk's cells."""
+    cells, progress = _run_pool(
+        crash_on_cell=35,
+        crashes=validate_dem._MAX_CHUNK_RETRIES,
+    )
+
+    assert cells == list(range(100))
+    assert progress == 100
+
+
+@fork_only
+def test_a_chunk_that_keeps_crashing_workers_is_left_out(caplog):
+    """After its retries, the chunk is dropped with a warning and the run goes on."""
+    cells, progress = _run_pool(crash_on_cell=35, crashes=1000)
+
+    assert cells == [*range(30), *range(40, 100)]
+    assert progress == 100
+    assert "Leaving them out of the results" in caplog.text
+
+
+@fork_only
+def test_workers_that_crash_on_every_chunk_stop_the_run():
+    """Retrying chunk after chunk would only crash worker after worker."""
+    with pytest.raises(RuntimeError, match="in a row"):
+        _run_pool(crash_on_cell=None, crashes=1000)
