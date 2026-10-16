@@ -14,13 +14,15 @@ import contextlib
 import logging
 import multiprocessing as mp
 import multiprocessing.connection
+import multiprocessing.managers
 import os
 import signal
 import sys
 import time
-from collections.abc import Iterable, MutableMapping
+from collections.abc import Callable, Iterable, MutableMapping
 from multiprocessing import shared_memory
 from pathlib import Path
+from typing import Any
 
 import geopandas
 import numpy as np
@@ -235,7 +237,7 @@ def _check_chunk_payload(
     dem_i_list: npt.NDArray,
     dem_j_list: npt.NDArray,
     dem_elev_list: npt.NDArray,
-    bbox_lists: tuple[npt.NDArray | None, ...],
+    cell_bounds: _CellBounds | None,
     ph_ranges: tuple[npt.NDArray | None, ...],
 ) -> None:
     """Raise if the arrays in one work chunk disagree in length.
@@ -250,7 +252,8 @@ def _check_chunk_payload(
         "dem_elev_list": len(dem_elev_list),
     }
     names = ("cell_xmin", "cell_xmax", "cell_ymin", "cell_ymax", "ph_start", "ph_end")
-    for name, arr in zip(names, (*bbox_lists, *ph_ranges), strict=True):
+    bounds = cell_bounds if cell_bounds is not None else (None, None, None, None)
+    for name, arr in zip(names, (*bounds, *ph_ranges), strict=True):
         if arr is not None:
             lengths[f"{name}_list"] = len(arr)
 
@@ -259,6 +262,263 @@ def _check_chunk_payload(
             "The parent process sent a malformed work chunk; its arrays disagree "
             "in length: " + ", ".join(f"{k}={v}" for k, v in lengths.items()) + ".",
         )
+
+
+def _attach_shared_array(
+    name: str,
+    shape: tuple[int, ...],
+    dtype: np.dtype | None,
+) -> tuple[shared_memory.SharedMemory, npt.NDArray]:
+    """Open an existing block of shared memory and view it as an array."""
+    shm = shared_memory.SharedMemory(name=name)
+    return shm, np.ndarray(shape, dtype=dtype, buffer=shm.buf)
+
+
+def _close_shared(
+    shms: Iterable[shared_memory.SharedMemory | None],
+) -> None:
+    """Close this process's handles on the shared memory blocks given (or None)."""
+    for shm in shms:
+        if shm is not None:
+            shm.close()
+
+
+def _receive_chunk(
+    connection: mp.connection.Connection,
+    *,
+    measure_coverage: bool,
+) -> (
+    tuple[
+        npt.NDArray,
+        npt.NDArray,
+        npt.NDArray,
+        _CellBounds | None,
+        tuple[npt.NDArray, npt.NDArray],
+    ]
+    | None
+):
+    """Read one work chunk from the parent, or None for its "STOP" command.
+
+    Returns (dem_i_list, dem_j_list, dem_elev_list, cell_bounds, ph_ranges).
+    'cell_bounds', the cells' (xmin, xmax, ymin, ymax) bounds, is sent only when
+    measuring coverage, and is None otherwise.
+    """
+    if measure_coverage:
+        (
+            dem_i_list,
+            dem_j_list,
+            dem_elev_list,
+            cell_xmin_list,
+            cell_xmax_list,
+            cell_ymin_list,
+            cell_ymax_list,
+            ph_start_list,
+            ph_end_list,
+        ) = connection.recv()
+        cell_bounds = (cell_xmin_list, cell_xmax_list, cell_ymin_list, cell_ymax_list)
+    else:
+        dem_i_list, dem_j_list, dem_elev_list, ph_start_list, ph_end_list = (
+            connection.recv()
+        )
+        cell_bounds = None
+
+    if isinstance(dem_i_list, str) and dem_i_list == "STOP":
+        return None
+    return (
+        dem_i_list,
+        dem_j_list,
+        dem_elev_list,
+        cell_bounds,
+        (ph_start_list, ph_end_list),
+    )
+
+
+def _cell_coverage_fraction(
+    ph_x: npt.NDArray,
+    ph_y: npt.NDArray,
+    cell_bounds: tuple[float, float, float, float],
+    num_subdivisions: int,
+) -> float:
+    """Return the fraction of a cell's sub-grid that its photons fall in.
+
+    The cell, bounded by (xmin, xmax, ymin, ymax), is divided into a
+    num_subdivisions x num_subdivisions sub-grid, and the fraction of its sub-cells
+    holding at least one photon is returned.
+    """
+    cell_xmin, cell_xmax, cell_ymin, cell_ymax = cell_bounds
+    # These bounds are derived from the DEM geotransform in _compute_photon_overlap(),
+    # which _check_dem_geotransform() has already confirmed is north-up and unrotated.
+    # That makes cell_xstep > 0 and cell_ystep < 0 hold for every cell.
+    cell_xstep = (cell_xmax - cell_xmin) / num_subdivisions
+    # Equal to the geotransform, the y-value starts at the top (max) and iterate
+    # downward (negative step.)
+    cell_ystep = (cell_ymin - cell_ymax) / num_subdivisions
+
+    subset_i = np.floor((ph_y - cell_ymax) / cell_ystep).astype(int)
+    subset_j = np.floor((ph_x - cell_xmin) / cell_xstep).astype(int)
+    # By taking i * (number_of_rows) + j, we come up with unique single values for the
+    # sub-cell this is in.
+    subset_ij = (subset_i * num_subdivisions) + subset_j
+    # Count how many unique subset-cells are covered and divide by the number of total
+    # sub-cells.
+    return len(np.unique(subset_ij)) / (num_subdivisions**2)
+
+
+def _new_chunk_results(
+    n: int,
+    height_dtype: np.dtype,
+    *,
+    measure_coverage: bool,
+) -> dict[str, npt.NDArray]:
+    """Return zeroed per-cell result arrays for n cells, keyed by output column.
+
+    The keys are in the order the columns appear in the results dataframe.
+    """
+    results = {
+        "mean": np.zeros((n,), dtype=float),
+        "stddev": np.zeros((n,), dtype=float),
+        "numphotons": np.zeros((n,), dtype=np.uint32),
+        "numphotons_bathy": np.zeros((n,), dtype=np.uint32),
+        "numphotons_intd": np.zeros((n,), dtype=np.uint32),
+        "interdecile_range": np.zeros((n,), float),
+        "range": np.zeros((n,), height_dtype),
+        "10p": np.zeros((n,), float),
+        "90p": np.zeros((n,), float),
+        "dem_elev": np.zeros((n,), dtype=float),
+        "diff_mean": np.zeros((n,), dtype=float),
+    }
+    if measure_coverage:
+        results["coverage_frac"] = np.zeros((n,), dtype=float)
+    return results
+
+
+def _fill_cell_stats(
+    results: dict[str, npt.NDArray],
+    counter: int,
+    cell_heights: npt.NDArray,
+    cell_codes: npt.NDArray,
+    *,
+    dem_elev: float,
+    empty_val: float | None,
+) -> None:
+    """Compute one cell's elevation statistics into row 'counter' of 'results'."""
+    n_photons = len(cell_heights)
+    # The photon classes have already been filtered upstream (in
+    # _compute_photon_overlap), so every photon here is one the user asked to validate
+    # against.
+    results["numphotons"][counter] = n_photons
+    results["dem_elev"][counter] = dem_elev
+    results["numphotons_bathy"][counter] = np.count_nonzero(cell_codes == SEAFLOOR)
+    results["range"][counter] = cell_heights.max() - cell_heights.min()
+
+    if n_photons >= INTERDECILE_MIN_PHOTONS:
+        # Enough photons to tell signal from outliers: keep only those within the
+        # interdecile range and compute the stats on those.
+        zp10, zp90 = (np.float64(z) for z in np.percentile(cell_heights, _PERCENTILES))
+        results["10p"][counter], results["90p"][counter] = zp10, zp90
+        results["interdecile_range"][counter] = zp90 - zp10
+        heights_used = cell_heights[(cell_heights >= zp10) & (cell_heights <= zp90)]
+    else:
+        # Too few photons for an interdecile range to mean anything, so use all of
+        # them: a lone photon's height becomes the cell mean, and 2-4 photons are
+        # simply averaged.
+        results["10p"][counter] = empty_val
+        results["90p"][counter] = empty_val
+        results["interdecile_range"][counter] = empty_val
+        heights_used = cell_heights
+
+    results["numphotons_intd"][counter] = len(heights_used)
+    results["mean"][counter] = _pandas_mean(heights_used)
+    # A single photon has no spread to measure; this is NaN, as in pandas.
+    results["stddev"][counter] = _pandas_std(heights_used)
+    results["diff_mean"][counter] = dem_elev - results["mean"][counter]
+
+
+def _validate_chunk(
+    heights: npt.NDArray,
+    ph_codes: npt.NDArray,
+    ph_xy: tuple[npt.NDArray, npt.NDArray] | None,
+    *,
+    dem_i_list: npt.NDArray,
+    dem_j_list: npt.NDArray,
+    dem_elev_list: npt.NDArray,
+    cell_bounds: _CellBounds | None,
+    ph_ranges: tuple[npt.NDArray, npt.NDArray],
+    photon_limit: int | None,
+    min_photons: int,
+    num_subdivisions: int,
+    empty_val: float | None,
+) -> pd.DataFrame:
+    """Validate one chunk of grid cells and return their results, indexed by (i, j).
+
+    'heights' and 'ph_codes' (and 'ph_xy', the photons' x and y, given only when
+    measuring coverage) hold every photon, sorted by grid cell; 'ph_ranges' gives each
+    cell's [start, end) range in them. Coverage is measured when both 'ph_xy' and
+    'cell_bounds', the cells' (xmin, xmax, ymin, ymax) bounds, are given. Cells with
+    fewer than 'min_photons' photons are omitted from the results rather than reported
+    as empty.
+    """
+    n = len(dem_i_list)
+    ph_start_list, ph_end_list = ph_ranges
+    coverage = None
+    if ph_xy is not None and cell_bounds is not None:
+        coverage = (ph_xy, cell_bounds)
+    results = _new_chunk_results(
+        n,
+        heights.dtype,
+        measure_coverage=coverage is not None,
+    )
+    # Marks the cells that had enough photons to validate. Cells left False are
+    # dropped from the results below, not reported as empty.
+    keep = np.zeros((n,), dtype=bool)
+
+    for counter in range(n):
+        # The parent sorted the photons by grid cell, so this cell's photons are one
+        # contiguous run of the shared arrays, in their original order.
+        cell = slice(ph_start_list[counter], ph_end_list[counter])
+        cell_heights = heights[cell]
+        cell_codes = ph_codes[cell]
+
+        if coverage is not None:
+            (ph_x, ph_y), (xmin, xmax, ymin, ymax) = coverage
+            results["coverage_frac"][counter] = _cell_coverage_fraction(
+                ph_x[cell],
+                ph_y[cell],
+                (xmin[counter], xmax[counter], ymin[counter], ymax[counter]),
+                num_subdivisions,
+            )
+
+        # After calculating the coverage, if we want to limit the number of photons
+        # we're dealing with total, do it here.
+        if photon_limit is not None and len(cell_heights) > photon_limit:
+            sample = pd.DataFrame(
+                {"height": cell_heights, "ph_code": cell_codes},
+            ).sample(n=photon_limit)
+            cell_heights = sample.height.to_numpy()
+            cell_codes = sample.ph_code.to_numpy()
+
+        # Cells without enough photons to validate are omitted from the results
+        # entirely. Leaving keep False drops them below.
+        if len(cell_heights) < min_photons:
+            continue
+
+        keep[counter] = True
+        _fill_cell_stats(
+            results,
+            counter,
+            cell_heights,
+            cell_codes,
+            dem_elev=dem_elev_list[counter],
+            empty_val=empty_val,
+        )
+
+    return pd.DataFrame(
+        {
+            "i": np.asarray(dem_i_list)[keep],
+            "j": np.asarray(dem_j_list)[keep],
+            **{column: values[keep] for column, values in results.items()},
+        },
+    ).set_index(["i", "j"])
 
 
 def validate_dem_child_process(
@@ -317,214 +577,57 @@ def validate_dem_child_process(
         return
 
     # Define shared memory arrays here.
-    h_shm = shared_memory.SharedMemory(name=height_array_name)
-    heights = np.ndarray(array_shape, dtype=height_dtype, buffer=h_shm.buf)
-
-    pc_shm = shared_memory.SharedMemory(name=code_array_name)
-    ph_codes = np.ndarray(array_shape, dtype=code_dtype, buffer=pc_shm.buf)
-
+    h_shm, heights = _attach_shared_array(height_array_name, array_shape, height_dtype)
+    pc_shm, ph_codes = _attach_shared_array(code_array_name, array_shape, code_dtype)
+    shms: list[shared_memory.SharedMemory | None] = [h_shm, pc_shm]
+    ph_xy = None
     if measure_coverage:
-        x_shm = shared_memory.SharedMemory(name=x_array_name)
-        ph_x = np.ndarray(array_shape, dtype=x_dtype, buffer=x_shm.buf)
-
-        y_shm = shared_memory.SharedMemory(name=y_array_name)
-        ph_y = np.ndarray(array_shape, dtype=y_dtype, buffer=y_shm.buf)
-    else:
-        x_shm = None
-        y_shm = None
-        ph_x = None
-        ph_y = None
+        if x_array_name is None or y_array_name is None:
+            msg = "measure_coverage needs the names of the photons' x and y arrays."
+            raise ValueError(msg)
+        x_shm, ph_x = _attach_shared_array(x_array_name, array_shape, x_dtype)
+        y_shm, ph_y = _attach_shared_array(y_array_name, array_shape, y_dtype)
+        shms += [x_shm, y_shm]
+        ph_xy = (ph_x, ph_y)
 
     # Just keep looping and checking the connection pipe. When we get
     # a stop command, return from the function.
     while True:
         if connection.poll(_WORKER_WAIT_S):
-            if measure_coverage:
-                # If we're measuring the coverage, also give us the bounding boxes of
-                # the grid cells
-                (
-                    dem_i_list,
-                    dem_j_list,
-                    dem_elev_list,
-                    cell_xmin_list,
-                    cell_xmax_list,
-                    cell_ymin_list,
-                    cell_ymax_list,
-                    ph_start_list,
-                    ph_end_list,
-                ) = connection.recv()
+            chunk = _receive_chunk(connection, measure_coverage=measure_coverage)
 
-            else:
-                dem_i_list, dem_j_list, dem_elev_list, ph_start_list, ph_end_list = (
-                    connection.recv()
-                )
-
-                cell_xmin_list = None
-                cell_ymin_list = None
-                cell_xmax_list = None
-                cell_ymax_list = None
-
-            # Upon the "STOP" mesage, break the loop, close the shared memory objects,
-            # and return.
-            if (type(dem_i_list) is str) and (dem_i_list == "STOP"):
-                h_shm.close()
-                pc_shm.close()
-                if x_shm is not None:
-                    x_shm.close()
-                if y_shm is not None:
-                    y_shm.close()
+            # Upon the "STOP" mesage, close the shared memory objects and return.
+            if chunk is None:
+                _close_shared(shms)
                 return
+            dem_i_list, dem_j_list, dem_elev_list, cell_bounds, ph_ranges = chunk
 
             _check_chunk_payload(
                 dem_i_list,
                 dem_j_list,
                 dem_elev_list,
-                (cell_xmin_list, cell_xmax_list, cell_ymin_list, cell_ymax_list),
-                (ph_start_list, ph_end_list),
+                cell_bounds,
+                ph_ranges,
             )
-            n = len(dem_i_list)
-
-            # Do the work.
-            # r_keep marks the cells that had enough photons to validate. Cells left
-            # False are dropped from the results below, not reported as empty.
-            r_keep = np.zeros((n,), dtype=bool)
-            r_mean = np.zeros((n,), dtype=float)
-            r_numphotons = np.zeros((n,), dtype=np.uint32)
-            r_numphotons_bathy = r_numphotons.copy()
-            r_numphotons_intd = r_numphotons.copy()
-            r_std = np.zeros((n,), dtype=float)
-            r_interdecile = np.zeros((n,), float)
-            r_range = np.zeros((n,), heights.dtype)
-            r_10p = np.zeros((n,), float)
-            r_90p = np.zeros((n,), float)
-            r_dem_elev = np.zeros((n,), dtype=float)
-            r_mean_diff = np.zeros((n,), dtype=float)
-            r_coverage_frac = np.zeros((n,), dtype=float) if measure_coverage else None
-
-            for counter in range(n):
-                # The parent sorted the photons by grid cell, so this cell's photons
-                # are one contiguous run of the shared arrays, in their original order.
-                cell = slice(ph_start_list[counter], ph_end_list[counter])
-                cell_heights = heights[cell]
-                cell_codes = ph_codes[cell]
-
-                # Define and compute measures of centrality & coverage here. These
-                # three are set exactly when measure_coverage is.
-                if (
-                    r_coverage_frac is not None
-                    and ph_x is not None
-                    and ph_y is not None
-                ):
-                    cell_xmin = cell_xmin_list[counter]
-                    cell_xmax = cell_xmax_list[counter]
-                    cell_ymin = cell_ymin_list[counter]
-                    cell_ymax = cell_ymax_list[counter]
-
-                    # These bounds are derived from the DEM geotransform in
-                    # _compute_photon_overlap(), which _check_dem_geotransform()
-                    # has already confirmed is north-up and unrotated. That makes
-                    # cell_xstep > 0 and cell_ystep < 0 hold for every cell.
-                    cell_xstep = (cell_xmax - cell_xmin) / num_subdivisions
-                    # Equal to the geotransform, the y-value starts at the top (max) and
-                    # iterate downward (negative step.)
-                    cell_ystep = (cell_ymin - cell_ymax) / num_subdivisions
-
-                    subset_i = np.floor((ph_y[cell] - cell_ymax) / cell_ystep).astype(
-                        int,
-                    )
-                    subset_j = np.floor((ph_x[cell] - cell_xmin) / cell_xstep).astype(
-                        int,
-                    )
-                    # By taking i * (number_of_rows) + j, we come up with unique single
-                    # values for the sub-cell this is in.
-                    subset_ij = (subset_i * num_subdivisions) + subset_j
-                    # Count how many unique subset-cells are covered and divide by the
-                    # number of total sub-cells.
-                    r_coverage_frac[counter] = len(np.unique(subset_ij)) / (
-                        num_subdivisions**2
-                    )
-
-                # After calculating the coverage, if we want to limit the number of
-                # photons we're dealing with total, do it here.
-                if photon_limit is not None and len(cell_heights) > photon_limit:
-                    sample = pd.DataFrame(
-                        {"height": cell_heights, "ph_code": cell_codes},
-                    ).sample(n=photon_limit)
-                    cell_heights = sample.height.to_numpy()
-                    cell_codes = sample.ph_code.to_numpy()
-
-                n_photons = len(cell_heights)
-
-                # Cells without enough photons to validate are omitted from the
-                # results entirely. Leaving r_keep False drops them below.
-                if n_photons < min_photons:
-                    continue
-
-                # The photon classes have already been filtered upstream (in
-                # _compute_photon_overlap), so every photon here is one the user
-                # asked to validate against.
-                r_keep[counter] = True
-                r_numphotons[counter] = n_photons
-                r_dem_elev[counter] = dem_elev_list[counter]
-                r_numphotons_bathy[counter] = np.count_nonzero(cell_codes == SEAFLOOR)
-                r_range[counter] = cell_heights.max() - cell_heights.min()
-
-                if n_photons >= INTERDECILE_MIN_PHOTONS:
-                    # Enough photons to tell signal from outliers: keep only those
-                    # within the interdecile range and compute the stats on those.
-                    zp10, zp90 = (
-                        np.float64(z) for z in np.percentile(cell_heights, _PERCENTILES)
-                    )
-                    r_10p[counter], r_90p[counter] = zp10, zp90
-                    r_interdecile[counter] = zp90 - zp10
-                    heights_used = cell_heights[
-                        (cell_heights >= zp10) & (cell_heights <= zp90)
-                    ]
-                else:
-                    # Too few photons for an interdecile range to mean anything, so
-                    # use all of them: a lone photon's height becomes the cell mean,
-                    # and 2-4 photons are simply averaged.
-                    r_10p[counter] = empty_val
-                    r_90p[counter] = empty_val
-                    r_interdecile[counter] = empty_val
-                    heights_used = cell_heights
-
-                r_numphotons_intd[counter] = len(heights_used)
-                r_mean[counter] = _pandas_mean(heights_used)
-                # A single photon has no spread to measure; this is NaN, as in pandas.
-                r_std[counter] = _pandas_std(heights_used)
-                r_mean_diff[counter] = dem_elev_list[counter] - r_mean[counter]
-
-            # Generate a little dataframe of the outputs for the grid cells that had
-            # enough photons to validate. Cells below 'min_photons' were skipped in
-            # the loop above and are omitted here rather than reported as empty.
-            results_df = pd.DataFrame(
-                {
-                    "i": np.asarray(dem_i_list)[r_keep],
-                    "j": np.asarray(dem_j_list)[r_keep],
-                    "mean": r_mean[r_keep],
-                    "stddev": r_std[r_keep],
-                    "numphotons": r_numphotons[r_keep],
-                    "numphotons_bathy": r_numphotons_bathy[r_keep],
-                    "numphotons_intd": r_numphotons_intd[r_keep],
-                    "interdecile_range": r_interdecile[r_keep],
-                    "range": r_range[r_keep],
-                    "10p": r_10p[r_keep],
-                    "90p": r_90p[r_keep],
-                    "dem_elev": r_dem_elev[r_keep],
-                    "diff_mean": r_mean_diff[r_keep],
-                },
-            ).set_index(["i", "j"])
-
-            if r_coverage_frac is not None:
-                results_df["coverage_frac"] = r_coverage_frac[r_keep]
-
-            connection.send(results_df)
+            connection.send(
+                _validate_chunk(
+                    heights,
+                    ph_codes,
+                    ph_xy,
+                    dem_i_list=dem_i_list,
+                    dem_j_list=dem_j_list,
+                    dem_elev_list=dem_elev_list,
+                    cell_bounds=cell_bounds,
+                    ph_ranges=ph_ranges,
+                    photon_limit=photon_limit,
+                    min_photons=min_photons,
+                    num_subdivisions=num_subdivisions,
+                    empty_val=empty_val,
+                ),
+            )
 
         elif coordinator is not None and not _is_running(coordinator):
-            for shm in (h_shm, pc_shm, x_shm, y_shm):
-                if shm is not None:
-                    shm.close()
+            _close_shared(shms)
             return
 
 
@@ -844,30 +947,23 @@ def validate_dem(
 
     if shared_ret_values is None:
         shared_ret_values = {}
+    if orig_dem_name is None:
+        orig_dem_name = dem_name
 
     # The merge after a split below writes into it, so settle the default here rather
     # than leave it to the sub-process.
     output_dir = _default_output_dir(dem_name, output_dir)
 
-    manager = mp.Manager()
-    sub_shared_ret_values = manager.dict()
-
-    args = (dem_name,)
-    kwargs = {
-        "output_dir": output_dir,
-        "shared_ret_values": sub_shared_ret_values,
-        "icesat2_photon_database_obj": icesat2_photon_database_obj,
+    # The settings this DEM's validation and, should it run out of memory, each of its
+    # parts' validations are run with alike.
+    options: dict[str, Any] = {
         "band_num": band_num,
         "dem_vertical_datum": dem_vertical_datum,
         "dem_projection": dem_projection,
-        "dem_ndv": dem_ndv,
         "overwrite": overwrite,
         "dates": dates,
         "classes": classes,
-        "write_summary_stats": write_summary_stats,
-        "outliers_sd_threshold": outliers_sd_threshold,
         "include_photon_level_validation": include_photon_level_validation,
-        "plot_results": plot_results,
         "location_name": location_name,
         "mark_empty_results": mark_empty_results,
         "measure_coverage": measure_coverage,
@@ -880,309 +976,379 @@ def validate_dem(
         "min_confidence_level": min_confidence_level,
         "min_bathy_confidence": min_bathy_confidence,
         "bathy_filter_settings": bathy_filter_settings,
-        "export_error_formats": export_error_formats,
         "exclude_zones": exclude_zones,
         "config": config,
-        # The work below runs in a *spawned* sub-process, which starts with logging
-        # unconfigured and would otherwise drop everything below WARNING. Pass the
-        # level we are running at so the child can reinstate it.
-        "log_level": logging.getLogger().getEffectiveLevel(),
     }
 
-    subproc = mp.Process(target=validate_dem_parallel, args=args, kwargs=kwargs)
+    manager = mp.Manager()
+    sub_shared_ret_values = manager.dict()
+
+    subproc = mp.Process(
+        target=validate_dem_parallel,
+        args=(dem_name,),
+        kwargs={
+            **options,
+            "output_dir": output_dir,
+            "shared_ret_values": sub_shared_ret_values,
+            "icesat2_photon_database_obj": icesat2_photon_database_obj,
+            "dem_ndv": dem_ndv,
+            "write_summary_stats": write_summary_stats,
+            "outliers_sd_threshold": outliers_sd_threshold,
+            "plot_results": plot_results,
+            "export_error_formats": export_error_formats,
+            # The work below runs in a *spawned* sub-process, which starts with
+            # logging unconfigured and would otherwise drop everything below WARNING.
+            # Pass the level we are running at so the child can reinstate it.
+            "log_level": logging.getLogger().getEffectiveLevel(),
+        },
+    )
 
     subproc.start()
     subproc.join(timeout=None)
     exitcode = subproc.exitcode
     subproc.close()
 
-    if orig_dem_name is None:
-        orig_dem_name = dem_name
-
     if exitcode == 0:
         shared_ret_values.update(sub_shared_ret_values)
 
         return list(shared_ret_values.values())
 
-    # Detect a job that was killed by the operating system (on Linux, the OOM-killer
-    # sends SIGKILL, which multiprocessing reports as a negative exitcode). Windows has
-    # no SIGKILL and no equivalent OOM-killer, so guard the attribute lookup: there the
-    # branch simply doesn't apply and we fall through to the RuntimeError below.
-    sigkill = getattr(signal, "SIGKILL", None)
-    if sigkill is not None and exitcode is not None and abs(exitcode) == abs(sigkill):
-        # The job was killed by the operating system. This happens with a Memory Error.
-        # Divvy the file up and try again.
-
-        # Unless we've already hit max recursion. In that case, error-out.
-        if subdivision_number == max_subdivides:
-            msg = (
-                f"validate_dem.validate_dem('{orig_dem_name}', ...) was terminated, "
-                f"likely due to a memory error."
-            )
-            raise MemoryError(msg)
-
-        # Make sure the DEM exists that we're trying to sub-divide
-        if not Path(dem_source.dem_file_path(dem_name)).exists():
-            msg = (
-                f"validate_dem.validate_dem_parallell({orig_dem_name},...) could not "
-                f"find {dem_name}."
-            )
-            raise FileNotFoundError(msg)
-
-        with rasterio.open(dem_name) as parent_ds:
-            parent_band_ndv = parent_ds.nodatavals[band_num - 1]
-
-        # Split up the DEM into 4 parts.
-        factor = 2
-        sub_dem_names = subdivide_dem(
-            dem_name,
-            factor=factor,
-            output_dir=output_dir,
+    if not _killed_by_os(exitcode):
+        msg = (
+            f"validate_dem.validate_dem({orig_dem_name},...) exited with exitcode "
+            f"{exitcode}."
         )
+        raise RuntimeError(msg)
 
-        part_ret_values = [manager.dict() for i in range(len(sub_dem_names))]
-        if len(sub_dem_names) != factor**2:
-            msg = (
-                f"Splitting {dem_name} gave {len(sub_dem_names)} pieces, not "
-                f"{factor**2}."
-            )
-            raise RuntimeError(msg)
-
-        # Pre-read the photon database. This is easier than reading it in 4 separate
-        # times.
-        if icesat2_photon_database_obj is None:
-            icesat2_photon_database_obj = ivert.icesat2_database_v2.IS2Database(
-                ivert_config=config,
-            )
-            icesat2_photon_database_obj.open_gdf()
-
-        for sub_dem_name, sub_shared_ret_dict in zip(
-            sub_dem_names,
-            part_ret_values,
-            strict=True,
-        ):
-            validate_dem(
-                sub_dem_name,
-                output_dir=output_dir,
-                shared_ret_values=sub_shared_ret_dict,
-                icesat2_photon_database_obj=icesat2_photon_database_obj,
-                band_num=band_num,
-                dem_vertical_datum=dem_vertical_datum,
-                dem_projection=dem_projection,
-                # The sub-DEMs are GeoTIFFs, which keep only one nodata value for all
-                # bands, so hand them this band's own value.
-                dem_ndv=dem_ndv if dem_ndv is not None else parent_band_ndv,
-                overwrite=overwrite,
-                dates=dates,
-                classes=classes,
-                # No need to write the summary stats file for subsets.
-                write_summary_stats=False,
-                # No need to export per-subset error files; done once after merge.
-                export_error_formats=[],
-                # Don't filter outliers until we get all the results back.
-                outliers_sd_threshold=None,
-                include_photon_level_validation=include_photon_level_validation,
-                plot_results=False,  # Don't bother plotting the sub-results.
-                location_name=location_name,
-                mark_empty_results=mark_empty_results,
-                measure_coverage=measure_coverage,
-                min_coverage_pct=min_coverage_pct,
-                min_coverage_pct_land=min_coverage_pct_land,
-                min_coverage_pct_bathy=min_coverage_pct_bathy,
-                max_photons_per_cell=max_photons_per_cell,
-                min_photons_per_cell=min_photons_per_cell,
-                numprocs=numprocs,
-                min_confidence_level=min_confidence_level,
-                min_bathy_confidence=min_bathy_confidence,
-                bathy_filter_settings=bathy_filter_settings,
-                exclude_zones=exclude_zones,
-                config=config,
-                max_subdivides=max_subdivides,
-                orig_dem_name=orig_dem_name,
-                subdivision_number=subdivision_number + 1,
-            )
-
-        # Now we gotta merge all the results.
-        # Get a set of common keys:
-        common_keys = set(
-            list(part_ret_values[0].keys())
-            + list(part_ret_values[1].keys())
-            + list(part_ret_values[2].keys())
-            + list(part_ret_values[3].keys()),
+    # The job was killed by the operating system. This happens with a Memory Error.
+    # Divvy the file up and try again, unless we've already hit max recursion. In that
+    # case, error-out.
+    if subdivision_number == max_subdivides:
+        msg = (
+            f"validate_dem.validate_dem('{orig_dem_name}', ...) was terminated, "
+            f"likely due to a memory error."
         )
+        raise MemoryError(msg)
 
-        shared_results_df = None
-        written_files = []
-        bathy_filter_report = None
-
-        # First, merge the results dataframes.
-        if "results_dataframe_file" in common_keys:
-            common_key = "results_dataframe_file"
-            all_fnames = [
-                part_ret_values[i][common_key]
-                for i in range(len(part_ret_values))
-                if common_key in part_ret_values[i]
-            ]
-            # The bathymetry filter counts of the parts add up to the whole's.
-            bathy_filter_report = ivert.bathy_filters.BathyFilterReport.combine(
-                [ivert.bathy_filters.read_report_from_h5(fn) for fn in all_fnames],
-            )
-            if bathy_filter_report is not None:
-                bathy_filter_report.n_validations = 1
-
-            # Concatenate the results dataframes.
-            output_dfs = []
-            for fname in all_fnames:
-                dem_results_df = pd.read_hdf(fname)
-                # Now I gotta reset the i,j indexes. Each part's results sit next to
-                # that part's GeoTIFF.
-                results_fname = Path(fname)
-                part_dem_path = results_fname.with_name(
-                    results_fname.name.removesuffix("_results.h5") + ".tif",
-                )
-                parent_dem_name = dem_name
-                dem_results_df = reset_results_indexes_after_merge(
-                    dem_results_df,
-                    part_dem_path,
-                    parent_dem_name,
-                )
-                output_dfs.append(dem_results_df)
-
-            shared_results_df = pd.concat(output_dfs, ignore_index=False, axis=0)
-            # After we've combined all the resutls, *then* filter out outliers if they
-            # exist.
-            if outliers_sd_threshold is not None:
-                if not isinstance(outliers_sd_threshold, (int, float)):
-                    msg = "outliers_sd_threshold must be a number."
-                    raise TypeError(msg)
-                diff_mean = shared_results_df["diff_mean"]
-                meanval, stdval = diff_mean.mean(), diff_mean.std()
-                low_cutoff = meanval - (stdval * outliers_sd_threshold)
-                hi_cutoff = meanval + (stdval * outliers_sd_threshold)
-                valid_mask = (diff_mean >= low_cutoff) & (diff_mean <= hi_cutoff)
-                shared_results_df = shared_results_df[valid_mask].copy()
-                logger.info(
-                    "%s DEM cells after removing outliers.",
-                    f"{len(shared_results_df):,}",
-                )
-
-            output_fname = _results_dataframe_filename(dem_name, output_dir)
-            shared_results_df.to_hdf(
-                output_fname,
-                key="icesat2",
-                complib="zlib",
-                mode="w",
-            )
-            ivert.bathy_filters.write_report_to_h5(output_fname, bathy_filter_report)
-
-            shared_ret_values[common_key] = output_fname
-
-            written_files.append(output_fname)
-
-        # Second, export the per-cell errors from the merged dataframe.
-        if export_error_formats is None:
-            export_error_formats = config.export_error_formats
-        if (
-            export_error_formats
-            and (shared_results_df is not None)
-            and subdivision_number == 0
-        ):
-            merged_results_file = _results_dataframe_filename(dem_name, output_dir)
-            with rasterio.open(dem_name) as dem_ds_tmp:
-                exported = export_error_results(
-                    shared_results_df,
-                    dem_ds_tmp,
-                    merged_results_file,
-                    export_error_formats,
-                    dem_crs=_output_crs(dem_ds_tmp, dem_projection),
-                )
-
-            written_files.extend(exported)
-            shared_ret_values["error_export_files"] = exported
-
-        # If we're doing an empty results file, create one in the output directory if no
-        # results were returned.
-        if (
-            mark_empty_results
-            and (shared_results_df is None)
-            and subdivision_number == 0
-        ):
-            # If any of the results existed, we don't need to do this just because one
-            # sub-result doesn't exist.
-            empty_fname = _empty_results_filename(
-                _results_dataframe_filename(dem_name, output_dir),
-            )
-            empty_fname.write_text(_EMPTY_RESULTS_TEXT, encoding="utf-8")
-            written_files.append(empty_fname)
-            shared_ret_values["empty_results_filename"] = empty_fname
-
-        # Create the overall summary stats text file.
-        if (
-            write_summary_stats
-            and shared_results_df is not None
-            and subdivision_number == 0
-        ):
-            # Generate a new summary stats file only if we have results and if the
-            # recursion depth is zero.
-            output_fname = Path(output_dir) / (
-                dem_source.dem_base_name(dem_name) + "_summary_stats.txt"
-            )
-            write_summary_stats_file(
-                shared_results_df,
-                output_fname,
-                bathy_filter_report=bathy_filter_report,
-            )
-            written_files.append(output_fname)
-            shared_ret_values["summary_stats_filename"] = output_fname
-
-        # Export the photon dataframe if it was called to be returned.
-        if "photon_results_dataframe_file" in common_keys:
-            common_key = "photon_results_dataframe_file"
-            all_fnames = [
-                part_ret_values[i][common_key]
-                for i in range(len(part_ret_values))
-                if common_key in part_ret_values[i]
-            ]
-            results_df = pd.concat(
-                [pd.read_hdf(fname) for fname in all_fnames],
-                ignore_index=True,
-                axis=0,
-            )
-            output_fname = Path(output_dir) / (
-                dem_source.dem_base_name(dem_name) + "_photons.h5"
-            )
-            results_df.to_hdf(output_fname, key="icesat2", complib="zlib", mode="w")
-            written_files.append(output_fname)
-            shared_ret_values[common_key] = output_fname
-
-        # Plot the results.
-        if (
-            plot_results
-            and (shared_results_df is not None)
-            and (subdivision_number == 0)
-        ):
-            output_fname = Path(output_dir) / (
-                dem_source.dem_base_name(dem_name) + "_plot.png"
-            )
-            if location_name is None:
-                location_name = Path(dem_source.dem_file_path(dem_name)).name
-            ivert.plot_validation_results.plot_histograms_and_line(
-                shared_results_df,
-                output_fname,
-                place_name=location_name,
-                figsize=(10, 4),
-            )
-            written_files.append(output_fname)
-            shared_ret_values["plot_filename"] = output_fname
-
-        log_written_files(written_files)
-        return list(shared_ret_values.values())
-
-    msg = (
-        f"validate_dem.validate_dem({orig_dem_name},...) exited with exitcode "
-        f"{exitcode}."
+    part_ret_values = _validate_dem_in_parts(
+        dem_name,
+        output_dir,
+        manager=manager,
+        options=options,
+        icesat2_photon_database_obj=icesat2_photon_database_obj,
+        dem_ndv=dem_ndv,
+        max_subdivides=max_subdivides,
+        orig_dem_name=orig_dem_name,
+        subdivision_number=subdivision_number,
     )
-    raise RuntimeError(msg)
+
+    if export_error_formats is None:
+        export_error_formats = config.export_error_formats
+    written_files = _merge_part_outputs(
+        part_ret_values,
+        dem_name,
+        output_dir,
+        shared_ret_values=shared_ret_values,
+        top_level=subdivision_number == 0,
+        outliers_sd_threshold=outliers_sd_threshold,
+        export_error_formats=export_error_formats,
+        mark_empty_results=mark_empty_results,
+        write_summary_stats=write_summary_stats,
+        plot_results=plot_results,
+        location_name=location_name,
+        dem_projection=dem_projection,
+    )
+
+    log_written_files(written_files)
+    return list(shared_ret_values.values())
+
+
+def _killed_by_os(exitcode: int | None) -> bool:
+    """Return True if a sub-process's exit code shows the operating system killed it.
+
+    On Linux, the OOM-killer sends SIGKILL, which multiprocessing reports as a negative
+    exitcode. Windows has no SIGKILL and no equivalent OOM-killer, so there this is
+    always False.
+    """
+    sigkill = getattr(signal, "SIGKILL", None)
+    return (
+        sigkill is not None and exitcode is not None and abs(exitcode) == abs(sigkill)
+    )
+
+
+def _validate_dem_in_parts(
+    dem_name: str,
+    output_dir: Path,
+    *,
+    manager: mp.managers.SyncManager,
+    options: dict[str, Any],
+    icesat2_photon_database_obj: ivert.icesat2_database_v2.IS2Database | None,
+    dem_ndv: float | None,
+    max_subdivides: int,
+    orig_dem_name: str,
+    subdivision_number: int,
+) -> list[MutableMapping]:
+    """Split a DEM into 4 parts and validate each one, returning each part's results.
+
+    Each part is validated with validate_dem() and the same 'options', one level of
+    subdivision deeper. The parts write only their results files: outliers are removed,
+    and summaries, plots and error exports written, once their results are merged.
+    """
+    # Make sure the DEM exists that we're trying to sub-divide
+    if not Path(dem_source.dem_file_path(dem_name)).exists():
+        msg = (
+            f"validate_dem.validate_dem_parallell({orig_dem_name},...) could not "
+            f"find {dem_name}."
+        )
+        raise FileNotFoundError(msg)
+
+    with rasterio.open(dem_name) as parent_ds:
+        parent_band_ndv = parent_ds.nodatavals[options["band_num"] - 1]
+
+    # Split up the DEM into 4 parts.
+    factor = 2
+    sub_dem_names = subdivide_dem(
+        dem_name,
+        factor=factor,
+        output_dir=output_dir,
+    )
+
+    part_ret_values: list[MutableMapping] = [manager.dict() for _ in sub_dem_names]
+    if len(sub_dem_names) != factor**2:
+        msg = f"Splitting {dem_name} gave {len(sub_dem_names)} pieces, not {factor**2}."
+        raise RuntimeError(msg)
+
+    # Pre-read the photon database. This is easier than reading it in 4 separate
+    # times.
+    if icesat2_photon_database_obj is None:
+        icesat2_photon_database_obj = ivert.icesat2_database_v2.IS2Database(
+            ivert_config=options["config"],
+        )
+        icesat2_photon_database_obj.open_gdf()
+
+    for sub_dem_name, sub_shared_ret_dict in zip(
+        sub_dem_names,
+        part_ret_values,
+        strict=True,
+    ):
+        validate_dem(
+            sub_dem_name,
+            output_dir=output_dir,
+            shared_ret_values=sub_shared_ret_dict,
+            icesat2_photon_database_obj=icesat2_photon_database_obj,
+            **options,
+            # The sub-DEMs are GeoTIFFs, which keep only one nodata value for all
+            # bands, so hand them this band's own value.
+            dem_ndv=dem_ndv if dem_ndv is not None else parent_band_ndv,
+            # No need to write the summary stats file for subsets.
+            write_summary_stats=False,
+            # No need to export per-subset error files; done once after merge.
+            export_error_formats=[],
+            # Don't filter outliers until we get all the results back.
+            outliers_sd_threshold=None,
+            plot_results=False,  # Don't bother plotting the sub-results.
+            max_subdivides=max_subdivides,
+            orig_dem_name=orig_dem_name,
+            subdivision_number=subdivision_number + 1,
+        )
+
+    return part_ret_values
+
+
+def _part_files(part_ret_values: list[MutableMapping], key: str) -> list[Path]:
+    """Return the file each part of a split DEM returned under 'key', if any."""
+    return [part[key] for part in part_ret_values if key in part]
+
+
+def _merge_results_dataframes(
+    part_results_files: list[Path],
+    dem_name: str,
+    outliers_sd_threshold: float | None,
+) -> tuple[pd.DataFrame, ivert.bathy_filters.BathyFilterReport | None]:
+    """Merge the results of a split DEM's parts into the whole DEM's.
+
+    Each part's (i, j) index is moved onto the whole DEM's grid, and outliers, if
+    'outliers_sd_threshold' is set, are removed from the merged results, judged against
+    the whole DEM's errors rather than one part's. Returns the merged results and the
+    parts' combined bathymetry filter report.
+    """
+    # The bathymetry filter counts of the parts add up to the whole's.
+    bathy_filter_report = ivert.bathy_filters.BathyFilterReport.combine(
+        [ivert.bathy_filters.read_report_from_h5(fn) for fn in part_results_files],
+    )
+    if bathy_filter_report is not None:
+        bathy_filter_report.n_validations = 1
+
+    output_dfs = []
+    for fname in part_results_files:
+        # Each part's results sit next to that part's GeoTIFF.
+        results_fname = Path(fname)
+        part_dem_path = results_fname.with_name(
+            results_fname.name.removesuffix("_results.h5") + ".tif",
+        )
+        output_dfs.append(
+            reset_results_indexes_after_merge(
+                pd.read_hdf(fname),
+                part_dem_path,
+                dem_name,
+            ),
+        )
+
+    merged_df = pd.concat(output_dfs, ignore_index=False, axis=0)
+    # After we've combined all the results, *then* filter out outliers if they exist.
+    if outliers_sd_threshold is not None:
+        merged_df = _remove_outliers(merged_df, outliers_sd_threshold)
+
+    return merged_df, bathy_filter_report
+
+
+def _merge_part_outputs(
+    part_ret_values: list[MutableMapping],
+    dem_name: str,
+    output_dir: Path,
+    *,
+    shared_ret_values: MutableMapping,
+    top_level: bool,
+    outliers_sd_threshold: float | None,
+    export_error_formats: str | list,
+    mark_empty_results: bool,
+    write_summary_stats: bool,
+    plot_results: bool,
+    location_name: str | None,
+    dem_projection: str | int | None,
+) -> list[Path]:
+    """Merge a split DEM's parts' results files into the whole DEM's.
+
+    At the 'top_level' (the DEM the user asked for, not a part of one), also write its
+    error exports, summary stats and plot, or the empty-results marker if no part had
+    results. Each file is recorded in 'shared_ret_values'. Returns the files written.
+    """
+    common_keys = set().union(*(part.keys() for part in part_ret_values))
+    written_files: list[Path] = []
+    merged_df = None
+    bathy_filter_report = None
+
+    # First, merge the results dataframes.
+    if "results_dataframe_file" in common_keys:
+        merged_df, bathy_filter_report = _merge_results_dataframes(
+            _part_files(part_ret_values, "results_dataframe_file"),
+            dem_name,
+            outliers_sd_threshold,
+        )
+        output_fname = _results_dataframe_filename(dem_name, output_dir)
+        merged_df.to_hdf(output_fname, key="icesat2", complib="zlib", mode="w")
+        ivert.bathy_filters.write_report_to_h5(output_fname, bathy_filter_report)
+        written_files.append(output_fname)
+        shared_ret_values["results_dataframe_file"] = output_fname
+
+    # Merge the photon-level results, if the parts made them.
+    if "photon_results_dataframe_file" in common_keys:
+        photons_df = pd.concat(
+            [
+                pd.read_hdf(fname)
+                for fname in _part_files(
+                    part_ret_values,
+                    "photon_results_dataframe_file",
+                )
+            ],
+            ignore_index=True,
+            axis=0,
+        )
+        output_fname = Path(output_dir) / (
+            dem_source.dem_base_name(dem_name) + "_photons.h5"
+        )
+        photons_df.to_hdf(output_fname, key="icesat2", complib="zlib", mode="w")
+        written_files.append(output_fname)
+        shared_ret_values["photon_results_dataframe_file"] = output_fname
+
+    if not top_level:
+        return written_files
+
+    if merged_df is not None:
+        written_files.extend(
+            _write_merged_reports(
+                merged_df,
+                dem_name,
+                output_dir,
+                shared_ret_values=shared_ret_values,
+                bathy_filter_report=bathy_filter_report,
+                export_error_formats=export_error_formats,
+                write_summary_stats=write_summary_stats,
+                plot_results=plot_results,
+                location_name=location_name,
+                dem_projection=dem_projection,
+            ),
+        )
+    elif mark_empty_results:
+        # If any of the results existed, we don't need to do this just because one
+        # sub-result doesn't exist.
+        empty_fname = _empty_results_filename(
+            _results_dataframe_filename(dem_name, output_dir),
+        )
+        empty_fname.write_text(_EMPTY_RESULTS_TEXT, encoding="utf-8")
+        written_files.append(empty_fname)
+        shared_ret_values["empty_results_filename"] = empty_fname
+
+    return written_files
+
+
+def _write_merged_reports(
+    merged_df: pd.DataFrame,
+    dem_name: str,
+    output_dir: Path,
+    *,
+    shared_ret_values: MutableMapping,
+    bathy_filter_report: ivert.bathy_filters.BathyFilterReport | None,
+    export_error_formats: str | list,
+    write_summary_stats: bool,
+    plot_results: bool,
+    location_name: str | None,
+    dem_projection: str | int | None,
+) -> list[Path]:
+    """Write the error exports, summary stats and plot of a split DEM's merged results.
+
+    Each one asked for is written and recorded in 'shared_ret_values'. Returns the
+    files written.
+    """
+    written_files: list[Path] = []
+    dem_base = dem_source.dem_base_name(dem_name)
+
+    if export_error_formats:
+        with rasterio.open(dem_name) as dem_ds_tmp:
+            exported = export_error_results(
+                merged_df,
+                dem_ds_tmp,
+                _results_dataframe_filename(dem_name, output_dir),
+                export_error_formats,
+                dem_crs=_output_crs(dem_ds_tmp, dem_projection),
+            )
+        written_files.extend(exported)
+        shared_ret_values["error_export_files"] = exported
+
+    if write_summary_stats:
+        output_fname = Path(output_dir) / (dem_base + "_summary_stats.txt")
+        write_summary_stats_file(
+            merged_df,
+            output_fname,
+            bathy_filter_report=bathy_filter_report,
+        )
+        written_files.append(output_fname)
+        shared_ret_values["summary_stats_filename"] = output_fname
+
+    if plot_results:
+        output_fname = Path(output_dir) / (dem_base + "_plot.png")
+        if location_name is None:
+            location_name = Path(dem_source.dem_file_path(dem_name)).name
+        ivert.plot_validation_results.plot_histograms_and_line(
+            merged_df,
+            output_fname,
+            place_name=location_name,
+            figsize=(10, 4),
+        )
+        written_files.append(output_fname)
+        shared_ret_values["plot_filename"] = output_fname
+
+    return written_files
 
 
 def _default_output_dir(dem_name: str, output_dir: str | Path | None) -> Path:
@@ -1323,8 +1489,6 @@ def _check_existing_outputs(
                 fn.unlink(missing_ok=True)
         return None
 
-    files_to_export = []
-
     if results_dataframe_file.exists():
         # Photon-level results can't be regenerated from the results dataframe alone —
         # they require the raw photon data. If they're missing, signal the caller to run
@@ -1335,84 +1499,145 @@ def _check_existing_outputs(
             if not photon_results_file.exists():
                 return None
 
-        results_dataframe = None
-        written_files = []
-        files_to_export.append(results_dataframe_file)
-        shared_ret_values["results_dataframe_file"] = results_dataframe_file
-
-        if summary_stats_filename is not None:
-            if not summary_stats_filename.exists():
-                if results_dataframe is None:
-                    logger.info("Reading %s ...", results_dataframe_file)
-                    results_dataframe = read_dataframe_file(results_dataframe_file)
-                write_summary_stats_file(
-                    results_dataframe,
-                    summary_stats_filename,
-                    bathy_filter_report=ivert.bathy_filters.read_report_from_h5(
-                        results_dataframe_file,
-                    ),
-                )
-                written_files.append(summary_stats_filename)
-            files_to_export.append(summary_stats_filename)
-            shared_ret_values["summary_stats_filename"] = summary_stats_filename
-
-        if export_error_formats:
-            export_files = _error_export_filenames(
-                results_dataframe_file,
-                export_error_formats,
-            )
-            missing = [fn for fn in export_files if not fn.exists()]
-            if missing:
-                dem_ds_tmp = rasterio.open(dem_name)
-                if results_dataframe is None:
-                    logger.info("Reading %s ...", results_dataframe_file)
-                    results_dataframe = read_dataframe_file(results_dataframe_file)
-                written_files.extend(
-                    export_error_results(
-                        results_dataframe,
-                        dem_ds_tmp,
-                        results_dataframe_file,
-                        export_error_formats,
-                        dem_crs=_output_crs(dem_ds_tmp, dem_projection),
-                    ),
-                )
-            files_to_export.extend(export_files)
-            shared_ret_values["error_export_files"] = export_files
-
-        if plot_filename is not None:
-            if not plot_filename.exists():
-                if location_name is None:
-                    location_name = Path(dem_source.dem_file_path(dem_name)).name
-                if results_dataframe is None:
-                    logger.info("Reading %s ...", results_dataframe_file)
-                    results_dataframe = read_dataframe_file(results_dataframe_file)
-                ivert.plot_validation_results.plot_histograms_and_line(
-                    results_dataframe,
-                    plot_filename,
-                    place_name=location_name,
-                )
-                written_files.append(plot_filename)
-            files_to_export.append(plot_filename)
-            shared_ret_values["plot_filename"] = plot_filename
-
-        if photon_results_file:
-            files_to_export.append(photon_results_file)
-            shared_ret_values["photon_results_dataframe_file"] = photon_results_file
-
-        log_written_files(written_files)
-        if results_dataframe is None:
-            logger.info("Work already done here. Moving on.")
-
-        return files_to_export
+        return _reuse_existing_results(
+            dem_name,
+            results_dataframe_file,
+            summary_stats_filename=summary_stats_filename,
+            plot_filename=plot_filename,
+            photon_results_file=photon_results_file,
+            location_name=location_name,
+            shared_ret_values=shared_ret_values,
+            export_error_formats=export_error_formats,
+            dem_projection=dem_projection,
+        )
 
     if empty_results_filename is not None and empty_results_filename.exists():
         logger.info(
             "No valid data produced during previous ICESat-2 analysis of %s",
             Path(dem_source.dem_file_path(dem_name)).name + ". Returning.",
         )
-        return files_to_export
+        return []
 
     return None
+
+
+def _reuse_existing_results(
+    dem_name: str,
+    results_dataframe_file: Path,
+    *,
+    summary_stats_filename: Path | None,
+    plot_filename: Path | None,
+    photon_results_file: Path | None,
+    location_name: str | None,
+    shared_ret_values: MutableMapping,
+    export_error_formats: str | list | None,
+    dem_projection: str | int | None,
+) -> list[Path]:
+    """Return a DEM's existing outputs, first rebuilding any missing from its results.
+
+    The summary stats, error exports and plot are rebuilt from the results file if
+    missing; the summary-stats and plot names are None when that output isn't wanted.
+    Each output is recorded in 'shared_ret_values'.
+    """
+    files_to_export = [results_dataframe_file]
+    shared_ret_values["results_dataframe_file"] = results_dataframe_file
+
+    if summary_stats_filename is not None:
+        files_to_export.append(summary_stats_filename)
+        shared_ret_values["summary_stats_filename"] = summary_stats_filename
+
+    export_files = []
+    if export_error_formats:
+        export_files = _error_export_filenames(
+            results_dataframe_file,
+            export_error_formats,
+        )
+        files_to_export.extend(export_files)
+        shared_ret_values["error_export_files"] = export_files
+
+    if plot_filename is not None:
+        files_to_export.append(plot_filename)
+        shared_ret_values["plot_filename"] = plot_filename
+
+    if photon_results_file:
+        files_to_export.append(photon_results_file)
+        shared_ret_values["photon_results_dataframe_file"] = photon_results_file
+
+    _rebuild_missing_outputs(
+        dem_name,
+        results_dataframe_file,
+        summary_stats_filename=summary_stats_filename,
+        export_files=export_files,
+        export_error_formats=export_error_formats,
+        plot_filename=plot_filename,
+        location_name=location_name,
+        dem_projection=dem_projection,
+    )
+    return files_to_export
+
+
+def _rebuild_missing_outputs(
+    dem_name: str,
+    results_dataframe_file: Path,
+    *,
+    summary_stats_filename: Path | None,
+    export_files: list[Path],
+    export_error_formats: str | list | None,
+    plot_filename: Path | None,
+    location_name: str | None,
+    dem_projection: str | int | None,
+) -> None:
+    """Rebuild whichever of a DEM's outputs are missing from its results file.
+
+    The results file is read only if something is missing. Any of the outputs that
+    isn't wanted is None (or, for the error exports, an empty list).
+    """
+    rebuild_summary = (
+        summary_stats_filename is not None and not summary_stats_filename.exists()
+    )
+    rebuild_exports = any(not fn.exists() for fn in export_files)
+    rebuild_plot = plot_filename is not None and not plot_filename.exists()
+    if not (rebuild_summary or rebuild_exports or rebuild_plot):
+        logger.info("Work already done here. Moving on.")
+        return
+
+    logger.info("Reading %s ...", results_dataframe_file)
+    results_dataframe = read_dataframe_file(results_dataframe_file)
+    written_files: list[Path] = []
+
+    if rebuild_summary and summary_stats_filename is not None:
+        write_summary_stats_file(
+            results_dataframe,
+            summary_stats_filename,
+            bathy_filter_report=ivert.bathy_filters.read_report_from_h5(
+                results_dataframe_file,
+            ),
+        )
+        written_files.append(summary_stats_filename)
+
+    if rebuild_exports and export_error_formats:
+        with rasterio.open(dem_name) as dem_ds_tmp:
+            written_files.extend(
+                export_error_results(
+                    results_dataframe,
+                    dem_ds_tmp,
+                    results_dataframe_file,
+                    export_error_formats,
+                    dem_crs=_output_crs(dem_ds_tmp, dem_projection),
+                ),
+            )
+
+    if rebuild_plot and plot_filename is not None:
+        if location_name is None:
+            location_name = Path(dem_source.dem_file_path(dem_name)).name
+        ivert.plot_validation_results.plot_histograms_and_line(
+            results_dataframe,
+            plot_filename,
+            place_name=location_name,
+        )
+        written_files.append(plot_filename)
+
+    log_written_files(written_files)
 
 
 def _split_projection(dem_projection: str | int) -> tuple[pyproj.CRS, str | None]:
@@ -1927,6 +2152,274 @@ def _shared_copy(name: str, values: np.ndarray) -> shared_memory.SharedMemory:
     return smo
 
 
+def _photon_cell_ranges(
+    ph_i: npt.NDArray,
+    ph_j: npt.NDArray,
+    cell_i: npt.NDArray,
+    cell_j: npt.NDArray,
+) -> tuple[npt.NDArray, npt.NDArray, npt.NDArray]:
+    """Sort photons by grid cell and find each cell's run of photons.
+
+    Returns (ph_order, ph_starts, ph_ends): the photons sorted by ph_order hold cell
+    k's photons, in their original order, at [ph_starts[k], ph_ends[k]). A cell with
+    no photons gets an empty range.
+
+    The sort is stable, which keeps the photons' order within each cell, so a worker
+    reads a cell's photons as one slice rather than searching all of them for every
+    cell. Each cell gets the same photons in the same order.
+    """
+    ncols = int(max(ph_j.max(initial=0), np.max(cell_j, initial=0))) + 1
+    ph_keys = ph_i.astype(np.int64) * ncols + ph_j
+    ph_order = np.argsort(ph_keys, kind="stable")
+    ph_keys = ph_keys[ph_order]
+    cell_keys = np.asarray(cell_i, dtype=np.int64) * ncols + cell_j
+    ph_starts = np.searchsorted(ph_keys, cell_keys, side="left")
+    ph_ends = np.searchsorted(ph_keys, cell_keys, side="right")
+    return ph_order, ph_starts, ph_ends
+
+
+def _check_photon_columns(
+    photon_df: pd.DataFrame,
+    height_field: pd.Series,
+    *,
+    measure_coverage: bool,
+) -> None:
+    """Raise if the photon columns shared with the workers differ in length."""
+    if not (
+        height_field.shape
+        == photon_df.i.shape
+        == photon_df.j.shape
+        == photon_df.class_code.shape
+    ):
+        msg = "The photon heights, i, j and class codes are not all the same length."
+        raise RuntimeError(msg)
+    if measure_coverage and not (
+        height_field.shape == photon_df.dem_x.shape == photon_df.dem_y.shape
+    ):
+        msg = "The photon heights, dem_x and dem_y are not all the same length."
+        raise RuntimeError(msg)
+
+
+def _share_photon_arrays(
+    photon_df: pd.DataFrame,
+    height_field: pd.Series,
+    ph_order: npt.NDArray,
+    *,
+    measure_coverage: bool,
+) -> tuple[list[shared_memory.SharedMemory], dict[str, Any]]:
+    """Copy the photon columns the workers read, sorted by ph_order, to shared memory.
+
+    Returns the shared memory blocks and the arguments that tell
+    kick_off_new_child_process() where to find them. If any copy fails, the blocks
+    already made are released before the error is raised.
+    """
+    proc_id = os.getpid()
+    arrays = {
+        f"heights_{proc_id}": height_field.to_numpy(),
+        f"codes_{proc_id}": photon_df.class_code.to_numpy(),
+    }
+    worker_args: dict[str, Any] = {
+        "height_array_name": f"heights_{proc_id}",
+        "height_dtype": height_field.dtype,
+        "code_array_name": f"codes_{proc_id}",
+        "code_dtype": photon_df.class_code.dtype,
+        "array_shape": height_field.shape,
+        "measure_coverage": measure_coverage,
+        "x_array_name": None,
+        "x_dtype": None,
+        "y_array_name": None,
+        "y_dtype": None,
+    }
+    if measure_coverage:
+        arrays[f"x_{proc_id}"] = photon_df.dem_x.to_numpy()
+        arrays[f"y_{proc_id}"] = photon_df.dem_y.to_numpy()
+        worker_args |= {
+            "x_array_name": f"x_{proc_id}",
+            "x_dtype": photon_df.dem_x.dtype,
+            "y_array_name": f"y_{proc_id}",
+            "y_dtype": photon_df.dem_y.dtype,
+        }
+
+    # The caller releases these once the workers start. Until then, a failure here (a
+    # name left over from a crashed run, say, or running out of memory) releases
+    # whatever was already allocated.
+    memory_objs: list[shared_memory.SharedMemory] = []
+    try:
+        for name, values in arrays.items():
+            memory_objs.append(_shared_copy(name, values[ph_order]))
+    except BaseException:
+        clean_procs_and_pipes([], [], [], memory_objs)
+        raise
+
+    return memory_objs, worker_args
+
+
+class _CellWorkerPool:
+    """The cell-validation worker processes, and the chunks of cells handed to them.
+
+    Each worker slot has at most one chunk out at a time. Progress is measured in cells
+    *handed out*, not rows handed back: a worker omits any cell that fell below
+    'min_photons_per_cell', so the rows returned undercount the work done and the bar
+    would stall short of the total.
+    """
+
+    def __init__(
+        self,
+        n_workers: int,
+        *,
+        n_cells: int,
+        chunk_cells: int,
+        chunk: Callable[[int, int], tuple[npt.NDArray, ...]],
+        worker_args: dict[str, Any],
+        progress: tqdm.tqdm,
+    ) -> None:
+        """Set up n_workers empty slots for workers validating n_cells cells.
+
+        'chunk' builds the work message for cells start:end, handed out chunk_cells at
+        a time. 'worker_args' are the arguments to kick_off_new_child_process().
+        """
+        self.procs: list[mp.process.BaseProcess | None] = [None] * n_workers
+        self.pipes: list[mp.connection.Connection | None] = [None] * n_workers
+        self.pipes_child: list[mp.connection.Connection | None] = [None] * n_workers
+        # Cells in the chunk currently out with each worker.
+        self.chunk_sizes = [0] * n_workers
+        self.n_cells = n_cells
+        self.chunk_cells = chunk_cells
+        self.chunk = chunk
+        self.worker_args = worker_args
+        self.progress = progress
+        # Shaped like a work message, so a worker unpacks it the same way.
+        self.stop_message = ("STOP", *[None] * (len(chunk(0, 0)) - 1))
+        self.cells_started = 0
+        self.cells_finished = 0
+        self.chunks_out = 0
+        self.results: list[pd.DataFrame] = []
+
+    def _start_worker(self, slot: int) -> None:
+        """Start a new worker process in a slot."""
+        # Looked up at call time, so tests can stand in for it.
+        self.procs[slot], self.pipes[slot], self.pipes_child[slot] = (
+            kick_off_new_child_process(**self.worker_args)
+        )
+
+    def _send_next_chunk(self, slot: int, pipe: mp.connection.Connection) -> None:
+        """Hand the next chunk of cells to a slot's worker."""
+        end = min(self.cells_started + self.chunk_cells, self.n_cells)
+        pipe.send(self.chunk(self.cells_started, end))
+        self.chunk_sizes[slot] = end - self.cells_started
+        self.cells_started = end
+        self.chunks_out += 1
+
+    def _finish_chunk(self, slot: int) -> None:
+        """Count the chunk out with a slot's worker as done."""
+        self.cells_finished += self.chunk_sizes[slot]
+        self.chunk_sizes[slot] = 0
+        self.chunks_out -= 1
+        self.progress.update(self.cells_finished - self.progress.n)
+
+    def start(self) -> None:
+        """Start a worker in every slot and hand each one a chunk."""
+        for slot in range(len(self.procs)):
+            self._start_worker(slot)
+            pipe = self.pipes[slot]
+            if pipe is not None:
+                self._send_next_chunk(slot, pipe)
+
+    def run(self) -> list[pd.DataFrame]:
+        """Hand out chunks until every one is accounted for; return their results."""
+        while self.chunks_out > 0:
+            # Sleep until some worker has sent a result or exited, rather than poll
+            # every pipe in a tight loop, which kept this process at 100% CPU.
+            ready = set(
+                mp.connection.wait(
+                    [
+                        waitable
+                        for proc, pipe in zip(self.procs, self.pipes, strict=True)
+                        if proc is not None and pipe is not None
+                        for waitable in (pipe, proc.sentinel)
+                    ],
+                    timeout=_COORDINATOR_WAIT_S,
+                ),
+            )
+            for slot in range(len(self.procs)):
+                self._service(slot, ready)
+        return self.results
+
+    def _service(self, slot: int, ready: set) -> None:
+        """Deal with a slot whose worker has sent a result or exited."""
+        proc, pipe, pipe_child = (
+            self.procs[slot],
+            self.pipes[slot],
+            self.pipes_child[slot],
+        )
+        # A slot's process and pipes are set, and cleared, together.
+        if proc is None or pipe is None or pipe_child is None:
+            return
+        if pipe not in ready and proc.sentinel not in ready:
+            return
+
+        if not proc.is_alive():
+            logger.warning(
+                "Sub-process terminated unexpectedly. Some data may be"
+                " missing. Restarting a new process.",
+            )
+            proc.join()
+            pipe.close()
+            pipe_child.close()
+            self._start_worker(slot)
+            # The chunk this worker was working on died with it and is never
+            # retried, so count it as accounted for. Otherwise the bar could never
+            # reach the total once a worker has crashed.
+            self._finish_chunk(slot)
+            proc, pipe, pipe_child = (
+                self.procs[slot],
+                self.pipes[slot],
+                self.pipes_child[slot],
+            )
+            if proc is None or pipe is None or pipe_child is None:
+                return
+
+        if pipe.poll():
+            self.results.append(pipe.recv())
+            self._finish_chunk(slot)
+
+            if self.cells_started < self.n_cells:
+                self._send_next_chunk(slot, pipe)
+            else:
+                pipe.send(self.stop_message)
+                proc.join()
+                pipe.close()
+                pipe_child.close()
+                self.procs[slot] = None
+                self.pipes[slot] = None
+                self.pipes_child[slot] = None
+
+    def close(self, memory_objs: list[shared_memory.SharedMemory]) -> None:
+        """Stop every worker still running and release the shared memory."""
+        clean_procs_and_pipes(self.procs, self.pipes, self.pipes_child, memory_objs)
+
+
+def _log_validation_time(total_time_s: float, n: int) -> None:
+    """Log how long the cell validation took, in total and per cell."""
+    per_cell = f"{(total_time_s / n) if n > 0 else 0:0.4f}"
+    if total_time_s >= _LOG_MINUTES_AFTER_S:
+        total_time_m = int(total_time_s / 60)
+        partial_time_s = total_time_s % 60
+        logger.info(
+            "%d minute%s %s seconds total, (%s s/iteration)",
+            total_time_m,
+            "s" if total_time_m > 1 else "",
+            f"{partial_time_s:0.1f}",
+            per_cell,
+        )
+    else:
+        logger.info(
+            "%s seconds total, (%s s/iteration)",
+            f"{total_time_s:0.1f}",
+            per_cell,
+        )
+
+
 def _run_parallel_cell_validation(
     photon_df: pd.DataFrame,
     height_field: pd.Series,
@@ -1974,74 +2467,25 @@ def _run_parallel_cell_validation(
     )
     logger.info("Performing ICESat-2/DEM cell validation...")
 
-    results_dataframes_list: list[pd.DataFrame] = []
     t_start = time.perf_counter()
 
     # Starting a worker costs a few tens of milliseconds, more than a few hundred
     # cells take to validate, so a small DEM gets fewer workers.
     cpu_count = max(1, min(numprocs, -(-n // _MIN_CELLS_PER_WORKER)))
-    proc_id = os.getpid()
-    height_array_name = f"heights_{proc_id}"
-    code_array_name = f"codes_{proc_id}"
-    if not (
-        height_field.shape
-        == photon_df.i.shape
-        == photon_df.j.shape
-        == photon_df.class_code.shape
-    ):
-        msg = "The photon heights, i, j and class codes are not all the same length."
-        raise RuntimeError(msg)
-    if measure_coverage and not (
-        height_field.shape == photon_df.dem_x.shape == photon_df.dem_y.shape
-    ):
-        msg = "The photon heights, dem_x and dem_y are not all the same length."
-        raise RuntimeError(msg)
+    _check_photon_columns(photon_df, height_field, measure_coverage=measure_coverage)
 
-    # Sort the photons by grid cell with a stable sort, which keeps their order within
-    # each cell, so a worker reads a cell's photons as one slice rather than searching
-    # all of them for every cell. Each cell gets the same photons in the same order.
-    ph_i = photon_df.i.to_numpy()
-    ph_j = photon_df.j.to_numpy()
-    ncols = int(max(ph_j.max(initial=0), np.max(dem_overlap_j, initial=0))) + 1
-    ph_keys = ph_i.astype(np.int64) * ncols + ph_j
-    ph_order = np.argsort(ph_keys, kind="stable")
-    ph_keys = ph_keys[ph_order]
-    cell_keys = np.asarray(dem_overlap_i, dtype=np.int64) * ncols + dem_overlap_j
-    ph_starts = np.searchsorted(ph_keys, cell_keys, side="left")
-    ph_ends = np.searchsorted(ph_keys, cell_keys, side="right")
-
-    height_dtype = height_field.dtype
-    code_dtype = photon_df.class_code.dtype
-    x_array_name: str | None = None
-    y_array_name: str | None = None
-    x_dtype = y_dtype = None
-    if measure_coverage:
-        x_array_name = f"x_{proc_id}"
-        x_dtype = photon_df.dem_x.dtype
-        y_array_name = f"y_{proc_id}"
-        y_dtype = photon_df.dem_y.dtype
-
-    # The try/finally below releases these once the workers start. Until then, a
-    # failure here (a name left over from a crashed run, say, or running out of
-    # memory) releases whatever was already allocated.
-    memory_objs: list[shared_memory.SharedMemory] = []
-    try:
-        memory_objs.append(
-            _shared_copy(height_array_name, height_field.to_numpy()[ph_order]),
-        )
-        memory_objs.append(
-            _shared_copy(code_array_name, photon_df.class_code.to_numpy()[ph_order]),
-        )
-        if x_array_name is not None and y_array_name is not None:
-            memory_objs.append(
-                _shared_copy(x_array_name, photon_df.dem_x.to_numpy()[ph_order]),
-            )
-            memory_objs.append(
-                _shared_copy(y_array_name, photon_df.dem_y.to_numpy()[ph_order]),
-            )
-    except BaseException:
-        clean_procs_and_pipes([], [], [], memory_objs)
-        raise
+    ph_order, ph_starts, ph_ends = _photon_cell_ranges(
+        photon_df.i.to_numpy(),
+        photon_df.j.to_numpy(),
+        dem_overlap_i,
+        dem_overlap_j,
+    )
+    memory_objs, worker_args = _share_photon_arrays(
+        photon_df,
+        height_field,
+        ph_order,
+        measure_coverage=measure_coverage,
+    )
 
     def _chunk(start: int, end: int) -> tuple[npt.NDArray, ...]:
         """Return the work message for cells start:end."""
@@ -2054,20 +2498,6 @@ def _run_parallel_cell_validation(
             ph_ends[start:end],
         )
 
-    running_procs: list[mp.process.BaseProcess | None] = [None] * cpu_count
-    open_pipes_parent: list[mp.connection.Connection | None] = [None] * cpu_count
-    open_pipes_child: list[mp.connection.Connection | None] = [None] * cpu_count
-    # Cells in the chunk currently out with each child process. Progress is measured
-    # in cells *handed out*, not rows handed back: a child omits any cell that fell
-    # below 'min_photons_per_cell', so len(chunk_result_df) undercounts the work done
-    # and the bar would stall short of n. Each pipe has at most one chunk outstanding,
-    # so this is an exact count.
-    chunk_sizes = [0] * cpu_count
-
-    counter_started = 0
-    counter_finished = 0
-    num_chunks_started = 0
-    num_chunks_finished = 0
     # About _CHUNKS_PER_WORKER chunks per worker: few enough that handing out chunks
     # and collecting results costs little, enough that workers finishing early can
     # take up the slack. Clamped so a small DEM still splits and a large one still
@@ -2077,11 +2507,6 @@ def _run_parallel_cell_validation(
         _MAX_CHUNK_CELLS,
     )
 
-    # One worker slot's process and pipes; a finished slot's are None.
-    proc: mp.process.BaseProcess | None
-    pipe: mp.connection.Connection | None
-    pipe_child: mp.connection.Connection | None
-
     # 'disable=None' tells tqdm to draw the bar only when attached to a terminal, and
     # stay silent when the output is redirected to a file or a pipe.
     progress = tqdm.tqdm(
@@ -2090,130 +2515,24 @@ def _run_parallel_cell_validation(
         unit="cell",
         file=sys.stdout,
     )
+    pool = _CellWorkerPool(
+        # Only as many workers as there are chunks to start them on.
+        min(cpu_count, -(-n // items_per_process_chunk)),
+        n_cells=n,
+        chunk_cells=items_per_process_chunk,
+        chunk=_chunk,
+        worker_args={
+            **worker_args,
+            "photon_limit": max_photons_per_cell,
+            "min_photons": min_photons_per_cell,
+            "empty_val": empty_val,
+        },
+        progress=progress,
+    )
 
     try:
-        for i in range(cpu_count):
-            if counter_started >= n:
-                running_procs = running_procs[:i]
-                open_pipes_parent = open_pipes_parent[:i]
-                open_pipes_child = open_pipes_child[:i]
-                chunk_sizes = chunk_sizes[:i]
-                break
-
-            proc, pipe, pipe_child = kick_off_new_child_process(
-                height_array_name,
-                height_dtype,
-                code_array_name,
-                code_dtype,
-                height_field.shape,
-                photon_limit=max_photons_per_cell,
-                min_photons=min_photons_per_cell,
-                measure_coverage=measure_coverage,
-                x_array_name=x_array_name,
-                x_dtype=x_dtype,
-                y_array_name=y_array_name,
-                y_dtype=y_dtype,
-                empty_val=empty_val,
-            )
-            running_procs[i], open_pipes_parent[i], open_pipes_child[i] = (
-                proc,
-                pipe,
-                pipe_child,
-            )
-
-            counter_chunk_end = min(counter_started + items_per_process_chunk, n)
-            pipe.send(_chunk(counter_started, counter_chunk_end))
-            chunk_sizes[i] = counter_chunk_end - counter_started
-            counter_started = counter_chunk_end
-            num_chunks_started += 1
-
-        while num_chunks_finished < num_chunks_started:
-            # Sleep until some worker has sent a result or exited, rather than poll
-            # every pipe in a tight loop, which kept this process at 100% CPU.
-            ready = set(
-                mp.connection.wait(
-                    [
-                        waitable
-                        for proc, pipe in zip(
-                            running_procs,
-                            open_pipes_parent,
-                            strict=True,
-                        )
-                        if proc is not None and pipe is not None
-                        for waitable in (pipe, proc.sentinel)
-                    ],
-                    timeout=_COORDINATOR_WAIT_S,
-                ),
-            )
-            for i, procs_and_pipes in enumerate(
-                zip(running_procs, open_pipes_parent, open_pipes_child, strict=True),
-            ):
-                proc, pipe, pipe_child = procs_and_pipes
-                # A slot's process and pipes are set, and cleared, together.
-                if proc is None or pipe is None or pipe_child is None:
-                    continue
-                if pipe not in ready and proc.sentinel not in ready:
-                    continue
-
-                if not proc.is_alive():
-                    logger.warning(
-                        "Sub-process terminated unexpectedly. Some data may be"
-                        " missing. Restarting a new process.",
-                    )
-                    proc.join()
-                    pipe.close()
-                    pipe_child.close()
-                    proc, pipe, pipe_child = kick_off_new_child_process(
-                        height_array_name,
-                        height_dtype,
-                        code_array_name,
-                        code_dtype,
-                        height_field.shape,
-                        photon_limit=max_photons_per_cell,
-                        min_photons=min_photons_per_cell,
-                        measure_coverage=measure_coverage,
-                        x_array_name=x_array_name,
-                        x_dtype=x_dtype,
-                        y_array_name=y_array_name,
-                        y_dtype=y_dtype,
-                        empty_val=empty_val,
-                    )
-                    running_procs[i] = proc
-                    open_pipes_parent[i] = pipe
-                    open_pipes_child[i] = pipe_child
-                    # The chunk this child was working on died with it and is never
-                    # retried, so count it as accounted for. Otherwise the bar could
-                    # never reach n once a child has crashed.
-                    counter_finished += chunk_sizes[i]
-                    chunk_sizes[i] = 0
-                    num_chunks_finished += 1
-                    progress.update(counter_finished - progress.n)
-
-                if pipe.poll():
-                    chunk_result_df = pipe.recv()
-                    counter_finished += chunk_sizes[i]
-                    chunk_sizes[i] = 0
-                    num_chunks_finished += 1
-                    results_dataframes_list.append(chunk_result_df)
-                    progress.update(counter_finished - progress.n)
-
-                    if counter_started < n:
-                        counter_chunk_end = min(
-                            counter_started + items_per_process_chunk,
-                            n,
-                        )
-                        pipe.send(_chunk(counter_started, counter_chunk_end))
-                        chunk_sizes[i] = counter_chunk_end - counter_started
-                        counter_started = counter_chunk_end
-                        num_chunks_started += 1
-                    else:
-                        pipe.send(("STOP", *[None] * (8 if measure_coverage else 4)))
-                        proc.join()
-                        pipe.close()
-                        pipe_child.close()
-                        running_procs[i] = None
-                        open_pipes_parent[i] = None
-                        open_pipes_child[i] = None
+        pool.start()
+        results_dataframes_list = pool.run()
 
     except Exception:
         logger.exception(
@@ -2227,31 +2546,9 @@ def _run_parallel_cell_validation(
         progress.close()
         # Also on KeyboardInterrupt: workers left running keep this process from
         # exiting.
-        clean_procs_and_pipes(
-            running_procs,
-            open_pipes_parent,
-            open_pipes_child,
-            memory_objs,
-        )
+        pool.close(memory_objs)
 
-    t_end = time.perf_counter()
-    total_time_s = t_end - t_start
-    if total_time_s >= _LOG_MINUTES_AFTER_S:
-        total_time_m = int(total_time_s / 60)
-        partial_time_s = total_time_s % 60
-        logger.info(
-            "%d minute%s %s seconds total, (%s s/iteration)",
-            total_time_m,
-            "s" if total_time_m > 1 else "",
-            f"{partial_time_s:0.1f}",
-            f"{(total_time_s / n) if n > 0 else 0:0.4f}",
-        )
-    else:
-        logger.info(
-            "%s seconds total, (%s s/iteration)",
-            f"{total_time_s:0.1f}",
-            f"{(total_time_s / n) if n > 0 else 0:0.4f}",
-        )
+    _log_validation_time(time.perf_counter() - t_start, n)
 
     return results_dataframes_list
 

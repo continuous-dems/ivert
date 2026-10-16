@@ -68,6 +68,8 @@ class _FakeProcess:
 
     whole_dem = None
     parts_have_results = True
+    # Set to give the first part's first cell this error.
+    outlier_error = None
 
     def __init__(self, target, args, kwargs) -> None:
         assert target is validate_dem.validate_dem_parallel
@@ -84,7 +86,13 @@ class _FakeProcess:
                 self.dem_name,
                 self.kwargs["output_dir"],
             )
-            _part_results(self.dem_name).to_hdf(results_file, key="icesat2")
+            part_results = _part_results(self.dem_name)
+            if _FakeProcess.outlier_error is not None:
+                part_results.iloc[0, part_results.columns.get_loc("diff_mean")] = (
+                    _FakeProcess.outlier_error
+                )
+                _FakeProcess.outlier_error = None
+            part_results.to_hdf(results_file, key="icesat2")
             self.kwargs["shared_ret_values"]["results_dataframe_file"] = results_file
         self.exitcode = 0
 
@@ -102,6 +110,7 @@ def dem(tmp_path, monkeypatch):
     dem_path = _make_dem(tmp_path / "dems" / "dem.tif")
     _FakeProcess.whole_dem = str(dem_path)
     _FakeProcess.parts_have_results = True
+    _FakeProcess.outlier_error = None
     monkeypatch.setattr(validate_dem.mp, "Process", _FakeProcess)
     return dem_path
 
@@ -151,3 +160,17 @@ def test_with_no_output_dir_the_results_go_beside_the_dem(dem):
     _run(dem, None)
 
     assert (dem.parent / "dem_results.h5").exists()
+
+
+def test_outliers_are_removed_from_the_merged_results(dem, tmp_path):
+    """The parts are validated with outlier removal off, so the merge must do it."""
+    outlier = 100.0
+    _FakeProcess.outlier_error = outlier
+    out = tmp_path / "out"
+    out.mkdir()
+
+    _run(dem, out)
+
+    merged = pd.read_hdf(out / "dem_results.h5")
+    assert len(merged) == HEIGHT * WIDTH - 1
+    assert merged["diff_mean"].max() < outlier

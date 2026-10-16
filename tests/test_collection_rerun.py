@@ -249,3 +249,64 @@ def test_overwrite_deletes_an_empty_marker(tmp_path):
     )
 
     assert not empty.exists()
+
+
+def _existing_results(tmp_path):
+    """A DEM's results file from an earlier run, and the DEM itself."""
+    dem = _make_tif(tmp_path / "dem.tif")
+    results = tmp_path / "dem_results.h5"
+    n = 4
+    pd.DataFrame(
+        {
+            "i": np.arange(n),
+            "j": np.zeros(n, dtype=int),
+            "mean": np.ones(n),
+            "diff_mean": np.linspace(-0.5, 0.5, n),
+            "stddev": np.full(n, 0.1),
+            "dem_elev": np.ones(n),
+            "numphotons_intd": np.full(n, 10),
+            "numphotons_bathy": np.zeros(n, dtype=int),
+        },
+    ).set_index(["i", "j"]).to_hdf(results, key="icesat2")
+    return dem, results
+
+
+def _reuse(dem, results, **kwargs: object):
+    return validate_dem._check_existing_outputs(
+        str(dem),
+        results_dataframe_file=results,
+        empty_results_filename=None,
+        location_name=None,
+        overwrite=False,
+        shared_ret_values={},
+        **kwargs,
+    )
+
+
+def test_a_rerun_rebuilds_only_the_missing_outputs(tmp_path):
+    """Outputs that can be rebuilt from the results don't need the DEM revalidated."""
+    dem, results = _existing_results(tmp_path)
+    summary = tmp_path / "dem_summary_stats.txt"
+    plot = tmp_path / "dem_plot.png"
+    plot.write_bytes(b"an earlier run's plot")
+
+    files = _reuse(dem, results, summary_stats_filename=summary, plot_filename=plot)
+
+    assert files == [results, summary, plot]
+    assert summary.exists()
+    assert plot.read_bytes() == b"an earlier run's plot"
+
+
+def test_a_rerun_missing_photon_results_revalidates(tmp_path):
+    """Photon-level results need the photons, so they can't be rebuilt from results."""
+    dem, results = _existing_results(tmp_path)
+
+    files = _reuse(
+        dem,
+        results,
+        summary_stats_filename=None,
+        plot_filename=None,
+        include_photon_level_validation=True,
+    )
+
+    assert files is None
