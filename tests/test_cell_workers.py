@@ -185,3 +185,61 @@ def test_workers_are_stopped_when_the_run_is_interrupted(monkeypatch):
 
     # The shared memory segments are released on the way out.
     assert leftover == []
+
+
+@pytest.mark.skipif(not hasattr(signal, "SIGKILL"), reason="Needs SIGKILL.")
+def test_a_crashed_workers_replacement_validates_the_remaining_cells(monkeypatch):
+    """The replacement used to sit idle, so a lone worker's crash ended the run.
+
+    Only the chunk out with the crashed worker may be lost; every cell handed out
+    after it must still be validated.
+    """
+    started = []
+    real_kick_off = validate_dem.kick_off_new_child_process
+
+    def kill_the_first_worker(*args: object, **kwargs: object):
+        proc, pipe_parent, pipe_child = real_kick_off(*args, **kwargs)
+        started.append(proc)
+        if len(started) == 1:
+            os.kill(proc.pid, signal.SIGKILL)
+        return proc, pipe_parent, pipe_child
+
+    monkeypatch.setattr(
+        validate_dem,
+        "kick_off_new_child_process",
+        kill_the_first_worker,
+    )
+
+    # Few enough cells for a single worker, but more than one chunk.
+    n = 500
+    photon_df = pd.DataFrame(
+        {
+            "i": np.arange(n, dtype=np.int64),
+            "j": np.zeros(n, dtype=np.int64),
+            "class_code": np.ones(n, dtype=np.int8),
+            "h": np.ones(n, dtype=np.float32),
+        },
+    )
+
+    try:
+        results = validate_dem._run_parallel_cell_validation(
+            photon_df,
+            photon_df["h"],
+            dem_overlap_i=photon_df["i"].to_numpy(),
+            dem_overlap_j=photon_df["j"].to_numpy(),
+            dem_overlap_elevs=np.zeros(n, dtype=np.float32),
+            n=n,
+            max_photons_per_cell=None,
+            min_photons_per_cell=1,
+            measure_coverage=False,
+            coverage_coords=None,
+            numprocs=1,
+            empty_val=-99999.0,
+        )
+    finally:
+        _kill([proc.pid for proc in started])
+
+    validated = sorted(i for df in results for i, _ in df.index)
+    assert validated
+    assert validated == list(range(validated[0], n))
+    assert len(started) == 2

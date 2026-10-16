@@ -2366,18 +2366,20 @@ class _CellWorkerPool:
             proc.join()
             pipe.close()
             pipe_child.close()
-            self._start_worker(slot)
+            self.procs[slot] = self.pipes[slot] = self.pipes_child[slot] = None
             # The chunk this worker was working on died with it and is never
             # retried, so count it as accounted for. Otherwise the bar could never
             # reach the total once a worker has crashed.
             self._finish_chunk(slot)
-            proc, pipe, pipe_child = (
-                self.procs[slot],
-                self.pipes[slot],
-                self.pipes_child[slot],
-            )
-            if proc is None or pipe is None or pipe_child is None:
-                return
+            # The replacement needs a chunk of its own to start on. Without one it
+            # sat idle, and a run with a single worker ended here, every cell not
+            # yet handed out silently dropped.
+            if self.cells_started < self.n_cells:
+                self._start_worker(slot)
+                new_pipe = self.pipes[slot]
+                if new_pipe is not None:
+                    self._send_next_chunk(slot, new_pipe)
+            return
 
         if pipe.poll():
             self.results.append(pipe.recv())
