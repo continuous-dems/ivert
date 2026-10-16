@@ -1900,7 +1900,7 @@ def _run_photon_level_validation(
     photon_results_dataframe_file = _photon_results_filename(results_dataframe_file)
     photon_df_with_dem_elevs.to_hdf(
         photon_results_dataframe_file,
-        "icesat2",
+        key="icesat2",
         complib="zlib",
         complevel=3,
     )
