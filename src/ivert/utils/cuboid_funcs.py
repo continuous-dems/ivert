@@ -223,120 +223,13 @@ def merge_cuboids(
     # Work in point order.
     boxes = [_to_point_order(c, axis=axis) for c in boxes]
 
-    def can_merge(a: Cuboid, b: Cuboid, along: str | None = None) -> Cuboid | None:
-        """Return merged cuboid if a and b are mergeable, else None.
-
-        With ``along`` set to "x", "y" or "z", only a merge along that axis counts.
-        """
-        ax1, ay1, az1, ax2, ay2, az2 = a
-        bx1, by1, bz1, bx2, by2, bz2 = b
-
-        # Overlapping or touching check
-        overlap_x = not (ax2 < bx1 - tol or bx2 < ax1 - tol)
-        overlap_y = not (ay2 < by1 - tol or by2 < ay1 - tol)
-        overlap_z = not (az2 < bz1 - tol or bz2 < az1 - tol)
-
-        # Must be aligned exactly in 2 axes, and touching or overlapping in the third
-        # Case 1: merge along X
-        if (
-            along in (None, "x")
-            and abs(ay1 - by1) < tol
-            and abs(ay2 - by2) < tol
-            and abs(az1 - bz1) < tol
-            and abs(az2 - bz2) < tol
-            and (abs(ax2 - bx1) < tol or abs(bx2 - ax1) < tol or overlap_x)
-        ):
-            return (min(ax1, bx1), ay1, az1, max(ax2, bx2), ay2, az2)
-
-        # Case 2: merge along Y
-        if (
-            along in (None, "y")
-            and abs(ax1 - bx1) < tol
-            and abs(ax2 - bx2) < tol
-            and abs(az1 - bz1) < tol
-            and abs(az2 - bz2) < tol
-            and (abs(ay2 - by1) < tol or abs(by2 - ay1) < tol or overlap_y)
-        ):
-            return (ax1, min(ay1, by1), az1, ax2, max(ay2, by2), az2)
-
-        # Case 3: merge along Z
-        if (
-            along in (None, "z")
-            and abs(ax1 - bx1) < tol
-            and abs(ax2 - bx2) < tol
-            and abs(ay1 - by1) < tol
-            and abs(ay2 - by2) < tol
-            and (abs(az2 - bz1) < tol or abs(bz2 - az1) < tol or overlap_z)
-        ):
-            return (ax1, ay1, min(az1, bz1), ax2, ay2, max(az2, bz2))
-
-        # Case 4: One completely supercedes the other, even if edges don't align.
-        if (
-            along is None
-            and (
-                ax1 <= bx1
-                and ax2 >= bx2
-                and ay1 <= by1
-                and ay2 >= by2
-                and az1 <= bz1
-                and az2 >= bz2
-            )
-        ) or (
-            along is None
-            and bx1 <= ax1
-            and bx2 >= ax2
-            and by1 <= ay1
-            and by2 >= ay2
-            and bz1 <= az1
-            and bz2 >= az2
-        ):
-            # Return the polygon with the greatest volume.
-            return max(
-                a,
-                b,
-                key=lambda c: (c[3] - c[0]) * (c[4] - c[1]) * (c[5] - c[2]),
-            )
-
-        return None
-
-    def greedy_merge(cuboids: list[Cuboid], along: str | None = None) -> list[Cuboid]:
-        """Merge pairs in list order until nothing more merges (see can_merge)."""
-        cuboids = cuboids[:]
-        merged = True
-        while merged:
-            merged = False
-            new_cuboids: list[Cuboid] = []
-            skip = set()
-
-            for i in range(len(cuboids)):
-                if i in skip:
-                    continue
-                a = cuboids[i]
-                merged_with = False
-                for j in range(i + 1, len(cuboids)):
-                    if j in skip:
-                        continue
-                    b = cuboids[j]
-                    merged_c = can_merge(a, b, along)
-                    if merged_c:
-                        new_cuboids.append(merged_c)
-                        skip.add(j)
-                        merged_with = True
-                        merged = True
-                        break
-                if not merged_with and i not in skip:
-                    new_cuboids.append(a)
-
-            cuboids = new_cuboids
-        return cuboids
-
     if prefer is None:
-        boxes = greedy_merge(boxes)
+        boxes = _greedy_merge(boxes, tol)
     else:
         # Form the strips of the wanted orientation first, then let the full
         # merge join whatever strips still line up.
-        by_row = greedy_merge(greedy_merge(boxes, along="x"))
-        by_column = greedy_merge(greedy_merge(boxes, along="y"))
+        by_row = _greedy_merge(_greedy_merge(boxes, tol, along="x"), tol)
+        by_column = _greedy_merge(_greedy_merge(boxes, tol, along="y"), tol)
         if len(by_row) == len(by_column):
             boxes = by_row if prefer == "row" else by_column
         else:
@@ -350,6 +243,124 @@ def merge_cuboids(
             result.append(c)
 
     return [_from_point_order(c, axis=axis) for c in result]
+
+
+def _merge_pair(
+    a: Cuboid,
+    b: Cuboid,
+    tol: float,
+    along: str | None = None,
+) -> Cuboid | None:
+    """Return merged cuboid if a and b are mergeable, else None.
+
+    With ``along`` set to "x", "y" or "z", only a merge along that axis counts.
+    """
+    ax1, ay1, az1, ax2, ay2, az2 = a
+    bx1, by1, bz1, bx2, by2, bz2 = b
+
+    # Overlapping or touching check
+    overlap_x = not (ax2 < bx1 - tol or bx2 < ax1 - tol)
+    overlap_y = not (ay2 < by1 - tol or by2 < ay1 - tol)
+    overlap_z = not (az2 < bz1 - tol or bz2 < az1 - tol)
+
+    # Must be aligned exactly in 2 axes, and touching or overlapping in the third
+    # Case 1: merge along X
+    if (
+        along in (None, "x")
+        and abs(ay1 - by1) < tol
+        and abs(ay2 - by2) < tol
+        and abs(az1 - bz1) < tol
+        and abs(az2 - bz2) < tol
+        and (abs(ax2 - bx1) < tol or abs(bx2 - ax1) < tol or overlap_x)
+    ):
+        return (min(ax1, bx1), ay1, az1, max(ax2, bx2), ay2, az2)
+
+    # Case 2: merge along Y
+    if (
+        along in (None, "y")
+        and abs(ax1 - bx1) < tol
+        and abs(ax2 - bx2) < tol
+        and abs(az1 - bz1) < tol
+        and abs(az2 - bz2) < tol
+        and (abs(ay2 - by1) < tol or abs(by2 - ay1) < tol or overlap_y)
+    ):
+        return (ax1, min(ay1, by1), az1, ax2, max(ay2, by2), az2)
+
+    # Case 3: merge along Z
+    if (
+        along in (None, "z")
+        and abs(ax1 - bx1) < tol
+        and abs(ax2 - bx2) < tol
+        and abs(ay1 - by1) < tol
+        and abs(ay2 - by2) < tol
+        and (abs(az2 - bz1) < tol or abs(bz2 - az1) < tol or overlap_z)
+    ):
+        return (ax1, ay1, min(az1, bz1), ax2, ay2, max(az2, bz2))
+
+    # Case 4: One completely supercedes the other, even if edges don't align.
+    if (
+        along is None
+        and (
+            ax1 <= bx1
+            and ax2 >= bx2
+            and ay1 <= by1
+            and ay2 >= by2
+            and az1 <= bz1
+            and az2 >= bz2
+        )
+    ) or (
+        along is None
+        and bx1 <= ax1
+        and bx2 >= ax2
+        and by1 <= ay1
+        and by2 >= ay2
+        and bz1 <= az1
+        and bz2 >= az2
+    ):
+        # Return the polygon with the greatest volume.
+        return max(
+            a,
+            b,
+            key=lambda c: (c[3] - c[0]) * (c[4] - c[1]) * (c[5] - c[2]),
+        )
+
+    return None
+
+
+def _greedy_merge(
+    cuboids: list[Cuboid],
+    tol: float,
+    along: str | None = None,
+) -> list[Cuboid]:
+    """Merge pairs in list order until nothing more merges (see _merge_pair)."""
+    cuboids = cuboids[:]
+    merged = True
+    while merged:
+        merged = False
+        new_cuboids: list[Cuboid] = []
+        skip = set()
+
+        for i in range(len(cuboids)):
+            if i in skip:
+                continue
+            a = cuboids[i]
+            merged_with = False
+            for j in range(i + 1, len(cuboids)):
+                if j in skip:
+                    continue
+                b = cuboids[j]
+                merged_c = _merge_pair(a, b, tol, along)
+                if merged_c:
+                    new_cuboids.append(merged_c)
+                    skip.add(j)
+                    merged_with = True
+                    merged = True
+                    break
+            if not merged_with and i not in skip:
+                new_cuboids.append(a)
+
+        cuboids = new_cuboids
+    return cuboids
 
 
 def _float_cuboid(c: Sequence[float]) -> Cuboid:
