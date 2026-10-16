@@ -12,6 +12,7 @@ import numpy as np
 import pandas as pd
 import tqdm
 from matplotlib import ticker
+from matplotlib import transforms as mtransforms
 from matplotlib.axes import Axes
 
 from ivert.utils import dem_source
@@ -20,8 +21,6 @@ logger = logging.getLogger(__name__)
 
 # Fewer validated cells than this are too few to plot statistics for.
 _MIN_CELLS_TO_PLOT = 3
-# A histogram of at least this many cells is cropped to its 1st-99th percentiles.
-_MIN_CELLS_TO_CROP = 20
 
 
 def is_iterable(obj: object) -> bool:
@@ -137,7 +136,8 @@ def plot_histograms_and_line(
     2) Histogram of mean errors bathy (blue)
     3) 1:1 line of DEM vs ICESat-2 elevations
 
-    If 'place_name' is provided, use it in the title of the plot.
+    If 'place_name' is provided, use it in the title of the plot. Each histogram's
+    x-axis spans 'hist_cutoff_num_stddevs' standard deviations either side of its mean.
     """
     # If we're writing a PNG file, use the "Agg" backend (no display).
     # This helps avoid errors.
@@ -266,7 +266,7 @@ def _plot_error_histogram(
     ax.axvline(x=center + std, color="black", linestyle="--", linewidth=0.5)
     ax.axvline(x=center - std, color="black", linestyle="--", linewidth=0.5)
 
-    ax.set_xlim(_histogram_xlim(diffs, center, std, hist_cutoff_num_stddevs))
+    ax.set_xlim(_histogram_xlim(center, std, hist_cutoff_num_stddevs))
 
     # Pad the top by 10%
     ylim = ax.get_ylim()
@@ -283,37 +283,27 @@ def _plot_error_histogram(
 
 
 def _histogram_xlim(
-    diffs: pd.Series,
     center: float,
     std: float,
     hist_cutoff_num_stddevs: float,
 ) -> tuple[float, float]:
-    """Return the (left, right) x-axis limits for a histogram of differences."""
-    # Crop the left & right (only if there are enough points)
-    if len(diffs) >= _MIN_CELLS_TO_CROP:
-        cutoffs = np.percentile(diffs, [1, 99])
+    """Return the (left, right) x-axis limits for a histogram of differences.
+
+    The limits are hist_cutoff_num_stddevs standard deviations either side of the
+    mean. When every difference is the same, so the standard deviation is 0, they are
+    widened by 5% of the value either side instead (0.05 at 0), as matplotlib does
+    with equal limits, so the axis still has a width. Limits that aren't finite fall
+    back to (-1, 1).
+    """
+    half_width = std * hist_cutoff_num_stddevs
+    if half_width == 0:
+        # Widen it the way matplotlib would, without its warning.
+        left, right = mtransforms.nonsingular(center, center, expander=0.05)
     else:
-        cutoffs = [min(diffs), max(diffs)]
-
-    # If we have a zero-width range, arbitrarily buffer it by 1 m in each direction.
-    if cutoffs[0] == cutoffs[1]:
-        cutoffs[0] = cutoffs[0] - 1
-        cutoffs[1] = cutoffs[1] + 1
-
-    # Do not crop the photo to make the stddev lines fall outside the plot.
-    # If they do, reset the min/max cutoff to be 2 stddev away from the mean on that
-    # side.
-    if (center + std) >= cutoffs[1] or hist_cutoff_num_stddevs is not None:
-        cutoffs[1] = center + (std * hist_cutoff_num_stddevs)
-    if (center - std) <= cutoffs[0] or hist_cutoff_num_stddevs is not None:
-        cutoffs[0] = center - (std * hist_cutoff_num_stddevs)
-
-    # Just error checking, if any of the cutoffs come back with NaN or Inf, just
-    # clip it to -1, 1, debug later.
-    if np.any(np.isnan(cutoffs) | np.isinf(cutoffs)):
-        cutoffs = [-1, 1]
-
-    return (float(cutoffs[0]), float(cutoffs[1]))
+        left, right = center - half_width, center + half_width
+    if not (np.isfinite(left) and np.isfinite(right)):
+        return (-1.0, 1.0)
+    return (float(left), float(right))
 
 
 def _add_text_box(ax: Axes, x: float, text: str, *, ha: str, alpha: float) -> None:
