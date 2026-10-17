@@ -17,6 +17,7 @@ import multiprocessing as mp
 import multiprocessing.connection
 import multiprocessing.managers
 import os
+import shutil
 import signal
 import sys
 import time
@@ -1039,9 +1040,15 @@ def validate_dem(
         )
         raise MemoryError(msg)
 
+    # The parts, and each part's results, go in a scratch folder of their own, deleted
+    # once they are merged. If the run stops before that, a rerun reuses what is there.
+    parts_dir = _parts_dir(dem_name, output_dir)
+    if overwrite:
+        shutil.rmtree(parts_dir, ignore_errors=True)
+    parts_dir.mkdir(parents=True, exist_ok=True)
     part_ret_values = _validate_dem_in_parts(
         dem_name,
-        output_dir,
+        parts_dir,
         manager=manager,
         options=options,
         icesat2_photon_database_obj=icesat2_photon_database_obj,
@@ -1067,6 +1074,8 @@ def validate_dem(
         location_name=location_name,
         dem_projection=dem_projection,
     )
+    shutil.rmtree(parts_dir)
+    logger.debug("Removed %s, the parts of %s.", parts_dir, dem_name)
 
     log_written_files(written_files)
     return list(shared_ret_values.values())
@@ -1085,9 +1094,14 @@ def _killed_by_os(exitcode: int | None) -> bool:
     )
 
 
+def _parts_dir(dem_name: str, output_dir: str | Path) -> Path:
+    """Return the scratch folder in output_dir for a split DEM's parts and results."""
+    return Path(output_dir) / (dem_source.dem_base_name(dem_name) + "_parts_tmp")
+
+
 def _validate_dem_in_parts(
     dem_name: str,
-    output_dir: Path,
+    parts_dir: Path,
     *,
     manager: mp.managers.SyncManager,
     options: dict[str, Any],
@@ -1099,9 +1113,11 @@ def _validate_dem_in_parts(
 ) -> list[MutableMapping]:
     """Split a DEM into 4 parts and validate each one, returning each part's results.
 
-    Each part is validated with validate_dem() and the same 'options', one level of
-    subdivision deeper. The parts write only their results files: outliers are removed,
-    and summaries, plots and error exports written, once their results are merged.
+    The parts are written to 'parts_dir', and validated into it with validate_dem() and
+    the same 'options', one level of subdivision deeper. Parts already there, and their
+    results, are reused. The parts write only their results files: outliers are
+    removed, and summaries, plots and error exports written, once their results are
+    merged.
     """
     # Make sure the DEM exists that we're trying to sub-divide
     if not Path(dem_source.dem_file_path(dem_name)).exists():
@@ -1119,7 +1135,7 @@ def _validate_dem_in_parts(
     sub_dem_names = subdivide_dem(
         dem_name,
         factor=factor,
-        output_dir=output_dir,
+        output_dir=parts_dir,
     )
 
     part_ret_values: list[MutableMapping] = [manager.dict() for _ in sub_dem_names]
@@ -1142,7 +1158,7 @@ def _validate_dem_in_parts(
     ):
         validate_dem(
             sub_dem_name,
-            output_dir=output_dir,
+            output_dir=parts_dir,
             shared_ret_values=sub_shared_ret_dict,
             icesat2_photon_database_obj=icesat2_photon_database_obj,
             **options,

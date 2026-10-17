@@ -66,3 +66,36 @@ def test_summary_files_without_a_place_are_named_summary(tmp_path):
 
     assert files.results_h5 == tmp_path / "summary_results.h5"
     assert files.stats == tmp_path / "summary_summary_stats.txt"
+
+
+def test_a_relative_output_directory_is_never_taken_from_the_current_one(
+    tmp_path,
+    monkeypatch,
+):
+    """A folder of that name in the current directory was used instead.
+
+    And validate_dem() wrote each DEM's results under the current directory, while
+    the summary files and error markers went under the DEMs' folder.
+    """
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "out").mkdir()
+    dems = tmp_path / "dems"
+    dems.mkdir()
+
+    assert _out_dir(str(dems / "a.tif"), "out") == dems / "out"
+
+
+def test_a_relative_output_directory_goes_inside_a_dem_directory(tmp_path):
+    """As 'ivert validate' does; it went beside the directory instead."""
+    dems = tmp_path / "dems"
+    dems.mkdir()
+
+    assert _out_dir(str(dems), "out") == dems / "out"
+
+
+def test_the_output_directory_is_absolute_for_a_relative_input(tmp_path, monkeypatch):
+    """Every DEM's results then go in one folder, wherever they are written from."""
+    monkeypatch.chdir(tmp_path)
+
+    assert _out_dir("dems/a.tif", "out") == tmp_path / "dems" / "out"
+    assert _out_dir("dems/a.tif") == tmp_path / "dems"

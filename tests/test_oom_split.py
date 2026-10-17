@@ -6,8 +6,11 @@ in-process stand-in: the whole DEM's run is "killed", and each part's run writes
 results file, so no photons are needed.
 """
 
+import logging
 import signal
+from pathlib import Path
 from types import SimpleNamespace
+from typing import ClassVar
 
 import numpy as np
 import pandas as pd
@@ -70,6 +73,10 @@ class _FakeProcess:
     parts_have_results = True
     # Set to give the first part's first cell this error.
     outlier_error = None
+    # The DEM names validated, in order.
+    started: ClassVar[list[str]] = []
+    # Set to the file name of a part whose validation fails.
+    failing_part = None
 
     def __init__(self, target, args, kwargs) -> None:
         assert target is validate_dem.validate_dem_parallel
@@ -78,6 +85,10 @@ class _FakeProcess:
         self.exitcode = None
 
     def start(self):
+        _FakeProcess.started.append(self.dem_name)
+        if self.dem_name.endswith(f"/{_FakeProcess.failing_part}"):
+            self.exitcode = 1
+            return
         if self.dem_name == self.whole_dem:
             self.exitcode = -signal.SIGKILL
             return
@@ -111,14 +122,17 @@ def dem(tmp_path, monkeypatch):
     _FakeProcess.whole_dem = str(dem_path)
     _FakeProcess.parts_have_results = True
     _FakeProcess.outlier_error = None
+    _FakeProcess.started = []
+    _FakeProcess.failing_part = None
     monkeypatch.setattr(validate_dem.mp, "Process", _FakeProcess)
     return dem_path
 
 
-def _run(dem_path, output_dir):
+def _run(dem_path, output_dir, *, overwrite=False):
     return validate_dem.validate_dem(
         str(dem_path),
         output_dir=output_dir,
+        overwrite=overwrite,
         # The parts query no photons; passing a database skips opening the real one.
         icesat2_photon_database_obj=SimpleNamespace(config=Config()),
         export_error_formats=[],
@@ -174,3 +188,70 @@ def test_outliers_are_removed_from_the_merged_results(dem, tmp_path):
     merged = pd.read_hdf(out / "dem_results.h5")
     assert len(merged) == HEIGHT * WIDTH - 1
     assert merged["diff_mean"].max() < outlier
+
+
+def _names(directory):
+    return sorted(p.name for p in directory.iterdir())
+
+
+@pytest.mark.parametrize("separate_output_dir", [True, False])
+def test_the_parts_go_in_a_scratch_folder_that_is_removed(
+    dem,
+    tmp_path,
+    separate_output_dir,
+):
+    """The parts were left beside the results, and a rerun took them for DEMs."""
+    out = tmp_path / "out" if separate_output_dir else dem.parent
+    out.mkdir(exist_ok=True)
+
+    _run(dem, out)
+
+    parts = [Path(name) for name in _FakeProcess.started[1:]]
+    assert len(parts) == 4
+    assert {part.parent for part in parts} == {out / "dem_parts_tmp"}
+    assert not (out / "dem_parts_tmp").exists()
+    assert _names(dem.parent)[0] == "dem.tif"
+    assert not [name for name in _names(out) if name.startswith("dem_0.")]
+
+
+def test_a_run_that_stops_keeps_its_parts_for_the_rerun(dem, tmp_path, caplog):
+    """A rerun reuses the parts left by a run that failed, and their results.
+
+    The results are reused in the sub-process, which _FakeProcess stands in for, so
+    only the parts are checked here.
+    """
+    out = tmp_path / "out"
+    out.mkdir()
+    _FakeProcess.failing_part = "dem_1.0.tif"
+
+    with pytest.raises(RuntimeError):
+        _run(dem, out)
+
+    parts_dir = out / "dem_parts_tmp"
+    assert "dem_0.0_results.h5" in _names(parts_dir)
+    assert _names(out) == ["dem_parts_tmp"]
+
+    _FakeProcess.failing_part = None
+    caplog.clear()
+    with caplog.at_level(logging.INFO, logger="ivert.utils.split_dem"):
+        _run(dem, out)
+
+    assert caplog.text.count("already exists") == 4
+    assert not parts_dir.exists()
+    assert (out / "dem_results.h5").exists()
+
+
+def test_overwrite_splits_the_dem_again(dem, tmp_path):
+    """Parts left by an earlier run may be of an older version of the DEM."""
+    out = tmp_path / "out"
+    stale_part = out / "dem_parts_tmp" / "dem_0.0.tif"
+    stale_part.parent.mkdir(parents=True)
+    with rasterio.open(dem) as src:
+        profile = src.profile | {"width": 1, "height": 1}
+    with rasterio.open(stale_part, "w", **profile) as dst:
+        dst.write(np.ones((1, 1, 1), dtype="float32"))
+
+    _run(dem, out, overwrite=True)
+
+    merged = pd.read_hdf(out / "dem_results.h5")
+    assert sorted(merged.index) == [(i, j) for i in range(HEIGHT) for j in range(WIDTH)]
