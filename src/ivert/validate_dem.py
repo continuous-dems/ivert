@@ -606,7 +606,7 @@ def validate_dem_child_process(
         if connection.poll(_WORKER_WAIT_S):
             chunk = _receive_chunk(connection, measure_coverage=measure_coverage)
 
-            # Upon the "STOP" mesage, close the shared memory objects and return.
+            # Upon the "STOP" message, close the shared memory objects and return.
             if chunk is None:
                 _close_shared(shms)
                 return
@@ -870,7 +870,7 @@ def validate_dem(
             meaning ground (1), land ice (6), and bathy floor (40). Run 'ivert classes'
             for the full list of codes.
         shared_ret_values: Shared return values from validate_dem_parallel. This is an
-            analagous way to get the return values back from the calling function if
+            analogous way to get the return values back from the calling function if
             this is called as a sub-process.
         icesat2_photon_database_obj: icesat-2 photon database object. Only
             used if we've already created one, such as in validate_dem_collection, for

@@ -1,4 +1,4 @@
-"""icesat2_requests.py — track and re-use NASA Harmony job submissions.
+"""icesat2_requests.py — track and reuse NASA Harmony job submissions.
 
 Persists a record of every Harmony job to ~/.ivert/icesat2/requests.csv so
 that identical bbox/time requests can be satisfied from a cached job rather
@@ -120,7 +120,7 @@ class ICESat2RequestsCSV:
                 JSON dict.
             atl_version: When given (e.g. "007" or 7), only match records of jobs that
                 asked for that version. Records with no version recorded never match, so
-                a job submitted before the version was tracked is not re-used. Defaults
+                a job submitted before the version was tracked is not reused. Defaults
                 to None (any version).
 
         """
