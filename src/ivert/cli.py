@@ -35,6 +35,7 @@ from ivert.utils.sizeof_format import sizeof_fmt
 
 if typing.TYPE_CHECKING:
     import geopandas
+    import pandas as pd
     import pyproj
     from shapely.geometry.base import BaseGeometry
 
@@ -1792,7 +1793,7 @@ def _granules_to_convert(
     db: "IS2Database",
     bbox: BBox | None,
     dates: tuple[int, int] | None,
-) -> "geopandas.GeoDataFrame":
+) -> "pd.DataFrame":
     """Return the database index rows of the granules to convert.
 
     With neither a bbox nor YYYYMMDD 'dates', that is every granule holding photons.
@@ -1817,9 +1818,8 @@ def _granules_to_convert(
         tmin, tmax = (
             dates if dates is not None else (_EXPORT_DATE_MIN, _EXPORT_DATE_MAX)
         )
-        granule_rows = db.query_granules((*spatial, tmin, tmax))
-        if granule_rows is None:
-            granule_rows = gdf_index.iloc[0:0]
+        matches = db.query_granules((*spatial, tmin, tmax))
+        granule_rows = gdf_index.iloc[0:0] if matches is None else matches
 
     if len(granule_rows) == 0:
         msg = "No granules found matching the requested region and/or date range."
@@ -1828,7 +1828,7 @@ def _granules_to_convert(
 
 
 def _confirm_large_convert(
-    granule_rows: "geopandas.GeoDataFrame",
+    granule_rows: "pd.DataFrame",
     *,
     whole_database: bool,
     force: bool,
@@ -1859,7 +1859,7 @@ def _confirm_large_convert(
 
 def _read_granule_photons(
     db: "IS2Database",
-    granule_rows: "geopandas.GeoDataFrame",
+    granule_rows: "pd.DataFrame",
     target: _ExportTarget,
     *,
     class_list: list[int] | None,

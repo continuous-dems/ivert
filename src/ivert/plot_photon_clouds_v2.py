@@ -229,9 +229,9 @@ def _apply_vdatum_to_df(
     dst = f"EPSG:4326+{target_vert}"
     try:
         _, _, z_new = tp.transform_points(
-            df["x"].values,
-            df["y"].values,
-            df["z"].values,
+            df["x"].to_numpy(),
+            df["y"].to_numpy(),
+            df["z"].to_numpy(),
             src_epsg=src,
             dst_epsg=dst,
             cache_dir=cache_dir,

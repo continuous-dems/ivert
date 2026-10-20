@@ -17,7 +17,7 @@ import ivert.bathy_filters
 import ivert.icesat2_database_v2
 from ivert import plot_validation_results, validate_dem
 from ivert.photon_classes import SEAFLOOR
-from ivert.utils import dem_source
+from ivert.utils import dem_source, hdf
 from ivert.utils.paths import absolute_path
 
 logger = logging.getLogger(__name__)
@@ -35,7 +35,7 @@ def write_summary_csv_file(
     way, had no photons to validate against and get a row with no statistics.
     """
     if type(total_results_df_or_file) is str:
-        total_df = pd.read_hdf(total_results_df_or_file)
+        total_df = hdf.read_hdf_dataframe(total_results_df_or_file)
     else:
         if not isinstance(total_results_df_or_file, pd.DataFrame):
             msg = "total_results_df_or_file must be a DataFrame or a file name."

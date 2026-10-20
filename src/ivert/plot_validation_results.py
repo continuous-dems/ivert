@@ -15,7 +15,7 @@ from matplotlib import ticker
 from matplotlib import transforms as mtransforms
 from matplotlib.axes import Axes
 
-from ivert.utils import dem_source
+from ivert.utils import dem_source, hdf
 
 logger = logging.getLogger(__name__)
 
@@ -97,7 +97,7 @@ def _read_results_file(
     The column holds the display name of 'orig_filename', the DEM the results came
     from, or the results file's own name when that isn't given.
     """
-    data = pd.read_hdf(h5_file)
+    data = hdf.read_hdf_dataframe(h5_file)
     if include_filenames:
         if orig_filename is None:
             data["filename"] = Path(h5_file).name

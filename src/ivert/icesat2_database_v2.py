@@ -38,6 +38,7 @@ import tqdm
 import tqdm.contrib.logging
 import xarray
 from fetchez.modules.earthdata import IceSat2 as _FetchezIceSat2
+from shapely.geometry.base import BaseGeometry
 
 import ivert.landmask
 import ivert.utils.configfile
@@ -633,11 +634,11 @@ class IS2Database:
             else:
                 gdf = pd.DataFrame(self._empty_db_dict()).drop(
                     labels=0,
-                    axis="rows",
+                    axis="index",
                 )
 
         else:
-            gdf = pd.DataFrame(self._empty_db_dict()).drop(labels=0, axis="rows")
+            gdf = pd.DataFrame(self._empty_db_dict()).drop(labels=0, axis="index")
 
         self._write_index(gdf)
         if index_file.exists():
@@ -1345,7 +1346,7 @@ class IS2Database:
         is_marker = cls.is_empty_tile(nc_fn)
         records = []
         for cuboid in cuboids:
-            piece = cls._photons_in_bbox(df, cuboid)
+            piece = cls._photons_in_bbox(df, cuboid[:4])
             if "delta_time" in piece.columns:
                 dt = piece["delta_time"]
                 piece = piece[
@@ -1363,7 +1364,7 @@ class IS2Database:
         return records
 
     @staticmethod
-    def _photons_in_bbox(df: pd.DataFrame, bbox: tuple) -> pd.DataFrame:
+    def _photons_in_bbox(df: pd.DataFrame, bbox: BBox) -> pd.DataFrame:
         """Return the photons inside a box, by the same edge rule as read_granule()."""
         return df[
             (df["x"] >= bbox[0])
@@ -2108,7 +2109,7 @@ class IS2Database:
         min_confidence_level: int = 1,
         cache_subdir: str | None = None,
         replace: bool = False,
-        geometry: shapely.Geometry | None = None,
+        geometry: BaseGeometry | None = None,
     ) -> DownloadSummary:
         """Download ATL03 granules from NASA with fetchez and add them to the database.
 
@@ -2225,7 +2226,7 @@ class IS2Database:
     def _boxes_to_download(
         self,
         bbox: list | tuple,
-        geometry: shapely.Geometry | None,
+        geometry: BaseGeometry | None,
         *,
         replace: bool,
     ) -> list[BBoxWithDates]:
@@ -3042,7 +3043,7 @@ def _tile_edges(
 
 
 def tile_geometry_into_bboxes(
-    geometry: shapely.Geometry,
+    geometry: BaseGeometry,
     tile_size_deg: float = 2.0,
     sliver_fraction: float = 0.25,
 ) -> list[tuple[float, float, float, float]]:

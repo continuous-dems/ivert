@@ -55,12 +55,15 @@ test = [
 # checking" section in step with this list.
 typecheck = [
     "mypy==2.3.1",
+    "pandas-stubs",
     "scipy-stubs",
     "types-colorama",
     "types-dateparser",
+    "types-geopandas",
     "types-psutil",
     "types-pyogrio",
     "types-rasterio",
+    "types-shapely",
     "types-tabulate",
     "types-tqdm",
 ]
@@ -118,13 +121,9 @@ check_untyped_defs = true
 module = [
     "fetchez",
     "fetchez.*",
-    "geopandas",
     "globato",
     "globato.*",
     "h5py",
-    "pandas",
-    "shapely",
-    "shapely.*",
     "transformez",
     "transformez.*",
 ]
