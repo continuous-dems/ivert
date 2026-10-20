@@ -780,7 +780,7 @@ class IS2Database:
         return record
 
     @classmethod
-    def _read_nc_metadata(cls, nc_fn: str) -> dict | None:
+    def _read_nc_metadata(cls, nc_fn: str | Path) -> dict | None:
         """Read metadata attrs from a NetCDF granule file without loading photon arrays.
 
         This is deliberately fast: xarray reads only the file header, not the data.
@@ -2915,7 +2915,7 @@ class IS2Database:
 
         """
         xmin, xmax, ymin, ymax, tmin, tmax = bbox
-        return (xmin < xmax) and (ymin < ymax) and (tmin <= tmax)
+        return bool((xmin < xmax) and (ymin < ymax) and (tmin <= tmax))
 
     def filter_query_bbox(self, query_bbox: BBoxWithDates) -> list[BBoxWithDates]:
         """Return bboxes for the parts of an (x,y,t) box not already in the database.

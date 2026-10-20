@@ -33,6 +33,7 @@ import pandas as pd
 import pyproj
 import rasterio
 import rasterio.enums
+import rasterio.io
 import rasterio.merge
 import rasterio.transform
 import rasterio.vrt
@@ -780,7 +781,7 @@ def _load_reference(
     sources, opened = [], []
     try:
         for p in paths:
-            ds = rasterio.open(p)
+            ds: rasterio.io.DatasetReader | rasterio.vrt.WarpedVRT = rasterio.open(p)
             opened.append(ds)
             if ds.crs is not None and not ds.crs.is_geographic:
                 ds = rasterio.vrt.WarpedVRT(
@@ -850,9 +851,15 @@ def _sample(
     lat: np.ndarray,
 ) -> np.ndarray:
     """Values of array at the points; NaN outside it."""
-    rows, cols = rasterio.transform.rowcol(transform, lon, lat)
+    # rowcol takes arrays as well as the sequences its type stubs list.
+    row_vals, col_vals = rasterio.transform.rowcol(
+        transform,
+        lon,  # type: ignore[arg-type]
+        lat,  # type: ignore[arg-type]
+    )
     # Whole numbers already, but rasterio 1.4.1 returns them as floats for arrays.
-    rows, cols = np.asarray(rows).astype(np.intp), np.asarray(cols).astype(np.intp)
+    rows = np.asarray(row_vals).astype(np.intp)
+    cols = np.asarray(col_vals).astype(np.intp)
     inside = (
         (rows >= 0) & (rows < array.shape[0]) & (cols >= 0) & (cols < array.shape[1])
     )
@@ -887,4 +894,4 @@ def _distance_to_coast_m(
     )
     px, py = local.transform(lon, lat)
     dist, _ = cKDTree(coast_points).query(np.column_stack([px, py]))
-    return dist
+    return np.asarray(dist)

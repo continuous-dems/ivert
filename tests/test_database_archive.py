@@ -181,6 +181,17 @@ def test_an_archive_in_another_vertical_datum_is_refused(region_zip, make_standi
         da.plan_restore(region_zip, db=target.db)
 
 
+@pytest.mark.parametrize("manifest", ['{"format": "other"}', "[]", '"text"'])
+def test_a_zip_that_is_not_a_dump_is_refused(manifest, tmp_path):
+    """A manifest that isn't an IVERT dump's, or isn't a JSON object at all."""
+    archive = tmp_path / "other.zip"
+    with zipfile.ZipFile(archive, "w") as zf:
+        zf.writestr(da.MANIFEST_NAME, manifest)
+
+    with pytest.raises(da.ArchiveError, match="is not an IVERT database dump"):
+        da.read_manifest(archive)
+
+
 # ---------------------------------------------------------------------------
 # restore
 # ---------------------------------------------------------------------------
