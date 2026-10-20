@@ -259,7 +259,7 @@ class Config:
     All paths are considered relative to the location of the configfile. Absolute paths
     will be left unchanged. All other paths that contain a file-delimeter character ("/"
     on linux, "\" on Windows) will be joined with the path of the configfile and
-    converted to an absolute path. The EXCEPTION ot the above rule is if the variable
+    converted to an absolute path. The EXCEPTION to the above rule is if the variable
     name begins with "s3_", in which case it is assumed to be an AWS S3 bucket prefix
     and will not be converted to an absolute path on the local machine.
 

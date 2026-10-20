@@ -106,7 +106,7 @@ class DownloadSummary(NamedTuple):
 _PART_FAILED = DownloadSummary(parts_failed=1)
 _PART_EMPTY = DownloadSummary(parts_empty=1)
 
-# Harmony job states that mean a cached job can't be re-used.
+# Harmony job states that mean a cached job can't be reused.
 _HARMONY_ERROR_STATES = frozenset({"complete_with_errors", "failed", "canceled"})
 
 
@@ -2476,14 +2476,14 @@ class IS2Database:
         if cached:
             # Ping Harmony to verify the cached job completed without errors.
             # Jobs with "complete_with_errors", "failed", or "canceled" status
-            # cannot be reliably re-used, so a new job must be submitted instead.
+            # cannot be reliably reused, so a new job must be submitted instead.
             cached_job_id = cached["jobID"]
             current_status = mod.harmony_ping_for_status(cached_job_id)
             current_state = current_status.get("status", "") if current_status else ""
             if current_state not in _HARMONY_ERROR_STATES:
                 mod.subset_job_id = cached_job_id
                 logger.info(
-                    "Re-using cached Harmony job (%s ATL03 granules): "
+                    "Reusing cached Harmony job (%s ATL03 granules): "
                     "https://harmony.earthdata.nasa.gov/jobs/%s",
                     cached.get("numInputGranules", "?"),
                     mod.subset_job_id,

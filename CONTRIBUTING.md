@@ -38,7 +38,10 @@ prek run --all-files
 This repository uses [`prek`](https://prek.j178.dev/) rather than
 `pre-commit`. It reads the same `.pre-commit-config.yaml`, so the hook
 definitions are unchanged, and pre-commit.ci runs the same hooks on every pull
-request. To run Ruff directly:
+request. Besides Ruff, the hooks check spelling with
+[codespell](https://github.com/codespell-project/codespell). To keep it from
+flagging a correctly spelled word, end that line with `# codespell:ignore <word>`
+(`<!-- codespell:ignore <word> -->` in Markdown). To run Ruff directly:
 
 ```bash
 ruff check src           # lint
@@ -68,9 +71,9 @@ pip install --group typecheck   # --group needs pip 25.1 or newer
 mypy
 ```
 
-prek runs it too, once it is installed (`prek run --all-files`). pre-commit.ci
-skips it, since it can't install IVERT's dependencies; the "Type check" GitHub
-workflow runs it on every pull request instead.
+It is not a pre-commit hook, since it needs those dependencies installed, so run
+it yourself before opening a pull request. The "Type check" GitHub workflow runs
+it on every pull request.
 
 A dependency that ships no type information goes in the list under
 `[[tool.mypy.overrides]]`, so that mypy doesn't fail on importing it.

@@ -297,7 +297,7 @@ def _merge_pair(
     ):
         return (ax1, ay1, min(az1, bz1), ax2, ay2, max(az2, bz2))
 
-    # Case 4: One completely supercedes the other, even if edges don't align.
+    # Case 4: One completely supersedes the other, even if edges don't align.
     if (
         along is None
         and (

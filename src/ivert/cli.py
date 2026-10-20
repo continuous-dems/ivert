@@ -104,7 +104,7 @@ def ivert_cli(user_config: Path | None, verbosity: str | None) -> None:
         os.environ["IVERT_USER_CONFIG"] = str(absolute_path(user_config.expanduser()))
 
     if verbosity is None:
-        # Reading the user config can itself emit warnings (an unparseable file, an
+        # Reading the user config can itself emit warnings (an unparsable file, an
         # unrecognized setting), so install a handler at the default level before
         # asking it for the verbosity we actually want.
         logging_config.configure_logging(logging_config.DEFAULT_VERBOSITY)

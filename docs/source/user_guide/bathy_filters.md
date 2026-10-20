@@ -69,7 +69,7 @@ The landmask counts lakes as land, so test B never fires on lakes. Photons in ar
 
 **Fires when:** the photon is more than `bathy_ref_tolerance_m` shallower than the reference bathymetry at its location.
 
-This is a coarse sanity check against an independent source. The default tolerance is deliberately wide. ETOPO's roughly 450 m cells can't follow a rugged nearshore seafloor; along the Monterey–Carmel coast, a 10 m tolerance removed 155 good photons, and 30 m removed none. Lower the tolerance if you supply a finer reference raster with `--bathy-ref-raster`.
+This is a coarse sanity check against an independent source. The default tolerance is deliberately wide. ETOPO's roughly 450 m cells can't follow a rugged nearshore seafloor; along the Monterey–Carmel coast, a 10 m tolerance removed 155 good photons, and 30 m removed none. Lower the tolerance if you supply a finer reference raster with `--bathy-ref-raster`. <!-- codespell:ignore carmel -->
 
 The test only removes photons that are too *shallow*. A photon deeper than the reference is left alone, since that is exactly the kind of real disagreement a DEM validation is meant to find.
 
