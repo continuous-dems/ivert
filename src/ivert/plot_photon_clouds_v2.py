@@ -317,7 +317,7 @@ def _sample_dem_along_track(
             else:
                 px, py = dense_lons.copy(), dense_lats.copy()
 
-            samples = list(src.sample(zip(px.tolist(), py.tolist(), strict=True)))
+            samples = list(src.sample(list(zip(px.tolist(), py.tolist(), strict=True))))
     except (
         OSError,
         ValueError,

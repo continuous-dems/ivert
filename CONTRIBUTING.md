@@ -71,11 +71,26 @@ pip install --group typecheck   # --group needs pip 25.1 or newer
 mypy
 ```
 
+In a conda environment, install the group's packages with conda instead.
+Some of the stub packages require newer releases of numpy or affine, and pip
+would install its own copies of those over conda's. All but `types-pyogrio`
+are on conda-forge, and it has no dependencies of its own:
+
+```bash
+conda install -c conda-forge mypy=2.3.1 scipy-stubs types-colorama types-dateparser types-psutil types-rasterio types-tabulate types-tqdm
+pip install --no-deps types-pyogrio
+```
+
+These are the packages in the `typecheck` group in `pyproject.toml`; if the
+two lists differ, the group is right.
+
 It is not a pre-commit hook, since it needs those dependencies installed, so run
 it yourself before opening a pull request. The "Type check" GitHub workflow runs
 it on every pull request.
 
-A dependency that ships no type information goes in the list under
+For a dependency that ships no type information, add its stub package (such as
+`types-<name>` from [typeshed](https://github.com/python/typeshed)) to the
+`typecheck` group if one exists. If none does, list the dependency under
 `[[tool.mypy.overrides]]`, so that mypy doesn't fail on importing it.
 
 ### Output and logging

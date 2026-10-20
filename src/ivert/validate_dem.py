@@ -121,7 +121,10 @@ def _pandas_mean(values: npt.NDArray) -> np.floating:
     pandas, and matching it exactly keeps validation results unchanged.
     """
     if values.dtype.kind == "f":
-        return values.sum(dtype=values.dtype) / values.dtype.type(len(values))
+        mean: np.floating = values.sum(dtype=values.dtype) / values.dtype.type(
+            len(values),
+        )
+        return mean
     return values.sum(dtype=np.float64) / np.float64(len(values))
 
 
@@ -139,7 +142,8 @@ def _pandas_std(values: npt.NDArray) -> np.floating | float:
     var = ((avg - values) ** 2).sum(dtype=np.float64) / (n - 1)
     if values.dtype.kind == "f":
         var = values.dtype.type(var)
-    return np.sqrt(var)
+    std: np.floating = np.sqrt(var)
+    return std
 
 
 # The text of the "<dem>_results_EMPTY.txt" marker for a DEM with no results.

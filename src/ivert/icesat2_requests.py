@@ -326,12 +326,18 @@ class ICESat2RequestsCSV:
         # Imported here: it is slow to import, and only this needs it.
         import dateparser  # noqa: PLC0415 - slow import
 
+        ex = dateparser.parse(dt_string)
+        if ex is None:  # blank or unreadable
+            return False
         try:
-            ex = dateparser.parse(dt_string)
             return datetime.datetime.now(datetime.UTC) >= ex
-        except TypeError:
+        except TypeError:  # a date without a time zone
             return False
 
     @staticmethod
     def _read_json(json_str: str) -> dict:
-        return ast.literal_eval(json_str)
+        job = ast.literal_eval(json_str)
+        if not isinstance(job, dict):
+            msg = f"A Harmony job record is not a dictionary: {json_str!r}"
+            raise TypeError(msg)
+        return job

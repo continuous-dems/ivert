@@ -49,9 +49,20 @@ test = [
     "pytest>=8",
     "pytest-cov",
 ]
-# Pinned, so a new mypy release can't turn an unchanged branch red; bump it on purpose.
+# mypy is pinned, so a new mypy release can't turn an unchanged branch red; bump it
+# on purpose. The rest are type stubs for dependencies that ship no type
+# information of their own. Keep the conda command in CONTRIBUTING.md's "Type
+# checking" section in step with this list.
 typecheck = [
     "mypy==2.3.1",
+    "scipy-stubs",
+    "types-colorama",
+    "types-dateparser",
+    "types-psutil",
+    "types-pyogrio",
+    "types-rasterio",
+    "types-tabulate",
+    "types-tqdm",
 ]
 docs = [
     "sphinx<9.0.0",  # temp pin for sphinx-click
@@ -87,25 +98,24 @@ markers = [
 ]
 
 [tool.mypy]
-# Strictness is being raised one --strict check at a time (#180), as the
-# annotations fill in (#40).
+# Strictness is being raised one --strict check at a time (#180).
 files = ["src/ivert"]
 python_version = "3.12"
+# The checks from --strict that are on so far; #180 tracks the rest.
 warn_unused_ignores = true
 warn_redundant_casts = true
-# The checks from --strict that are on so far; #180 tracks the rest.
+warn_return_any = true
 strict_equality = true
 extra_checks = true
 no_implicit_reexport = true
 check_untyped_defs = true
 
-# Dependencies that ship no type information. Listing them by name, rather than
-# setting ignore_missing_imports for everything, keeps a new untyped dependency
-# from slipping by unnoticed.
+# Dependencies that ship no type information and have no stub package in the
+# "typecheck" group. Listing them by name, rather than setting
+# ignore_missing_imports for everything, keeps a new untyped dependency from
+# slipping by unnoticed.
 [[tool.mypy.overrides]]
 module = [
-    "colorama",
-    "dateparser",
     "fetchez",
     "fetchez.*",
     "geopandas",
@@ -113,16 +123,8 @@ module = [
     "globato.*",
     "h5py",
     "pandas",
-    "psutil",
-    "pyogrio",
-    "rasterio",
-    "rasterio.*",
-    "scipy.*",
     "shapely",
     "shapely.*",
-    "tabulate",
-    "tqdm",
-    "tqdm.*",
     "transformez",
     "transformez.*",
 ]

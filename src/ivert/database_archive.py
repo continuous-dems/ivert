@@ -201,7 +201,14 @@ _COPY_CHUNK = 4 * 1024 * 1024
 
 
 @contextlib.contextmanager
-def _progress_bar(**kwargs: object) -> Iterator[tqdm.tqdm]:
+def _progress_bar(
+    *,
+    total: float | None,
+    desc: str,
+    unit: str,
+    unit_scale: bool = False,
+    unit_divisor: float = 1000,
+) -> Iterator[tqdm.tqdm]:
     """Yield a tqdm progress bar, drawn only at 'info' verbosity or above."""
     # 'disable=None' tells tqdm to draw the bar only when attached to a terminal,
     # and stay silent when output is redirected to a file or a pipe. Log records
@@ -210,18 +217,26 @@ def _progress_bar(**kwargs: object) -> Iterator[tqdm.tqdm]:
         tqdm.contrib.logging.logging_redirect_tqdm(),
         tqdm.tqdm(
             disable=None if logger.isEnabledFor(logging.INFO) else True,
-            **kwargs,
+            total=total,
+            desc=desc,
+            unit=unit,
+            unit_scale=unit_scale,
+            unit_divisor=unit_divisor,
         ) as bar,
     ):
         yield bar
 
 
-def _progress[T](iterable: Iterable[T], **kwargs: object) -> Iterator[T]:
+def _progress[T](
+    iterable: Iterable[T],
+    *,
+    desc: str,
+    total: int | None = None,
+) -> Iterator[T]:
     """Iterate over iterable, advancing a progress bar as each item is finished."""
-    if isinstance(iterable, Sized):
-        kwargs.setdefault("total", len(iterable))
-    kwargs.setdefault("unit", "file")
-    with _progress_bar(**kwargs) as bar:
+    if total is None and isinstance(iterable, Sized):
+        total = len(iterable)
+    with _progress_bar(total=total, desc=desc, unit="file") as bar:
         for item in iterable:
             yield item
             bar.update()
@@ -393,7 +408,7 @@ def read_manifest(archive: str | Path) -> dict:
     except (OSError, zipfile.BadZipFile, KeyError, json.JSONDecodeError) as exc:
         msg = f"{archive} is not an IVERT database dump: {exc}"
         raise ArchiveError(msg) from exc
-    if manifest.get("format") != FORMAT:
+    if not isinstance(manifest, dict) or manifest.get("format") != FORMAT:
         msg = f"{archive} is not an IVERT database dump."
         raise ArchiveError(msg)
     if int(manifest.get("format_version", 0)) > FORMAT_VERSION:
