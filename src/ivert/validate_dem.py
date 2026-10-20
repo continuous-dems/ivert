@@ -37,6 +37,7 @@ import rasterio.crs
 import shapely
 import shapely.geometry
 import tqdm
+from shapely.geometry.base import BaseGeometry
 
 import ivert.bathy_filters
 import ivert.icesat2_database_v2
@@ -47,7 +48,7 @@ import ivert.utils.logging_config
 import ivert.utils.split_dem
 import ivert.vdatum_lookup
 from ivert.photon_classes import SEAFLOOR
-from ivert.utils import dem_geom, dem_source, parallel_funcs
+from ivert.utils import dem_geom, dem_source, hdf, parallel_funcs
 from ivert.utils.paths import absolute_path
 
 logger = logging.getLogger(__name__)
@@ -165,7 +166,7 @@ def read_dataframe_file(df_filename: str | Path) -> pd.DataFrame:
         raise FileNotFoundError(msg)
     ext = Path(df_filename).suffix.lower()
     if ext in (".h5", ".hdf"):
-        dataframe = pd.read_hdf(df_filename, mode="r")
+        dataframe = hdf.read_hdf_dataframe(df_filename)
     elif ext in (".csv", ".txt"):
         dataframe = pd.read_csv(df_filename)
     elif ext == ".feather":
@@ -1217,7 +1218,7 @@ def _merge_results_dataframes(
         )
         output_dfs.append(
             reset_results_indexes_after_merge(
-                pd.read_hdf(fname),
+                hdf.read_hdf_dataframe(fname),
                 part_dem_path,
                 dem_name,
             ),
@@ -1274,7 +1275,7 @@ def _merge_part_outputs(
     if "photon_results_dataframe_file" in common_keys:
         photons_df = pd.concat(
             [
-                pd.read_hdf(fname)
+                hdf.read_hdf_dataframe(fname)
                 for fname in _part_files(
                     part_ret_values,
                     "photon_results_dataframe_file",
@@ -1868,7 +1869,7 @@ def _fetch_photons(
 def _resolve_exclude_geometry(
     exclude_zones: list,
     dem_epsg_str: str,
-) -> shapely.Geometry | None:
+) -> BaseGeometry | None:
     """Resolve exclude-zone specs into one shapely geometry in the DEM's horizontal CRS.
 
     Each item in exclude_zones is either a 4-value (minx, miny, maxx, maxy) bounding box
@@ -1881,13 +1882,19 @@ def _resolve_exclude_geometry(
     """
     dem_horz_crs, _ = dem_geom.split_srs_string(dem_epsg_str)
 
-    geoms = []
+    geoms: list[BaseGeometry] = []
     for zone in exclude_zones:
         if isinstance(zone, (list, tuple)):
             minx, miny, maxx, maxy = zone
             geoms.append(shapely.geometry.box(minx, miny, maxx, maxy))
         else:
             gdf = geopandas.read_file(zone)
+            if dem_horz_crs is None:
+                msg = (
+                    f"Cannot reproject exclude zone {zone} into {dem_epsg_str}, "
+                    "which has no horizontal CRS."
+                )
+                raise ValueError(msg)
             if gdf.crs is not None and not pyproj.CRS(gdf.crs).equals(dem_horz_crs):
                 gdf = gdf.to_crs(dem_horz_crs)
             geoms.extend(geom for geom in gdf.geometry if geom is not None)
@@ -1973,9 +1980,9 @@ def _compute_photon_overlap(
     try:
         photon_df["dem_x"], photon_df["dem_y"], photon_df["dem_z"] = (
             ivert.transform_points.transform_points(
-                photon_df["x"],
-                photon_df["y"],
-                photon_df["z"],
+                photon_df["x"].to_numpy(),
+                photon_df["y"].to_numpy(),
+                photon_df["z"].to_numpy(),
                 src_epsg=photon_src_epsg,
                 dst_epsg=dem_epsg_str,
                 cache_dir=cache_dir,

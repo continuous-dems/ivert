@@ -41,6 +41,7 @@ import shapely
 from fetchez.registry import HookRegistry, ModuleRegistry
 from scipy import ndimage
 from scipy.spatial import cKDTree
+from shapely.geometry.base import BaseGeometry
 
 import ivert.landmask
 import ivert.transform_points
@@ -73,7 +74,7 @@ _MAX_WINDOW_CELLS = 51
 
 # What the landmask rules read over a box: (land, the area any landmask covers,
 # coastline or None).
-_Landmask = tuple[shapely.Geometry, shapely.Geometry, shapely.Geometry | None]
+_Landmask = tuple[BaseGeometry, BaseGeometry, BaseGeometry | None]
 
 
 @dataclasses.dataclass(frozen=True)
@@ -391,7 +392,8 @@ def write_report_to_h5(h5_file: str | Path, report: "BathyFilterReport | None") 
         return
     with pd.HDFStore(h5_file, mode="a") as store:
         setattr(
-            store.get_storer(store.keys()[0]).attrs,
+            # pandas-stubs leaves out HDFStore.get_storer().
+            store.get_storer(store.keys()[0]).attrs,  # type: ignore[operator]
             H5_REPORT_ATTR,
             report.to_json(),
         )
@@ -406,7 +408,8 @@ def read_report_from_h5(h5_file: str | Path) -> BathyFilterReport | None:
             keys = store.keys()
             if not keys:
                 return None
-            attrs = store.get_storer(keys[0]).attrs
+            # pandas-stubs leaves out HDFStore.get_storer().
+            attrs = store.get_storer(keys[0]).attrs  # type: ignore[operator]
             text = getattr(attrs, H5_REPORT_ATTR, None)
     except (OSError, ValueError, KeyError):
         return None
@@ -605,7 +608,7 @@ def _landmask_at(
     lon: np.ndarray,
     lat: np.ndarray,
     landmask: _Landmask,
-) -> tuple[np.ndarray, np.ndarray, shapely.Geometry | None]:
+) -> tuple[np.ndarray, np.ndarray, BaseGeometry | None]:
     """Place the photons on a landmask.
 
     Returns (whether each is on land, whether the landmask covers it, the
@@ -634,7 +637,7 @@ def _offshore_flags(
     ref: np.ndarray | None,
     on_land: np.ndarray | None,
     covered: np.ndarray | None,
-    coast: shapely.Geometry | None,
+    coast: BaseGeometry | None,
 ) -> np.ndarray:
     """Flag the photons near the sea surface but far from any coast.
 
@@ -869,7 +872,7 @@ def _sample(
 
 
 def _distance_to_coast_m(
-    coast: shapely.Geometry | None,
+    coast: BaseGeometry | None,
     lon: np.ndarray,
     lat: np.ndarray,
 ) -> np.ndarray:

@@ -150,7 +150,7 @@ def _with_unit_time(rect: Sequence[float]) -> BBoxWithDates:
     return (float(xmin), float(xmax), float(ymin), float(ymax), 0, 1)
 
 
-def _query_cuboid(record: Mapping[str, float]) -> BBoxWithDates:
+def _query_cuboid(record: "Mapping[str, float] | pd.Series") -> BBoxWithDates:
     """Return the (xmin, xmax, ymin, ymax, tmin, tmax) query box of a granule record."""
     return with_int_dates([record[c] for c in _QUERY_COLS])
 

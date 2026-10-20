@@ -322,7 +322,7 @@ def _polygon_and_horz_crs(
             "horz",
         )
 
-    elif type(polygon_bbox_or_dem_fname) in (list, tuple):
+    elif isinstance(polygon_bbox_or_dem_fname, (list, tuple)):
         bbox = polygon_bbox_or_dem_fname
         if len(bbox) == BBOX_LEN:
             # (xmin, xmax, ymin, ymax) → shapely's box takes (xmin, ymin, xmax, ymax)

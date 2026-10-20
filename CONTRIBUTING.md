@@ -77,7 +77,7 @@ would install its own copies of those over conda's. All but `types-pyogrio`
 are on conda-forge, and it has no dependencies of its own:
 
 ```bash
-conda install -c conda-forge mypy=2.3.1 scipy-stubs types-colorama types-dateparser types-psutil types-rasterio types-tabulate types-tqdm
+conda install -c conda-forge mypy=2.3.1 pandas-stubs scipy-stubs types-colorama types-dateparser types-geopandas types-psutil types-rasterio types-shapely types-tabulate types-tqdm
 pip install --no-deps types-pyogrio
 ```
 

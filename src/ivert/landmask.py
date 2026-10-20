@@ -27,6 +27,7 @@ import numpy as np
 import pyogrio
 import shapely
 import shapely.geometry
+from shapely.geometry.base import BaseGeometry
 
 import ivert.utils.logging_config
 from ivert.utils.bbox import BBox, BBoxWithDates
@@ -58,7 +59,7 @@ _AREA_TOLERANCE = 1e-9
 _FILL_CELL_DEG = 1.0
 
 
-def _box(bbox: BBox) -> shapely.Geometry:
+def _box(bbox: BBox) -> BaseGeometry:
     """Return a shapely box from an (xmin, xmax, ymin, ymax) rectangle."""
     xmin, xmax, ymin, ymax = bbox
     return shapely.box(xmin, ymin, xmax, ymax)
@@ -106,7 +107,7 @@ def _read_polygons(path: str | Path, bbox: BBox) -> list:
     return list(shapely.make_valid(shapely.from_wkb(wkb)))
 
 
-def land_from_files(paths: Iterable[str | Path], bbox: BBox) -> shapely.Geometry:
+def land_from_files(paths: Iterable[str | Path], bbox: BBox) -> BaseGeometry:
     """Return the land of several landmask files, merged and clipped to bbox."""
     polygons = []
     for path in paths:
@@ -116,7 +117,7 @@ def land_from_files(paths: Iterable[str | Path], bbox: BBox) -> shapely.Geometry
     return shapely.union_all(polygons).intersection(_box(bbox))
 
 
-def write_land(path: str | Path, land: shapely.Geometry) -> None:
+def write_land(path: str | Path, land: BaseGeometry) -> None:
     """Write land polygons to a GeoJSON file, atomically.
 
     Validations of neighbouring DEMs may run at the same time and fill the same
@@ -244,7 +245,7 @@ def ensure_landmasks(
     return added
 
 
-def _fill_cells(area: shapely.Geometry) -> list[BBox]:
+def _fill_cells(area: BaseGeometry) -> list[BBox]:
     """Whole-degree cells, (xmin, xmax, ymin, ymax), that reach into area."""
     step = _FILL_CELL_DEG
     xmin, ymin, xmax, ymax = area.bounds
@@ -262,7 +263,7 @@ def load_landmask(
     store_dir: str,
     cache_dir: str,
     database_tiles: Sequence[BBox | BBoxWithDates] = (),
-) -> tuple[shapely.Geometry, shapely.Geometry, shapely.Geometry]:
+) -> tuple[BaseGeometry, BaseGeometry, BaseGeometry]:
     """Return the landmask over an (xmin, xmax, ymin, ymax) box, from the store.
 
     Parts of bbox the store does not cover are added to it first: the database
@@ -285,7 +286,7 @@ def load_landmask(
     """
     need = _box(bbox)
 
-    def missing_area() -> shapely.Geometry:
+    def missing_area() -> BaseGeometry:
         extents = [_box(b) for b in stored_landmasks(store_dir).values()]
         return need.difference(shapely.union_all(extents)) if extents else need
 

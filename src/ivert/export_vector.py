@@ -19,6 +19,7 @@ import numpy as np
 import pandas as pd
 import shapely
 import shapely.geometry
+from shapely.geometry.base import BaseGeometry
 
 from ivert.icesat2_database_v2 import IS2Database
 from ivert.photon_classes import class_names as _class_names
@@ -316,7 +317,7 @@ def subset_gdf_to_bbox(
 
 def subset_gdf_to_geometry(
     gdf: geopandas.GeoDataFrame,
-    geometry: shapely.Geometry | None,
+    geometry: BaseGeometry | None,
 ) -> geopandas.GeoDataFrame:
     """Return the subset of a photon GeoDataFrame falling inside a polygon geometry.
 
