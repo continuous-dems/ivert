@@ -43,13 +43,11 @@ _EPSG_NAMES: dict[str, int] = {
 # Tidal datums go to transformez as its own IDs rather than EPSG codes: it builds
 # them from NOAA VDatum grids, and it is the authority on whether each surface is a
 # height or a depth.
-#
-# transformez's VDatum support also lists the mean tide level (mtl) and diurnal
-# tide level (dtl) surfaces, but it has no vdatum:mtl or vdatum:dtl reference to
-# reach them through yet. Once it does, add "mtl" and "dtl" here.
 _TIDAL_NAMES: dict[str, str] = {
     "mllw": "vdatum:mllw",
     "mlw": "vdatum:mlw",
+    "mtl": "vdatum:mtl",
+    "dtl": "vdatum:dtl",
     "msl": "vdatum:msl",
     "mhw": "vdatum:mhw",
     "mhhw": "vdatum:mhhw",
@@ -96,18 +94,6 @@ def resolve_vdatum(name: str | int | None) -> str | None:
     return None if epsg is None else f"EPSG:{epsg}"
 
 
-def _reference_errors() -> tuple[type[Exception], ...]:
-    """Return the exceptions transformez raises for a reference it cannot use."""
-    # transformez derives these from the built-in ReferenceError, not ValueError.
-    from transformez.reference.parser import (  # noqa: PLC0415 - slow import
-        InvalidReferenceError,
-        ReferenceInputError,
-        UnsupportedReferenceError,
-    )
-
-    return InvalidReferenceError, ReferenceInputError, UnsupportedReferenceError
-
-
 def check_vdatum(reference: str) -> None:
     """Check that transformez can transform heights to or from a vertical reference.
 
@@ -125,14 +111,12 @@ def check_vdatum(reference: str) -> None:
         resolve_reference,
     )
 
-    try:
-        parsed = parse_reference(reference)
-        if parsed.vertical is None:
-            msg = f"{reference!r} has no vertical component."
-            raise ValueError(msg)
-        resolve_reference(parsed)
-    except _reference_errors() as exc:
-        raise ValueError(str(exc)) from exc
+    # transformez raises a ValueError for a reference it cannot parse or transform.
+    parsed = parse_reference(reference)
+    if parsed.vertical is None:
+        msg = f"{reference!r} has no vertical component."
+        raise ValueError(msg)
+    resolve_reference(parsed)
 
 
 def describe_vdatum(reference: str) -> str:
@@ -141,10 +125,9 @@ def describe_vdatum(reference: str) -> str:
         parse_reference,
     )
 
-    errors: tuple[type[Exception], ...] = (*_reference_errors(), ValueError)
     try:
         vertical = parse_reference(reference).vertical
-    except errors:
+    except ValueError:
         return ""
     return vertical.name if vertical is not None else ""
 

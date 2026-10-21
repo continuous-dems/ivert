@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `ivert validate -V` accepts `mtl` (mean tide level) and `dtl` (diurnal tide level), passed to transformez as `vdatum:mtl` and `vdatum:dtl` (#235). transformez 1.0.1 added both references.
+
+### Changed
+- IVERT now needs `transformez>=1.0.1` (#235), for the `vdatum:mtl` and `vdatum:dtl` references. transformez 1.0.1 also extracts the NOAA VDatum model grids (such as xGEOID20B, about 200 MB) into its cache, where 1.0.0 extracted them into whatever folder `ivert` was run from.
+
 ### Fixed
 - Vertical datum shifts are read from the right place in their shift grid (#231). transformez stores each grid value at its pixel centre, but IVERT read the grid as if its outer values sat on its edges, stretching it by half a pixel at each side. Heights moved by up to about 2 mm on IVERT's 3-arcsecond grids; points near the grid's edges were off the most.
 - File sizes shown by `ivert database size` and `ivert database delete` no longer repeat a digit when they round up (#232). A 2047-byte file was listed as "11.0 KB" instead of "2.0 KB", and one just under 1 MB as "10231.0 KB" instead of "1.0 MB".

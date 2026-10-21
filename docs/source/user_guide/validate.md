@@ -58,7 +58,7 @@ Which CRS wins: the horizontal CRS comes from `-p`, else the DEM file. The verti
 
 ICESat-2 photons are stored either in WGS84 'ellipsoid' (EPSG:4979) or EGM2008 'geoid' (EPSG:3855) elevations, depending on the setting used (see 'ivert options' for more information). IVERT automatically transforms them to the DEM's vertical datum before comparing. If the DEM's CRS already encodes the vertical datum, `-V` is not needed.
 
-The vertical datum shift is done by [transformez](https://github.com/continuous-dems/transformez). Tidal datums (`mllw`, `mlw`, `msl`, `mhw`, `mhhw`) are passed to it as its own NOAA VDatum references (`vdatum:mllw`, …) rather than as EPSG codes, and transformez decides how each surface is applied. IVERT checks that transformez can transform the datum you give before it starts, so an unsupported one stops the run straight away.
+The vertical datum shift is done by [transformez](https://github.com/continuous-dems/transformez). Tidal datums (`mllw`, `mlw`, `mtl`, `dtl`, `msl`, `mhw`, `mhhw`) are passed to it as its own NOAA VDatum references (`vdatum:mllw`, …) rather than as EPSG codes, and transformez decides how each surface is applied. IVERT checks that transformez can transform the datum you give before it starts, so an unsupported one stops the run straight away.
 
 ### Photon filtering
 
