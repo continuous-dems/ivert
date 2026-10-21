@@ -398,6 +398,8 @@ def resolve_horizontal_crs(
     dem_name: str,
     file_horz_crs: pyproj.CRS | None,
     projection_horz: pyproj.CRS | None = None,
+    *,
+    warn: bool = True,
 ) -> pyproj.CRS:
     """Return a DEM's horizontal CRS: the one from -p/--projection, else the file's.
 
@@ -405,11 +407,10 @@ def resolve_horizontal_crs(
         dem_name: The DEM's path or subdataset string, for messages.
         file_horz_crs: The horizontal CRS in the DEM file, or None if it has none.
         projection_horz: The horizontal part of the user's -p/--projection, or None.
-
-    A warning is logged when -p/--projection replaces a different CRS in the file.
+        warn: Log a warning when -p/--projection replaces a different CRS in the file.
 
     Raises:
-        ValueError: if neither the file nor -p/--projection gives a CRS.
+        DEMCRSError: if neither the file nor -p/--projection gives a CRS.
 
     """
     if projection_horz is None:
@@ -418,9 +419,13 @@ def resolve_horizontal_crs(
                 f"{dem_source.dem_file_path(dem_name)} has no coordinate reference "
                 "system. Use -p/--projection to give one."
             )
-            raise ValueError(msg)
+            raise dem_source.DEMCRSError(msg)
         return file_horz_crs
-    if file_horz_crs is not None and not same_reference(projection_horz, file_horz_crs):
+    if (
+        warn
+        and file_horz_crs is not None
+        and not same_reference(projection_horz, file_horz_crs)
+    ):
         logger.warning(
             "Using -p/--projection %s for %s in place of the CRS in the file (%s).",
             reference_label(projection_horz),

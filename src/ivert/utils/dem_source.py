@@ -53,6 +53,10 @@ class DEMNotGeoreferencedError(DEMSourceError):
     """GDAL reads no geotransform for the DEM, so where it lies is unknown."""
 
 
+class DEMCRSError(DEMSourceError):
+    """The DEM has no horizontal CRS or no vertical datum, and the user gave none."""
+
+
 class DEMUnreadableError(DEMSourceError):
     """GDAL can't open the DEM file as a raster (corrupt, truncated, or not one)."""
 
