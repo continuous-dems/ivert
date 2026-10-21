@@ -110,6 +110,22 @@ def test_bad_option_assignments_are_refused(assignment, message):
         cli._parse_option_assignment(assignment, Config())
 
 
+@pytest.mark.parametrize("value", ['"007"', "007", "7", " 8 "])
+def test_an_nsidc_atl_version_is_checked_as_the_config_file_reads_it(value):
+    """The quoted form is the one ivert_defaults.ini uses; the others work too."""
+    assert cli._parse_option_assignment(f"nsidc_atl_version={value}", Config()) == (
+        "nsidc_atl_version",
+        value,
+    )
+
+
+@pytest.mark.parametrize("value", ["7x", "7.0", "1234", ""])
+def test_a_bad_nsidc_atl_version_is_refused_when_set(value):
+    """Saved, it would stop only the next download, with a traceback."""
+    with pytest.raises(click.UsageError, match="nsidc_atl_version must be a number"):
+        cli._parse_option_assignment(f"nsidc_atl_version={value}", Config())
+
+
 def _user_config_path() -> Path:
     """The per-test user config file that conftest.py points IVERT at."""
     return Path(os.environ["IVERT_USER_CONFIG"])

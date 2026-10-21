@@ -1,5 +1,6 @@
 """Command-line interface for IVERT."""
 
+import ast
 import configparser
 import contextlib
 import datetime
@@ -616,7 +617,35 @@ def _parse_option_assignment(assignment: str, config: Config) -> tuple[str, str]
         # An empty path is the folder IVERT is run from, wherever that is.
         msg = f"'{key}' is a path and can't be empty."
         raise click.UsageError(msg)
+    if key == "nsidc_atl_version":
+        _check_atl_version_option(value)
     return key, value
+
+
+def _check_atl_version_option(value: str) -> None:
+    """Refuse an nsidc_atl_version that downloads would refuse later.
+
+    The value is read as the config file reads it, so the quoted "007" that
+    ivert_defaults.ini uses is accepted, and so are 007 and 7.
+
+    Raises:
+        click.UsageError: if it isn't a version.
+
+    """
+    from ivert.icesat2_requests import (  # noqa: PLC0415 - slow import
+        normalize_atl_version,
+    )
+
+    text = value.strip()
+    try:
+        parsed = ast.literal_eval(text)
+    except (ValueError, SyntaxError):
+        # Not a Python literal, as 007 isn't (a leading zero); taken as text.
+        parsed = text
+    try:
+        normalize_atl_version(parsed)
+    except ValueError as e:
+        raise click.UsageError(str(e)) from e
 
 
 def _options_set_values(assignments: list[str], *, assume_yes: bool = False) -> None:
@@ -2643,7 +2672,7 @@ def cache_delete(*, force: bool) -> None:
             deleted_files += 1
 
     click.echo(
-        f"Deleted {deleted_files} file(s) in {deleted_dirs} subdirectorie(s) and the "
+        f"Deleted {deleted_files} file(s) in {deleted_dirs} subfolder(s) and the "
         f"top level of {cache_dir}",
     )
 
