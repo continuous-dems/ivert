@@ -24,6 +24,7 @@ from shapely.geometry.base import BaseGeometry
 from ivert.icesat2_database_v2 import IS2Database
 from ivert.photon_classes import class_names as _class_names
 from ivert.utils.bbox import BBox
+from ivert.utils.paths import make_output_folder
 
 logger = logging.getLogger(__name__)
 
@@ -237,6 +238,7 @@ def write_vector(
             )
             return
         outpath.unlink()
+    make_output_folder(outpath.parent)
 
     driver, _ = SUPPORTED_FORMATS[fmt_key]
 

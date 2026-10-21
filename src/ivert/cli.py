@@ -30,7 +30,7 @@ from ivert.photon_classes import BUILDINGS, photon_classes
 from ivert.utils import logging_config
 from ivert.utils.bbox import BBox
 from ivert.utils.configfile import Config, parse_option_descriptions
-from ivert.utils.paths import absolute_path
+from ivert.utils.paths import absolute_path, make_output_folder
 from ivert.utils.sizeof_format import sizeof_fmt
 
 if typing.TYPE_CHECKING:
@@ -1696,13 +1696,14 @@ def _convert_output_base(output: str | None, default_name: str) -> Path:
 
     With no -o, it is default_name in the current directory. A -o that ends in a path
     separator or names an existing folder gets default_name inside that folder, which
-    is created if needed. Any other -o is used as given.
+    is created, with a warning, if it does not exist. Any other -o is used as given;
+    export_vector.write_vector() creates its folder the same way.
     """
     if not output:
         return Path.cwd() / default_name
     if output.endswith(("/", os.sep)) or Path(output).is_dir():
         folder = Path(output)
-        folder.mkdir(parents=True, exist_ok=True)
+        make_output_folder(folder)
         return folder / default_name
     return Path(output)
 

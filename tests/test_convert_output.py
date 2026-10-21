@@ -1,8 +1,11 @@
 """Tests for where 'ivert database convert' writes its files, given -o/--output."""
 
+import logging
 import os
 
+import geopandas
 import pytest
+import shapely
 
 from ivert import cli
 from ivert import export_vector as ev
@@ -22,12 +25,13 @@ def test_without_output_the_default_name_is_used_here(in_tmp, output):
 
 
 @pytest.mark.parametrize("output", ["mydir/", f"mydir{os.sep}"])
-def test_a_trailing_separator_names_a_folder_that_is_created(in_tmp, output):
+def test_a_trailing_separator_names_a_folder_that_is_created(in_tmp, caplog, output):
     """'-o mydir/' wrote the hidden file 'mydir/.gpkg', or 'mydir.gpkg' next to it."""
     base = cli._convert_output_base(output, "ivert_photons")
 
     assert base.absolute() == in_tmp / "mydir" / "ivert_photons"
     assert (in_tmp / "mydir").is_dir()
+    assert "does not exist; creating it" in caplog.text
     assert (
         ev.output_path_for_format(base, "gpkg").absolute()
         == in_tmp / "mydir" / "ivert_photons.gpkg"
@@ -50,6 +54,29 @@ def test_any_other_output_is_a_base_name(in_tmp):
 
     assert base.absolute() == in_tmp / "sub" / "photons"
     assert not (in_tmp / "sub").exists()
+
+
+@pytest.mark.parametrize("fmt", ["gpkg", "csv"])
+def test_a_missing_folder_is_created_with_a_warning(tmp_path, caplog, fmt):
+    """'-o out/photons' crashed in pyogrio ("unable to open database file")."""
+    gdf = geopandas.GeoDataFrame({"z": [1.0]}, geometry=[shapely.Point(0, 0)])
+    outpath = tmp_path / "out" / "sub" / f"photons.{fmt}"
+
+    with caplog.at_level(logging.WARNING):
+        ev.write_vector(gdf, outpath, fmt)
+
+    assert outpath.is_file()
+    assert f"{outpath.parent} does not exist; creating it" in caplog.text
+
+
+def test_an_existing_folder_gives_no_warning(tmp_path, caplog):
+    """The warning is only for a folder that had to be created."""
+    gdf = geopandas.GeoDataFrame({"z": [1.0]}, geometry=[shapely.Point(0, 0)])
+
+    with caplog.at_level(logging.WARNING):
+        ev.write_vector(gdf, tmp_path / "photons.gpkg", "gpkg")
+
+    assert "does not exist" not in caplog.text
 
 
 @pytest.mark.parametrize(
