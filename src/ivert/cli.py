@@ -612,6 +612,10 @@ def _parse_option_assignment(assignment: str, config: Config) -> tuple[str, str]
             f"Unknown setting '{key}'. Run 'ivert options list' to see valid settings."
         )
         raise click.UsageError(msg)
+    if not value.strip() and config.is_path_option(key):
+        # An empty path is the folder IVERT is run from, wherever that is.
+        msg = f"'{key}' is a path and can't be empty."
+        raise click.UsageError(msg)
     return key, value
 
 
@@ -953,11 +957,11 @@ def database_delete(*, delete_all: bool, yes: bool) -> None:
     from ivert import icesat2_database_v2 as is2db_mod  # noqa: PLC0415 - slow import
 
     db = is2db_mod.IS2Database()
+    granules_dir = _folder_to_clear(Path(db.granules_dir), "ivert_database_directory")
 
     # Collect what will actually be deleted before touching anything.
     index_files = [f for f in (Path(db.db_fname),) if f.exists()]
 
-    granules_dir = Path(db.granules_dir)
     nc_files = []
     if delete_all and granules_dir.is_dir():
         # The index is itself a .nc file in granules_dir; don't list it twice.
@@ -994,10 +998,10 @@ def database_delete(*, delete_all: bool, yes: bool) -> None:
         for fpath in nc_files:
             fpath.unlink()
         click.echo(
-            f"Deleted {len(nc_files)} .nc granule file(s) from {db.granules_dir}",
+            f"Deleted {len(nc_files)} .nc granule file(s) from {granules_dir}",
         )
     elif delete_all:
-        click.echo(f"No .nc files found in {db.granules_dir}")
+        click.echo(f"No .nc files found in {granules_dir}")
 
 
 @database.command("size")
@@ -2507,6 +2511,34 @@ def _restore_report(archive: Path, mode: str, result: "RestoreResult") -> str:
 ###############################################################
 
 
+def _folder_to_clear(folder: Path, setting: str) -> Path:
+    """Return the full path of a folder a delete command is about to clear.
+
+    Refuses a folder that is the home folder or a filesystem root, or that depends
+    on where IVERT is run: an empty, '.' or other relative setting, which a user
+    config file can hold, names a folder under the current one.
+
+    Raises:
+        click.ClickException: if the folder is one of those.
+
+    """
+    if not folder.is_absolute():
+        msg = (
+            f"'{setting}' is set to '{folder}', a folder relative to wherever IVERT is "
+            f"run, so IVERT won't clear it. Set it to a full path with 'ivert "
+            f"options {setting}=<path>'."
+        )
+        raise click.ClickException(msg)
+    resolved = folder.resolve()
+    if resolved in (Path.home().resolve(), Path(resolved.anchor)):
+        msg = (
+            f"'{setting}' is set to {resolved}, so IVERT won't clear it. Set it "
+            f"to IVERT's own folder with 'ivert options {setting}=<path>'."
+        )
+        raise click.ClickException(msg)
+    return resolved
+
+
 def _cache_dir() -> Path:
     """Return the configured cache directory path."""
     return Path(Config().cache_directory)
@@ -2592,7 +2624,7 @@ def cache_list() -> None:
 )
 def cache_delete(*, force: bool) -> None:
     """Delete all files in the IVERT cache directory."""
-    cache_dir = _cache_dir()
+    cache_dir = _folder_to_clear(_cache_dir(), "cache_directory")
     if not cache_dir.is_dir():
         click.echo(f"Cache directory does not exist: {cache_dir}")
         return

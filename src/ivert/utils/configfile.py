@@ -295,6 +295,9 @@ class Config:
         # This does not handle sections separately. Change this functionality
         # if I need to use different sections separately.
         self._parse_config_into_attrs()
+        # The settings whose defaults are paths, which stay paths whatever a user
+        # config sets them to (see is_path_option()).
+        self._default_path_keys = dict.fromkeys(self._path_keys)
 
         # If loading the defaults config, overlay any user-local overrides on top.
         if self._configfile.name == ivert_default_configfile.name:
@@ -376,6 +379,14 @@ class Config:
         without maintaining a hard-coded list that new settings must be added to.
         """
         return list(self._path_keys)
+
+    def is_path_option(self, key: str) -> bool:
+        """Return True if a setting names a local file or folder.
+
+        Unlike path_options, this holds for a setting whose default is a path even
+        when a user config has set it to something else, such as an empty value.
+        """
+        return key in self._path_keys or key in self._default_path_keys
 
     def raw_default(self, key: str) -> str:
         """Return an option's un-interpolated default, as written in the configfile.
