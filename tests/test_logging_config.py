@@ -1,7 +1,8 @@
 """Tests for how IVERT sets up logging: levels, message prefixes, and sub-processes."""
 
 import logging
-import multiprocessing
+import subprocess
+import sys
 
 import pytest
 
@@ -125,13 +126,22 @@ def test_pyogrio_chatter_shows_only_at_debug(capsys, verbosity, shown):
     assert capsys.readouterr().err.splitlines() == shown
 
 
-# --- Spawned workers -----------------------------------------------------------------
+# --- Worker processes ----------------------------------------------------------------
 
 
-def _worker(level: int) -> None:
-    """Stand-in for a validation worker: set up logging, then log."""
-    logging_config.configure_worker_logging(level)
-    _log_one_of_each()
+# Run in a new Python process, which starts with logging unconfigured, as a spawned
+# validation worker does. The code is passed inline so that the child imports only
+# ivert, not this test module.
+_WORKER_CODE = """
+import logging, sys
+from ivert.utils import logging_config
+logging_config.configure_worker_logging(int(sys.argv[1]))
+log = logging.getLogger("ivert.worker")
+log.debug("a debug line")
+log.info("an info line")
+log.warning("a warning line")
+log.error("an error line")
+"""
 
 
 @pytest.mark.parametrize(
@@ -144,16 +154,16 @@ def _worker(level: int) -> None:
         (logging.ERROR, ["ERROR: an error line"]),
     ],
 )
-def test_a_spawned_worker_logs_at_the_level_it_is_given(capfd, level, shown):
-    """A spawned child starts with no logging; the call gives it the parent's."""
-    process = multiprocessing.get_context("spawn").Process(
-        target=_worker,
-        args=(level,),
+def test_a_new_worker_process_logs_at_the_level_it_is_given(level, shown):
+    """A new process starts with no logging; the call gives it the parent's level."""
+    result = subprocess.run(  # noqa: S603 - runs this file's own fixed code
+        [sys.executable, "-c", _WORKER_CODE, str(level)],
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=True,
     )
-    process.start()
-    process.join(timeout=60)
-    assert process.exitcode == 0
-    assert capfd.readouterr().err.splitlines() == shown
+    assert result.stderr.splitlines() == shown
 
 
 # --- Keeping IVERT's logging through fetchez ------------------------------------
