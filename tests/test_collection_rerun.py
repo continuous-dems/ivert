@@ -96,6 +96,13 @@ def _run(tmp_path, out, *, overwrite=False):
     )
 
 
+def _run_with_failures(tmp_path, out, *failed_dems: str):
+    """Run the collection, which must end by naming these DEMs as failed."""
+    with pytest.raises(validate_dem_collection.DEMsFailedError) as exc_info:
+        _run(tmp_path, out)
+    assert exc_info.value.failed_dems == list(failed_dems)
+
+
 def test_rerun_validates_a_dem_missing_results_although_the_summaries_exist(
     collection,
 ):
@@ -157,7 +164,7 @@ def test_a_failed_dem_gets_an_error_marker_and_is_not_retried(collection, caplog
     tmp_path, out, dems, validated, failing = collection
     failing.add("b.tif")
 
-    _run(tmp_path, out)
+    _run_with_failures(tmp_path, out, "b.tif")
 
     marker = out / "b_results_ERROR.txt"
     text = marker.read_text()
@@ -167,7 +174,7 @@ def test_a_failed_dem_gets_an_error_marker_and_is_not_retried(collection, caplog
 
     validated.clear()
     caplog.clear()
-    _run(tmp_path, out)
+    _run_with_failures(tmp_path, out, "b.tif")
 
     assert validated == [dems[0]]
     errors = [r.getMessage() for r in caplog.records if r.levelname == "ERROR"]
@@ -191,7 +198,7 @@ def test_rerun_stops_with_a_failed_dem_and_reports_it(collection, caplog):
     tmp_path, out, _, validated, _ = collection
     _touch(out, ("b_results_ERROR.txt", *_SUMMARY_FILES))
 
-    _run(tmp_path, out)
+    _run_with_failures(tmp_path, out, "b.tif")
 
     assert validated == []
     errors = [r.getMessage() for r in caplog.records if r.levelname == "ERROR"]
@@ -213,7 +220,7 @@ def test_a_dem_that_cant_be_read_gets_an_error_marker(collection):
         f["elev"] = np.zeros((4, 5), dtype="f4")
         f["uncert"] = np.zeros((4, 5), dtype="f4")
 
-    _run(tmp_path, out)
+    _run_with_failures(tmp_path, out, "c.h5")
 
     assert "has no georeferencing" in (out / "c_results_ERROR.txt").read_text()
 
@@ -224,7 +231,7 @@ def test_a_file_gdal_cant_open_is_skipped_and_the_run_goes_on(collection):
     (tmp_path / "c.tif").write_text("not a raster")
     _make_tif(tmp_path / "d.tif")
 
-    _run(tmp_path, out)
+    _run_with_failures(tmp_path, out, "c.tif")
 
     assert "can't be read as a raster" in (out / "c_results_ERROR.txt").read_text()
     # The DEMs after it are still validated.
