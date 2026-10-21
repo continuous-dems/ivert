@@ -30,7 +30,7 @@ def test_querying_an_empty_index_finds_no_photons(db, monkeypatch, empty_index):
     """An index with no granules, as an empty database's rebuild writes, is no error."""
     monkeypatch.setattr(db, "open_gdf", lambda: empty_index)
 
-    assert db.query_photons((-74.0, 40.5, -73.0, 41.0, 20230101, 20230201)) is None
+    assert db.query_photons((-74.0, -73.0, 40.5, 41.0, 20230101, 20230201)) is None
 
 
 def test_a_crash_in_cell_validation_is_raised_not_returned(monkeypatch):
