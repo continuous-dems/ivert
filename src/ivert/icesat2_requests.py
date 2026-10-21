@@ -321,18 +321,25 @@ class ICESat2RequestsCSV:
         )
 
     @staticmethod
-    def _is_expired(dt_string: str) -> bool:
-        """Return True if the expiration date has passed."""
+    def _is_expired(dt_string: str | float) -> bool:
+        """Return True if the expiration date has passed.
+
+        A date without a time zone is taken as UTC, Harmony's time zone. A blank date
+        (NaN once read back from the CSV) or an unreadable one counts as expired:
+        Harmony deletes every job's results in time, so a job of unknown expiration is
+        not worth the risk of reusing.
+        """
+        if not isinstance(dt_string, str):
+            return True
         # Imported here: it is slow to import, and only this needs it.
         import dateparser  # noqa: PLC0415 - slow import
 
         ex = dateparser.parse(dt_string)
-        if ex is None:  # blank or unreadable
-            return False
-        try:
-            return datetime.datetime.now(datetime.UTC) >= ex
-        except TypeError:  # a date without a time zone
-            return False
+        if ex is None:
+            return True
+        if ex.tzinfo is None:
+            ex = ex.replace(tzinfo=datetime.UTC)
+        return datetime.datetime.now(datetime.UTC) >= ex
 
     @staticmethod
     def _read_json(json_str: str) -> dict:
