@@ -234,9 +234,13 @@ def apply_vertical_transform(
         if src.nodata is not None:
             shift_data[np.isclose(shift_data, src.nodata, atol=1e-4)] = np.nan
 
+    # transformez samples each grid value at its pixel centre, half a pixel in from
+    # the grid's edges.
     height, width = shift_data.shape
-    lons = np.linspace(grid_bounds.left, grid_bounds.right, width)
-    lats = np.linspace(grid_bounds.bottom, grid_bounds.top, height)
+    res_x = (grid_bounds.right - grid_bounds.left) / width
+    res_y = (grid_bounds.top - grid_bounds.bottom) / height
+    lons = grid_bounds.left + (np.arange(width) + 0.5) * res_x
+    lats = grid_bounds.bottom + (np.arange(height) + 0.5) * res_y
 
     # A point outside the grid must never come back as a 0.0 shift: an unconverted
     # height is indistinguishable from a legitimate zero separation, and silently
@@ -261,13 +265,15 @@ def apply_vertical_transform(
         )
         raise ValueError(msg)
 
-    # rasterio stores rows top-to-bottom; flip to ascending-lat order for interpolator
+    # rasterio stores rows top-to-bottom; flip to ascending-lat order for interpolator.
+    # fill_value=None extrapolates the last half pixel between the outer pixel centres
+    # and the grid's edges; points beyond the edges were rejected above.
     interp = RegularGridInterpolator(
         (lats, lons),
         shift_data[::-1, :],
         method="linear",
         bounds_error=False,
-        fill_value=np.nan,
+        fill_value=None,
     )
 
     shifts = interp(np.column_stack([y, x]))
