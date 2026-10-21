@@ -12,6 +12,7 @@ import rasterio.transform
 
 from ivert import validate_dem
 from ivert.utils import split_dem
+from ivert.utils.dem_source import DEMCRSError
 
 
 def _packed_netcdf(path, scale=0.01, offset=-100.0):
@@ -127,14 +128,14 @@ NAVD88 = pyproj.CRS("EPSG:5703")
 @pytest.mark.usefixtures("no_transformez_check")
 def test_missing_crs_without_projection_is_an_error():
     """A DEM with no CRS once raised AttributeError; now the message points to -p."""
-    with pytest.raises(ValueError, match="-p/--projection"):
+    with pytest.raises(DEMCRSError, match="-p/--projection"):
         validate_dem._resolve_dem_crs("dem.nc", None, EGM2008)
 
 
 @pytest.mark.usefixtures("no_transformez_check")
 def test_missing_vertical_datum_is_an_error():
     """Without a vertical datum from -V, -p or the file, there's nothing to shift to."""
-    with pytest.raises(ValueError, match="-V/--vdatum"):
+    with pytest.raises(DEMCRSError, match="-V/--vdatum"):
         validate_dem._resolve_dem_crs("dem.tif", WGS84, None)
 
 
@@ -165,6 +166,27 @@ def test_projection_overrides_the_file_crs_with_a_warning(caplog):
 
     assert horz.equals(pyproj.CRS("EPSG:26910"))
     assert "in place of the CRS in the file" in caplog.text
+
+
+@pytest.mark.usefixtures("no_transformez_check")
+@pytest.mark.parametrize(("warn", "n_warnings"), [(True, 3), (False, 0)])
+def test_override_warnings_can_be_turned_off(caplog, warn, n_warnings):
+    """-p over the file's CRS, -V over -p's datum, and -V over the file's datum.
+
+    validate_dem() checks the CRS quietly before its sub-process resolves it again,
+    so each warning is logged once.
+    """
+    with caplog.at_level(logging.WARNING):
+        validate_dem._resolve_dem_crs(
+            "dem.tif",
+            WGS84,
+            NAVD88,
+            "EPSG:26910+5703",
+            "egm2008",
+            warn=warn,
+        )
+
+    assert len(caplog.records) == n_warnings
 
 
 @pytest.mark.usefixtures("no_transformez_check")

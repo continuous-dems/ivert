@@ -629,6 +629,12 @@ def _run_validate_dem(
     except KeyboardInterrupt:
         raise
 
+    except dem_source.DEMSourceError as exc:
+        # Not logger.exception: the message names the file and what is wrong.
+        logger.error("Skipping: %s", exc)  # noqa: TRY400
+        _write_error_marker(error_fname, dem_path, str(exc))
+        return None
+
     except Exception as exc:
         logger.exception("Skipping %s.", dem_file)
         _write_error_marker(error_fname, dem_path, str(exc), traceback.format_exc())

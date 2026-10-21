@@ -958,6 +958,7 @@ def validate_dem(
     """
     dem_name = dem_source.resolve_dem_source(dem_name, variable)
     dem_source.check_georeferenced(dem_name)
+    _check_dem_crs(dem_name, dem_projection, dem_vertical_datum)
     config = _resolve_config(config, icesat2_photon_database_obj)
 
     if shared_ret_values is None:
@@ -1687,24 +1688,53 @@ def _split_projection(dem_projection: str | int) -> tuple[pyproj.CRS, str | None
     return horz, vert
 
 
+def _check_dem_crs(
+    dem_name: str,
+    dem_projection: str | int | None,
+    dem_vertical_datum: str | int | None,
+) -> None:
+    """Check that the DEM, with the user's settings, has a CRS and a vertical datum.
+
+    The validation's sub-process resolves them again, and logs any override warnings;
+    this check is here so that an error is raised to the caller, not lost in the
+    sub-process, whose failure reaches the caller only as an exit code.
+
+    Raises:
+        DEMCRSError: if the DEM ends up with no horizontal CRS or no vertical datum.
+        ValueError: if a vertical datum isn't recognised.
+
+    """
+    file_horz_crs, file_vert_crs = dem_geom.get_dem_reference_frame_from_file(dem_name)
+    _resolve_dem_crs(
+        dem_name,
+        file_horz_crs,
+        file_vert_crs,
+        dem_projection,
+        dem_vertical_datum,
+        warn=False,
+    )
+
+
 def _resolve_dem_crs(
     dem_name: str,
     file_horz_crs: pyproj.CRS | None,
     file_vert_crs: pyproj.CRS | None,
     dem_projection: str | int | None = None,
     dem_vertical_datum: str | int | None = None,
+    *,
+    warn: bool = True,
 ) -> tuple[pyproj.CRS, pyproj.CRS | str]:
     """Return the DEM's (horizontal CRS, vertical reference), user settings applied.
 
     Horizontal: -p/--projection, else the file's. Vertical: -V/--vdatum, else the
     vertical part of -p/--projection, else the file's. Each override that differs
-    from what it replaces is logged as a warning. The vertical reference is a
-    pyproj.CRS, or a transformez reference ID such as 'vdatum:mllw' that pyproj can't
-    represent.
+    from what it replaces is logged as a warning, unless 'warn' is False. The vertical
+    reference is a pyproj.CRS, or a transformez reference ID such as 'vdatum:mllw' that
+    pyproj can't represent.
 
     Raises:
-        ValueError: if the DEM ends up with no horizontal CRS or no vertical datum, or a
-            vertical datum isn't recognised.
+        DEMCRSError: if the DEM ends up with no horizontal CRS or no vertical datum.
+        ValueError: if a vertical datum isn't recognised.
 
     """
     dem_label = Path(dem_source.dem_file_path(dem_name)).name
@@ -1713,12 +1743,18 @@ def _resolve_dem_crs(
     if dem_projection is not None:
         proj_horz, proj_vert = _split_projection(dem_projection)
 
-    horz = dem_geom.resolve_horizontal_crs(dem_name, file_horz_crs, proj_horz)
+    horz = dem_geom.resolve_horizontal_crs(
+        dem_name,
+        file_horz_crs,
+        proj_horz,
+        warn=warn,
+    )
 
     user_vert, user_flag = _user_vertical_reference(
         dem_label,
         proj_vert,
         dem_vertical_datum,
+        warn=warn,
     )
     if user_vert is None:
         if file_vert_crs is None:
@@ -1727,13 +1763,14 @@ def _resolve_dem_crs(
                 "metadata. Use -V/--vdatum, or a compound -p/--projection such as "
                 "'EPSG:4326+3855', to give one."
             )
-            raise ValueError(msg)
+            raise dem_source.DEMCRSError(msg)
         return horz, file_vert_crs
 
     ivert.vdatum_lookup.check_vdatum(user_vert)
-    if file_vert_crs is not None and not dem_geom.same_reference(
-        user_vert,
-        file_vert_crs,
+    if (
+        warn
+        and file_vert_crs is not None
+        and not dem_geom.same_reference(user_vert, file_vert_crs)
     ):
         logger.warning(
             "Using %s %s for %s in place of the vertical datum in the file (%s).",
@@ -1758,11 +1795,14 @@ def _user_vertical_reference(
     dem_label: str,
     proj_vert: str | None,
     dem_vertical_datum: str | int | None,
+    *,
+    warn: bool = True,
 ) -> tuple[str | None, str]:
     """Return the vertical reference the user gave, and the option that gave it.
 
-    -V/--vdatum wins over the vertical part of -p/--projection, with a warning when
-    the two differ. Returns (None, "") when the user gave neither.
+    -V/--vdatum wins over the vertical part of -p/--projection, with a warning (unless
+    'warn' is False) when the two differ. Returns (None, "") when the user gave
+    neither.
 
     Raises:
         ValueError: if -V/--vdatum isn't a recognised vertical datum.
@@ -1777,7 +1817,11 @@ def _user_vertical_reference(
     if vdatum_ref is None:
         msg = f"Unrecognised vertical datum {dem_vertical_datum!r}."
         raise ValueError(msg)
-    if proj_vert is not None and not dem_geom.same_reference(vdatum_ref, proj_vert):
+    if (
+        warn
+        and proj_vert is not None
+        and not dem_geom.same_reference(vdatum_ref, proj_vert)
+    ):
         logger.warning(
             "Using -V/--vdatum %s for %s in place of the vertical datum in "
             "-p/--projection (%s).",

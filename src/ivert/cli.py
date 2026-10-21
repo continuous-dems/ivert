@@ -2873,6 +2873,23 @@ def _expand_inputs(files_or_directory: tuple[str, ...]) -> list[str]:
     return expanded
 
 
+def _check_single_input_exists(expanded: list[str]) -> None:
+    """Stop with a clear error if the only input given doesn't exist.
+
+    Several inputs are left to the collection, which skips any it can't read.
+
+    Raises:
+        click.ClickException: if the one input, or the file a subdataset string
+            names, doesn't exist.
+
+    """
+    from ivert.utils import dem_source  # noqa: PLC0415 - slow import
+
+    if len(expanded) == 1 and not Path(dem_source.dem_file_path(expanded[0])).exists():
+        msg = f"{expanded[0]} does not exist."
+        raise click.ClickException(msg)
+
+
 def _validation_classes(classes: str, *, buildings: bool) -> list[int]:
     """Return the sorted photon class codes to validate with, buildings added if asked.
 
@@ -2982,6 +2999,7 @@ def _run_validate(
         outdir = Path(Config().ivert_results_subdir)
 
     expanded = _expand_inputs(files_or_directory)
+    _check_single_input_exists(expanded)
     class_list = _validation_classes(classes, buildings=buildings)
 
     if manifest_options is not None:
