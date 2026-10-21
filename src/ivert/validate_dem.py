@@ -85,7 +85,7 @@ _ABORT_AFTER_CRASHES = 5
 _LOG_MINUTES_AFTER_S = 100
 
 # Statistics smaller than this, but not zero, get extra decimal places.
-_SMALL_STAT = 0.10
+_SMALL_STAT = 0.01
 
 # Bytes in a kilobyte, for logging file sizes in decimal units.
 _KB = 1000
@@ -3148,7 +3148,7 @@ def _apply_coverage_filter(
 def _format_stat(value: float | np.floating) -> str:
     """Format a float for the summary stats file with reasonable precision.
 
-    Uses 2 decimal places, unless the magnitude is below 0.10 (but non-zero), in
+    Uses 3 decimal places, unless the magnitude is below 0.01 (but non-zero), in
     which case it uses enough decimal places to show at least 2 significant digits.
 
     Args:
@@ -3165,7 +3165,7 @@ def _format_stat(value: float | np.floating) -> str:
         # Enough decimals to show 2 significant digits for small magnitudes.
         decimals = 1 - int(np.floor(np.log10(abs(x))))
         return f"{x:.{decimals}f}"
-    return f"{x:.2f}"
+    return f"{x:.3f}"
 
 
 def _format_file_size(num_bytes: int) -> str:

@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `ivert validate -V` accepts `mtl` (mean tide level) and `dtl` (diurnal tide level), passed to transformez as `vdatum:mtl` and `vdatum:dtl` (#235). transformez 1.0.1 added both references.
 
 ### Changed
+- `_summary_stats.txt` gives its statistics to three decimal places instead of two (#238). Values below 0.01 still get enough places to show two significant digits.
 - IVERT now needs `transformez>=1.0.1` (#235), for the `vdatum:mtl` and `vdatum:dtl` references. transformez 1.0.1 also extracts the NOAA VDatum model grids (such as xGEOID20B, about 200 MB) into its cache, where 1.0.0 extracted them into whatever folder `ivert` was run from.
 
 ### Fixed
