@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - Vertical datum shifts are read from the right place in their shift grid (#231). transformez stores each grid value at its pixel centre, but IVERT read the grid as if its outer values sat on its edges, stretching it by half a pixel at each side. Heights moved by up to about 2 mm on IVERT's 3-arcsecond grids; points near the grid's edges were off the most.
+- File sizes shown by `ivert database size` and `ivert database delete` no longer repeat a digit when they round up (#232). A 2047-byte file was listed as "11.0 KB" instead of "2.0 KB", and one just under 1 MB as "10231.0 KB" instead of "1.0 MB".
 
 ## [0.7.1] - 2026-10-20
 
