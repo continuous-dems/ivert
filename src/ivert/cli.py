@@ -3082,30 +3082,34 @@ def _run_validate(
                     num_reused=len(reused),
                     num_dems=len(to_validate) + len(reused),
                 )
-        vdc_module.validate_list_of_dems(
-            dem_input,
-            output_dir=multi_outdir,
-            input_vdatum=dem_vdatum,
-            dem_projection=projection,
-            dem_ndv=ndv_float,
-            classes=class_list,
-            band_num=band_num,
-            variable=variable,
-            place_name=region_name,
-            include_photon_validation=include_photons,
-            measure_coverage=measure_coverage,
-            min_coverage_pct=minimum_coverage_pct,
-            min_coverage_pct_land=minimum_coverage_pct_land,
-            min_coverage_pct_bathy=minimum_coverage_pct_bathy,
-            min_photons_per_cell=min_photons,
-            outliers_sd_threshold=outlier_sd_threshold,
-            min_confidence_level=confidence_level,
-            min_bathy_confidence=bathy_confidence,
-            bathy_filter_settings=bathy_filter_settings,
-            overwrite=overwrite,
-            export_error_formats=export_error_formats,
-            exclude_zones=exclude_zones,
-        )
+        try:
+            vdc_module.validate_list_of_dems(
+                dem_input,
+                output_dir=multi_outdir,
+                input_vdatum=dem_vdatum,
+                dem_projection=projection,
+                dem_ndv=ndv_float,
+                classes=class_list,
+                band_num=band_num,
+                variable=variable,
+                place_name=region_name,
+                include_photon_validation=include_photons,
+                measure_coverage=measure_coverage,
+                min_coverage_pct=minimum_coverage_pct,
+                min_coverage_pct_land=minimum_coverage_pct_land,
+                min_coverage_pct_bathy=minimum_coverage_pct_bathy,
+                min_photons_per_cell=min_photons,
+                outliers_sd_threshold=outlier_sd_threshold,
+                min_confidence_level=confidence_level,
+                min_bathy_confidence=bathy_confidence,
+                bathy_filter_settings=bathy_filter_settings,
+                overwrite=overwrite,
+                export_error_formats=export_error_formats,
+                exclude_zones=exclude_zones,
+            )
+        except vdc_module.DEMsFailedError:
+            # The failed DEMs were already logged, each as it failed and all at the end.
+            sys.exit(1)
 
 
 @ivert_cli.command("validate")
@@ -3533,6 +3537,11 @@ def validate(
 
     Each run that validates anything writes a manifest of its settings into the
     output directory; pass it back with -m/--manifest to repeat them.
+
+    The exit status is 0 only if every DEM was validated, in this run or an
+    earlier one. If any DEM failed, in this run or an earlier one that left an
+    error marker, the others are still validated and summarized, and the exit
+    status is 1.
     """
     # Snapshot the option values before anything below changes them.
     option_values = dict(locals())

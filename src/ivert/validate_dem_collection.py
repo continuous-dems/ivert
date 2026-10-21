@@ -172,11 +172,28 @@ def _is_dem_raster(fname: str | Path) -> bool:
     return fname.suffix.lower() in DEM_RASTER_EXTENSIONS
 
 
-def _log_failed_dems(failed_dems: list[str], num_dems: int) -> None:
+class DEMsFailedError(RuntimeError):
+    """Some DEMs of a collection were not validated because of errors.
+
+    Raised once the run is over, after the other DEMs are validated and the
+    collection's summary files are written. Each failure is logged as it happens.
+    """
+
+    def __init__(self, failed_dems: list[str], num_dems: int) -> None:
+        """Name the DEMs that failed, out of the 'num_dems' DEMs of the collection."""
+        self.failed_dems = failed_dems
+        self.num_dems = num_dems
+        super().__init__(
+            f"{len(failed_dems)} of {num_dems} DEMs did not run because of errors: "
+            + ", ".join(failed_dems),
+        )
+
+
+def _report_failed_dems(failed_dems: list[str], num_dems: int) -> None:
     """Log, as the run's last word, which DEMs were skipped because of errors.
 
     Each skip was already logged when it happened. This repeats it at the end, where
-    someone who didn't watch a long run will see it.
+    someone who didn't watch a long run will see it, then raises DEMsFailedError.
     """
     if failed_dems:
         logger.error(
@@ -185,6 +202,7 @@ def _log_failed_dems(failed_dems: list[str], num_dems: int) -> None:
             num_dems,
             ", ".join(failed_dems),
         )
+        raise DEMsFailedError(failed_dems, num_dems)
 
 
 def _resolve_dem_list(
@@ -472,7 +490,8 @@ def _collection_is_finished(
     """Return True, and say so, if a run without -ow would have nothing left to do.
 
     That is when every DEM already has results (or failed in an earlier run) and every
-    summary file is written. DEMs that failed in an earlier run are listed again.
+    summary file is written. DEMs that failed in an earlier run are listed again, and
+    raise DEMsFailedError.
     """
     summary_files = [summary.results_h5, summary.stats, summary.plot]
     if write_summary_csv:
@@ -514,6 +533,7 @@ def _collection_is_finished(
             ERROR_MARKER_SUFFIX,
             ", ".join(failed_earlier),
         )
+        raise DEMsFailedError(failed_earlier, len(dem_list))
     return True
 
 
@@ -804,6 +824,12 @@ def validate_list_of_dems(
     A relative 'output_dir' is taken from the folder of the DEMs (see
     _collection_output_dir()), wherever Python is run from. With no 'output_dir', each
     DEM's results go beside it, and the summary files in that folder.
+
+    Raises:
+        DEMsFailedError: once the run is over, if any DEM was not validated because of
+            an error, in this run or an earlier one. The other DEMs' results and the
+            summary files are written first.
+
     """
     summary_dir = _collection_output_dir(
         dem_list_or_dir,
@@ -889,7 +915,7 @@ def validate_list_of_dems(
 
     if not results.results_files:
         logger.info("No results dataframes generated. Aborting.")
-        _log_failed_dems(results.failed_dems, len(dem_list))
+        _report_failed_dems(results.failed_dems, len(dem_list))
         return None
 
     files_to_export = _write_collection_summaries(
@@ -898,5 +924,5 @@ def validate_list_of_dems(
         place_name=place_name,
         write_summary_csv=write_summary_csv,
     )
-    _log_failed_dems(results.failed_dems, len(dem_list))
+    _report_failed_dems(results.failed_dems, len(dem_list))
     return files_to_export

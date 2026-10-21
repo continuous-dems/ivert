@@ -200,10 +200,11 @@ def test_collection_skips_a_file_without_an_elevation_variable(
         lambda dem_path, *_args, **_kwargs: validated.append(dem_path),
     )
 
-    validate_dem_collection.validate_list_of_dems(
-        str(tmp_path),
-        output_dir=str(tmp_path / "out"),
-    )
+    with pytest.raises(validate_dem_collection.DEMsFailedError):
+        validate_dem_collection.validate_list_of_dems(
+            str(tmp_path),
+            output_dir=str(tmp_path / "out"),
+        )
 
     assert validated == [f'NETCDF:"{good}":elev']
     errors = [r.getMessage() for r in caplog.records if r.levelname == "ERROR"]
@@ -377,10 +378,11 @@ def test_collection_skips_an_ungeoreferenced_dem(tmp_path, monkeypatch, caplog):
         lambda dem_path, *_args, **_kwargs: validated.append(dem_path),
     )
 
-    validate_dem_collection.validate_list_of_dems(
-        str(tmp_path),
-        output_dir=str(tmp_path / "out"),
-    )
+    with pytest.raises(validate_dem_collection.DEMsFailedError):
+        validate_dem_collection.validate_list_of_dems(
+            str(tmp_path),
+            output_dir=str(tmp_path / "out"),
+        )
 
     assert validated == [f'NETCDF:"{good}":elev']
     errors = [r.getMessage() for r in caplog.records if r.levelname == "ERROR"]

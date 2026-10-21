@@ -138,11 +138,18 @@ def test_a_relative_output_folder_is_under_the_dems_folder(
 
 
 def test_a_collection_marks_a_dem_that_fails_and_validates_the_rest(synthetic_region):
-    """A DEM with no CRS gets an error marker; the others still get results."""
+    """A DEM with no CRS gets an error marker; the others still get results.
+
+    The run ends with an error naming it, so 'ivert validate' exits with 1, but only
+    once the summary files are written.
+    """
     good = synthetic_region.dem("land.tif")
     synthetic_region.dem("no_crs.tif", corner=synthetic_region.SEA_DEM, crs=None)
 
-    _validate_collection(good.parent)
+    with pytest.raises(validate_dem_collection.DEMsFailedError) as exc_info:
+        _validate_collection(good.parent)
+
+    assert exc_info.value.failed_dems == ["no_crs.tif"]
 
     files = _files_in(good.parent / "ivert_results")
     assert "no_crs_results_ERROR.txt" in files
