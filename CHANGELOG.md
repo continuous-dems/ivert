@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.1] - 2026-10-20
+
 ### Added
 - `CITATION.cff` gives IVERT's Zenodo concept DOI, [10.5281/zenodo.22132436](https://doi.org/10.5281/zenodo.22132436), so GitHub's "Cite this repository" entry and reference managers pick it up (#148). The concept DOI always resolves to the latest archived release; Zenodo has archived each release since 0.6.10, and each also has a DOI of its own.
 
@@ -279,7 +281,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - First release with a tracked changelog.
 
-[Unreleased]: https://github.com/continuous-dems/ivert/compare/0.7.0...HEAD
+[Unreleased]: https://github.com/continuous-dems/ivert/compare/0.7.1...HEAD
+[0.7.1]: https://github.com/continuous-dems/ivert/compare/0.7.0...0.7.1
 [0.7.0]: https://github.com/continuous-dems/ivert/compare/0.6.10...0.7.0
 [0.6.10]: https://github.com/continuous-dems/ivert/compare/0.6.9...0.6.10
 [0.6.9]: https://github.com/continuous-dems/ivert/compare/0.6.8...0.6.9
