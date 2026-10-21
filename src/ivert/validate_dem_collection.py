@@ -62,7 +62,8 @@ def write_summary_csv_file(
             temp_df = total_df[total_df["filename"] == fname]
             means[i] = temp_df["diff_mean"].mean()
             stds[i] = temp_df["diff_mean"].std()
-            rmses[i] = (sum(temp_df["diff_mean"] ** 2) / (len(temp_df) - 1)) ** 0.5
+            # The same RMSE as each DEM's own summary file reports.
+            rmses[i] = np.sqrt(np.mean(temp_df["diff_mean"].to_numpy() ** 2))
             n_cells[i] = len(temp_df)
             photons_per_cell[i] = temp_df["numphotons_intd"].mean()
 

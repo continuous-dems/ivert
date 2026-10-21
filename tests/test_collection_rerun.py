@@ -317,3 +317,41 @@ def test_a_rerun_missing_photon_results_revalidates(tmp_path):
     )
 
     assert files is None
+
+
+def _fail_on_b(monkeypatch, validated, error):
+    """Make validate_dem() raise 'error' for b.tif, and record each DEM it's given."""
+
+    def fake_validate_dem(dem_path, *_args: object, **_kwargs: object):
+        validated.append(dem_path)
+        if Path(dem_path).name == "b.tif":
+            raise error
+
+    monkeypatch.setattr(
+        validate_dem_collection.validate_dem,
+        "validate_dem",
+        fake_validate_dem,
+    )
+
+
+def test_a_dem_that_runs_out_of_memory_gets_an_error_marker(collection, monkeypatch):
+    """Running out of memory on one DEM is recorded, and the run goes on."""
+    tmp_path, out, _, validated, _ = collection
+    _make_tif(tmp_path / "c.tif")
+    _fail_on_b(monkeypatch, validated, MemoryError())
+
+    _run_with_failures(tmp_path, out, "b.tif")
+
+    assert "Ran out of memory" in (out / "b_results_ERROR.txt").read_text()
+    assert [Path(d).name for d in validated] == ["a.tif", "b.tif", "c.tif"]
+
+
+def test_ctrl_c_stops_the_run_without_an_error_marker(collection, monkeypatch):
+    """An interrupt isn't a DEM failure: the run stops, and b.tif isn't marked."""
+    tmp_path, out, _, validated, _ = collection
+    _fail_on_b(monkeypatch, validated, KeyboardInterrupt())
+
+    with pytest.raises(KeyboardInterrupt):
+        _run(tmp_path, out)
+
+    assert not (out / "b_results_ERROR.txt").exists()
