@@ -234,3 +234,43 @@ def test_merge_keeps_axis_order():
     cells = [(0, 1, 0, 1, 0, 1), (1, 2, 0, 1, 0, 1)]
 
     assert cf.merge_cuboids(cells, bbox_order="axis") == [(0, 2, 0, 1, 0, 1)]
+
+
+# ---------------------------------------------------------------------------
+# cuboids_intersect_vectorized agrees with cuboids_intersect
+# ---------------------------------------------------------------------------
+_QUERY = (0.0, 0.0, 0.0, 4.0, 4.0, 4.0)  # point order
+_CANDIDATES = [
+    (1.0, 1.0, 1.0, 2.0, 2.0, 2.0),  # inside
+    (3.0, 3.0, 3.0, 6.0, 6.0, 6.0),  # overlapping a corner
+    (-1.0, -1.0, -1.0, 5.0, 5.0, 5.0),  # around it
+    (4.0, 0.0, 0.0, 6.0, 4.0, 4.0),  # touching a face
+    (5.0, 5.0, 5.0, 6.0, 6.0, 6.0),  # apart
+    (4.0 - 1e-11, 0.0, 0.0, 6.0, 4.0, 4.0),  # overlap thinner than tol
+    (0.0, 0.0, 4.0, 4.0, 4.0, 5.0),  # sharing the top only
+    (1.0, -2.0, 1.0, 2.0, -1.0, 2.0),  # apart in y alone
+]
+
+
+@pytest.mark.parametrize("bbox_order", ["point", "axis"])
+def test_the_vectorized_form_agrees_with_one_at_a_time(bbox_order):
+    """Testing many cuboids at once gives what testing each one would."""
+    query = (
+        _QUERY
+        if bbox_order == "point"
+        else (_QUERY[0], _QUERY[3], _QUERY[1], _QUERY[4], _QUERY[2], _QUERY[5])
+    )
+    columns = list(zip(*_CANDIDATES, strict=True))
+    mask = cf.cuboids_intersect_vectorized(
+        xmin=columns[0],
+        ymin=columns[1],
+        zmin=columns[2],
+        xmax=columns[3],
+        ymax=columns[4],
+        zmax=columns[5],
+        query=query,
+        bbox_order=bbox_order,
+    )
+    one_at_a_time = [cf.cuboids_intersect(c, _QUERY) for c in _CANDIDATES]
+    assert mask.tolist() == one_at_a_time
+    assert one_at_a_time == [True, True, True, False, False, False, False, False]

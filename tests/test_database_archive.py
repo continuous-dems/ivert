@@ -296,3 +296,55 @@ def test_replace_overwrites_a_file_of_the_same_name(source, tmp_path):
     assert result.existing_removed == 0
     assert _index(source) == [(0.0, 2.0, 3), (2.0, 4.0, 2)]
     assert _landmask_boxes(source) == [SOURCE_LANDMASK]
+
+
+# ---------------------------------------------------------------------------
+# summarize
+# ---------------------------------------------------------------------------
+def _summary_in(zip_path):
+    with zipfile.ZipFile(zip_path) as zf:
+        return zf.read(da.SUMMARY_NAME).decode()
+
+
+def test_a_full_dumps_summary_says_what_it_holds(source, tmp_path):
+    """The whole database: both granules, all five photons, the one landmask."""
+    result = da.dump(tmp_path / "all.zip", db=source)
+    summary = da.summarize(result.manifest)
+
+    for line in (
+        "  Requested region: the whole database",
+        "  Requested dates: all",
+        "  Granule files: 2 (from 2 ICESat-2 granules)",
+        (
+            "  Query boxes: 2, covering W 0 to E 4, S 0 to N 2, dates 2023-01-01 to "
+            "2023-02-01"
+        ),
+        "  Photons: 5",
+        "  Landmask tiles: 1, covering W 0 to E 4, S 0 to N 2",
+    ):
+        assert line in summary.splitlines()
+    assert _summary_in(result.path).strip() == summary.strip()
+
+
+def test_a_region_dumps_summary_gives_the_region_and_what_is_inside_it(
+    source,
+    tmp_path,
+):
+    """Only the region's three photons, and the region and dates that were asked for."""
+    result = da.dump(
+        tmp_path / "region.zip",
+        region_rects=[REGION],
+        date_range=DATES,
+        db=source,
+    )
+    summary = da.summarize(result.manifest)
+
+    for line in (
+        "  Requested region: 1 rectangle(s)",
+        "    W 1 to E 3, S 0 to N 2",
+        "  Requested dates: 2023-01-01 up to 2023-02-01",
+        "  Photons: 3",
+        "  Landmask tiles: 1, covering W 1 to E 3, S 0 to N 2",
+    ):
+        assert line in summary.splitlines()
+    assert _summary_in(result.path).strip() == summary.strip()
